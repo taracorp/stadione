@@ -15,6 +15,7 @@ import {
   useVenues, useTournaments, useNews, useCoaches, useChats,
   useTournamentDetail, useCoachDetail
 } from './src/hooks/useSupabase.js';
+import { SUPABASE_CONFIGURED, SUPABASE_ERROR } from './src/config/supabase.js';
 
 // ============ DATA ============
 const VENUES = [
@@ -3247,6 +3248,15 @@ export default function Stadione() {
         onLogout={handleLogout}
         onChat={() => requireAuthThen(() => goTo('chat'))}
       />
+      {(!SUPABASE_CONFIGURED || SUPABASE_ERROR) && (
+        <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 bg-amber-100 border border-amber-300 text-amber-900 text-sm rounded-b-3xl">
+          <div className="font-semibold">Supabase belum terkonfigurasi dengan benar.</div>
+          <div>Pastikan <code>VITE_SUPABASE_URL</code> dan <code>VITE_SUPABASE_ANON_KEY</code> sudah diset di <code>.env.local</code> atau environment variables Vercel.</div>
+          {SUPABASE_ERROR && (
+            <div className="mt-2 text-xs text-neutral-800">Error: {SUPABASE_ERROR}</div>
+          )}
+        </div>
+      )}
       <main>
         {page === 'home' && <HomePage onNav={goTo} venues={VENUES_DATA} tournaments={TOURNAMENTS_DATA} news={NEWS_DATA} coaches={COACHES_DATA} />}
         {page === 'booking' && <BookingPage onSelect={(v) => goTo('booking-detail', v)} venues={VENUES_DATA} />}

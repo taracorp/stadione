@@ -1,7 +1,15 @@
 import { supabase } from '../config/supabase.js';
 
+const isSupabaseReady = () => Boolean(supabase);
+const handleEmptyConsistency = (fallback = []) => fallback;
+
 // ========== VENUES ==========
 export async function fetchVenues() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchVenues returning fallback empty array.');
+    return [];
+  }
+
   try {
     const { data, error } = await supabase
       .from('venues')
@@ -23,6 +31,11 @@ export async function fetchVenues() {
 }
 
 export async function fetchVenueById(id) {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchVenueById returning null.');
+    return null;
+  }
+
   try {
     const { data, error } = await supabase
       .from('venues')
@@ -42,6 +55,11 @@ export async function fetchVenueById(id) {
 
 // ========== TOURNAMENTS ==========
 export async function fetchTournaments() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchTournaments returning fallback empty array.');
+    return [];
+  }
+
   try {
     const { data, error } = await supabase
       .from('tournaments')
@@ -114,6 +132,11 @@ export async function fetchTournamentDetail(tournamentId) {
 
 // ========== NEWS ==========
 export async function fetchNews() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchNews returning fallback empty array.');
+    return [];
+  }
+
   try {
     const { data, error } = await supabase
       .from('news')
@@ -149,6 +172,11 @@ export async function fetchNewsById(id) {
 
 // ========== COACHES ==========
 export async function fetchCoaches() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchCoaches returning fallback empty array.');
+    return [];
+  }
+
   try {
     const { data, error } = await supabase
       .from('coaches')
@@ -180,6 +208,11 @@ export async function fetchCoaches() {
 }
 
 export async function fetchCoachDetail(coachId) {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchCoachDetail returning null.');
+    return null;
+  }
+
   try {
     const { data, error } = await supabase
       .from('coaches')
@@ -216,6 +249,11 @@ export async function fetchCoachDetail(coachId) {
 
 // ========== CHATS ==========
 export async function fetchChats() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchChats returning fallback empty array.');
+    return [];
+  }
+
   try {
     const { data, error } = await supabase
       .from('chats')
