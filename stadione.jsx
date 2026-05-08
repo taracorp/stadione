@@ -11,6 +11,10 @@ import {
   Twitter, Facebook, Linkedin, Share2, Bookmark, Check
 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  useVenues, useTournaments, useNews, useCoaches, useChats,
+  useTournamentDetail, useCoachDetail
+} from './src/hooks/useSupabase.js';
 
 // ============ DATA ============
 const VENUES = [
@@ -463,7 +467,7 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat }) => {
 };
 
 // ============ HOME ============
-const HomePage = ({ onNav }) => {
+const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
   const features = [
     { id: 'booking', label: 'BOOKING LAPANGAN', desc: 'Sepakbola, futsal, renang, padel — pesan slot dalam hitungan detik.', count: '500+ Venue', icon: MapPin },
     { id: 'tournament', label: 'TURNAMEN & LIGA', desc: 'Buat turnamen sendiri atau ikut liga dengan klasemen otomatis.', count: '120+ Aktif', icon: Trophy },
@@ -591,7 +595,7 @@ const HomePage = ({ onNav }) => {
             </button>
           </div>
           <div className="grid md:grid-cols-3 gap-4">
-            {TOURNAMENTS.slice(0, 3).map((t) => {
+            {(tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS).slice(0, 3).map((t) => {
               const Icon = sportIcon(t.sport);
               return (
                 <button
@@ -636,7 +640,7 @@ const HomePage = ({ onNav }) => {
           </button>
         </div>
         <div className="grid lg:grid-cols-3 gap-6">
-          {NEWS.slice(1, 4).map((n) => (
+          {(news && news.length > 0 ? news : NEWS).slice(1, 4).map((n) => (
             <article key={n.id} className="cursor-pointer group" onClick={() => onNav('news-detail', n)}>
               <div className="aspect-[4/3] mb-4 relative overflow-hidden grain" style={{ background: n.color }}>
                 <div className="absolute inset-0 flex items-end p-5">
@@ -676,9 +680,9 @@ const HomePage = ({ onNav }) => {
 };
 
 // ============ BOOKING ============
-const BookingPage = ({ onSelect }) => {
+const BookingPage = ({ onSelect, venues }) => {
   const [filter, setFilter] = useState('Semua');
-  const filtered = filter === 'Semua' ? VENUES : VENUES.filter(v => v.sport === filter);
+  const filtered = filter === 'Semua' ? (venues && venues.length > 0 ? venues : VENUES) : (venues && venues.length > 0 ? venues : VENUES).filter(v => v.sport === filter);
 
   return (
     <div>
@@ -869,9 +873,9 @@ const BookingDetail = ({ venue, onBack, onPay }) => {
 };
 
 // ============ TOURNAMENT ============
-const TournamentPage = ({ onSelect, onCreate }) => {
+const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
   const [filter, setFilter] = useState('Semua');
-  const filtered = filter === 'Semua' ? TOURNAMENTS : TOURNAMENTS.filter(t => t.sport === filter);
+  const filtered = filter === 'Semua' ? (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS) : (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS).filter(t => t.sport === filter);
 
   return (
     <div>
@@ -1157,11 +1161,11 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab }) => {
 };
 
 // ============ NEWS ============
-const NewsPage = ({ onSelect }) => {
-  const featured = NEWS.find(n => n.featured);
-  const rest = NEWS.filter(n => !n.featured);
+const NewsPage = ({ onSelect, news }) => {
+  const featured = (news && news.length > 0 ? news : NEWS).find(n => n.featured);
+  const rest = (news && news.length > 0 ? news : NEWS).filter(n => !n.featured);
   const [cat, setCat] = useState('Semua');
-  const cats = ['Semua', ...new Set(NEWS.map(n => n.category))];
+  const cats = ['Semua', ...new Set((news && news.length > 0 ? news : NEWS).map(n => n.category))];
   const filtered = cat === 'Semua' ? rest : rest.filter(n => n.category === cat);
 
   return (
@@ -1239,9 +1243,9 @@ const NewsPage = ({ onSelect }) => {
 };
 
 // ============ TRAINING ============
-const TrainingPage = ({ onCoachDashboard, onCoachSelect }) => {
+const TrainingPage = ({ onCoachDashboard, onCoachSelect, coaches }) => {
   const [filter, setFilter] = useState('Semua');
-  const filtered = filter === 'Semua' ? COACHES : COACHES.filter(c => c.sport === filter);
+  const filtered = filter === 'Semua' ? (coaches && coaches.length > 0 ? coaches : COACHES) : (coaches && coaches.length > 0 ? coaches : COACHES).filter(c => c.sport === filter);
 
   return (
     <div>
@@ -2660,11 +2664,12 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 };
 
 // ============ CHAT ============
-const ChatPage = ({ initialChatId, onBack }) => {
-  const [activeId, setActiveId] = useState(initialChatId || CHATS[0].id);
+const ChatPage = ({ initialChatId, onBack, chats: initialChats }) => {
+  const defaultChats = initialChats && initialChats.length > 0 ? initialChats : CHATS;
+  const [activeId, setActiveId] = useState(initialChatId || defaultChats[0]?.id);
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
-  const [chats, setChats] = useState(CHATS);
+  const [chats, setChats] = useState(defaultChats);
   const active = chats.find(c => c.id === activeId);
   const filtered = chats.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -3154,6 +3159,20 @@ export default function Stadione() {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState('login');
 
+  // Fetch data from Supabase
+  const { venues, loading: venuesLoading } = useVenues();
+  const { tournaments, loading: tournamentsLoading } = useTournaments();
+  const { news, loading: newsLoading } = useNews();
+  const { coaches, loading: coachesLoading } = useCoaches();
+  const { chats, loading: chatsLoading } = useChats();
+  
+  // Fallback to hardcoded data if Supabase is not available
+  const VENUES_DATA = venues.length > 0 ? venues : [];
+  const TOURNAMENTS_DATA = tournaments.length > 0 ? tournaments : [];
+  const NEWS_DATA = news.length > 0 ? news : [];
+  const COACHES_DATA = coaches.length > 0 ? coaches : [];
+  const CHATS_DATA = chats.length > 0 ? chats : [];
+
   const goTo = (newPage, data = null, opts = {}) => {
     if (newPage === 'tournament-detail') setTournamentDetail(data);
     if (newPage === 'booking-detail') setBookingDetail(data);
@@ -3229,8 +3248,8 @@ export default function Stadione() {
         onChat={() => requireAuthThen(() => goTo('chat'))}
       />
       <main>
-        {page === 'home' && <HomePage onNav={goTo} />}
-        {page === 'booking' && <BookingPage onSelect={(v) => goTo('booking-detail', v)} />}
+        {page === 'home' && <HomePage onNav={goTo} venues={VENUES_DATA} tournaments={TOURNAMENTS_DATA} news={NEWS_DATA} coaches={COACHES_DATA} />}
+        {page === 'booking' && <BookingPage onSelect={(v) => goTo('booking-detail', v)} venues={VENUES_DATA} />}
         {page === 'booking-detail' && bookingDetail && (
           <BookingDetail
             venue={bookingDetail}
@@ -3238,7 +3257,7 @@ export default function Stadione() {
             onPay={startBookingPayment}
           />
         )}
-        {page === 'tournament' && <TournamentPage onSelect={(t) => goTo('tournament-detail', t)} onCreate={() => goTo('create-tournament')} />}
+        {page === 'tournament' && <TournamentPage onSelect={(t) => goTo('tournament-detail', t)} onCreate={() => goTo('create-tournament')} tournaments={TOURNAMENTS_DATA} />}
         {page === 'tournament-detail' && tournamentDetail && <TournamentDetail tournament={tournamentDetail} onBack={() => goTo('tournament')} tab={tab} setTab={setTab} />}
         {page === 'create-tournament' && (
           <CreateTournamentWizard
@@ -3253,19 +3272,20 @@ export default function Stadione() {
             onHome={() => goTo('home')}
           />
         )}
-        {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} />}
+        {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} news={NEWS_DATA} />}
         {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} />}
         {page === 'training' && (
           <TrainingPage
             onCoachDashboard={() => auth ? goTo('coach-dashboard') : openAuth('login')}
             onCoachSelect={(c) => goTo('coach-profile', c)}
+            coaches={COACHES_DATA}
           />
         )}
         {page === 'coach-profile' && coachDetail && (
           <CoachProfile
             coach={coachDetail}
             onBack={() => goTo('training')}
-            onChat={(c) => requireAuthThen(() => goTo('chat', CHATS.find(x => x.coachId === c.id)?.id || CHATS[0].id))}
+            onChat={(c) => requireAuthThen(() => goTo('chat', CHATS_DATA.find(x => x.coachId === c.id)?.id || CHATS_DATA[0]?.id))}
             onBook={(p) => startCoachPayment(p)}
           />
         )}
@@ -3281,6 +3301,7 @@ export default function Stadione() {
           <ChatPage
             initialChatId={chatInitial}
             onBack={() => goTo('home')}
+            chats={CHATS_DATA}
           />
         )}
       </main>
