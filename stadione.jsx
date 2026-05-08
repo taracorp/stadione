@@ -251,6 +251,41 @@ const FontStyles = () => (
       0%, 100% { opacity: 1; }
       50% { opacity: 0.4; }
     }
+
+    button {
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    input, textarea, select {
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: #0A0A0A;
+      box-shadow: 0 0 0 4px rgba(225, 29, 46, 0.08);
+    }
+
+    .card {
+      background: #FFFFFF;
+      border: 1px solid #E5E5E5;
+      border-radius: 28px;
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.05);
+    }
+    .section-title {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+    .section-description {
+      color: #4B5563;
+      max-width: 42rem;
+    }
     
     /* Scrollbar */
     ::-webkit-scrollbar { width: 10px; height: 10px; }
