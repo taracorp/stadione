@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Calendar, MapPin, Star, Users, Trophy, Newspaper, Dumbbell,
   ChevronRight, Filter, Search, Clock, Zap, Plus, Award,
@@ -15,6 +15,22 @@ import {
   useVenues, useTournaments, useNews, useCoaches, useChats,
   useTournamentDetail, useCoachDetail
 } from './src/hooks/useSupabase.js';
+import {
+  useUserGamification,
+  useArticleReading,
+  useScrollTracker,
+  useTournamentPlayers,
+  useActivityHistory,
+  useTierProgression
+} from './src/hooks/useGamification.js';
+import {
+  UserGamificationBadge,
+  TierProgressionCard,
+  ActivityCard,
+  ArticleQuizModal,
+  QuizResultToast
+} from './src/components/GamificationUI.jsx';
+import { registerTournamentPlayer, submitQuizAnswer } from './src/services/gamificationService.js';
 import { SUPABASE_CONFIGURED, SUPABASE_ERROR } from './src/config/supabase.js';
 
 // ============ DATA ============
@@ -327,7 +343,7 @@ const Wordmark = ({ size = 22, color = '#E11D2E' }) => (
 );
 
 // ============ HEADER ============
-const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat }) => {
+const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, gamificationStats, statsLoading }) => {
   const [open, setOpen] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const items = [
@@ -360,6 +376,11 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat }) => {
           ))}
         </nav>
         <div className="flex items-center gap-2 relative">
+          {auth && (
+            <div className="hidden lg:flex items-center">
+              <UserGamificationBadge stats={gamificationStats} loading={statsLoading} />
+            </div>
+          )}
           {auth ? (
             <>
               <button
@@ -393,6 +414,9 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat }) => {
                       <div className="text-xs text-neutral-500">{auth.email}</div>
                     </div>
                     <div className="py-2">
+                      <button onClick={() => { onNav('profile'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                        <User size={14} /> Profil Saya
+                      </button>
                       <button onClick={() => { onNav('coach-dashboard'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                         <BarChart3 size={14} /> Dashboard Pelatih
                       </button>
@@ -987,8 +1011,33 @@ const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
   );
 };
 
-const TournamentDetail = ({ tournament, onBack, tab, setTab }) => {
+const TournamentDetail = ({ tournament, onBack, tab, setTab, auth, openAuth }) => {
   const Icon = sportIcon(tournament.sport);
+  const { players, loading: playersLoading, refetch: refetchTournamentPlayers } = useTournamentPlayers(tournament.id);
+  const [joining, setJoining] = useState(false);
+  const [registered, setRegistered] = useState(false);
+
+  const handleJoinTournament = async () => {
+    if (!auth) {
+      openAuth('login');
+      return;
+    }
+
+    setJoining(true);
+    const joined = await registerTournamentPlayer(auth.id, tournament.id, {
+      playerName: auth.name,
+      playerNumber: Math.floor(Math.random() * 99) + 1,
+      position: 'Pemain',
+      jerseyName: auth.name,
+    });
+    setJoining(false);
+
+    if (joined) {
+      setRegistered(true);
+      refetchTournamentPlayers();
+    }
+  };
+
   return (
     <div>
       <button onClick={onBack} className="max-w-7xl mx-auto px-5 lg:px-8 pt-6 flex items-center gap-2 text-sm font-bold text-neutral-700 hover:text-[#E11D2E]">
@@ -1022,6 +1071,26 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab }) => {
                 <div className="font-display text-2xl">{s.v}</div>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-5 lg:px-8 mb-8">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6 sm:flex items-center justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-2">Aksi Turnamen</div>
+              <div className="text-lg font-bold text-neutral-900">{registered ? 'Kamu sudah terdaftar' : 'Ayo gabung turnamen'}</div>
+              <p className="text-sm text-neutral-600 mt-1">Daftar sebagai pemain dan dapatkan reward gamifikasi.</p>
+            </div>
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="text-sm text-neutral-500">{playersLoading ? 'Memuat peserta...' : `${players.length} pemain terdaftar`}</div>
+              <button
+                onClick={handleJoinTournament}
+                disabled={joining || registered}
+                className={`px-5 py-3 rounded-full font-bold text-sm transition ${registered ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed' : 'bg-[#E11D2E] text-white hover:bg-[#C81D1D]'}`}
+              >
+                {registered ? 'Terdaftar' : joining ? 'Sedang mendaftar...' : 'Gabung Turnamen'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1430,18 +1499,79 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
   const [mode, setMode] = useState(initMode || 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => { if (initMode) setMode(initMode); }, [initMode]);
 
   if (!open) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e?.preventDefault();
-    const userName = name || (mode === 'register' ? 'Pengguna Baru' : 'Aldi Pratama');
-    const userEmail = email || 'aldi.pratama@stadione.id';
-    onAuth({ name: userName, email: userEmail });
-    onClose();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (!email || !password) {
+        throw new Error('Email dan password tidak boleh kosong');
+      }
+
+      const { supabase } = await import('./src/config/supabase.js');
+      
+      if (mode === 'register') {
+        if (!name) throw new Error('Nama tidak boleh kosong');
+        
+        // Sign up dengan Supabase
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name }
+          }
+        });
+
+        if (signUpError) throw new Error(signUpError.message);
+        if (!data.user) throw new Error('Registrasi gagal. Silakan coba lagi.');
+
+        // Automatically sign in after registration
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (signInError) throw signInError;
+        
+        onAuth({
+          name: data.user.user_metadata?.name || 'Pengguna Baru',
+          email: data.user.email,
+          id: data.user.id
+        });
+      } else {
+        // Sign in dengan Supabase
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (signInError) throw new Error(signInError.message);
+        if (!data.user) throw new Error('Login gagal. Silakan coba lagi.');
+
+        onAuth({
+          name: data.user.user_metadata?.name || email.split('@')[0],
+          email: data.user.email,
+          id: data.user.id
+        });
+      }
+
+      onClose();
+    } catch (err) {
+      console.error('Auth error:', err);
+      setError(err.message || 'Terjadi kesalahan. Silakan coba lagi.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1508,6 +1638,8 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
             <div className="relative mb-4">
               <input
                 type={showPw ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
                 className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12"
                 placeholder="Password"
               />
@@ -1526,13 +1658,29 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
               </div>
             )}
 
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                <p className="text-xs text-red-600 font-medium">{error}</p>
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full py-3.5 rounded-xl font-bold text-white text-sm flex items-center justify-center gap-2"
-              style={{ background: '#E11D2E' }}
+              disabled={loading}
+              className="w-full py-3.5 rounded-xl font-bold text-white text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed transition"
+              style={{ background: loading ? '#999' : '#E11D2E' }}
             >
-              {mode === 'login' ? 'MASUK SEKARANG' : 'BUAT AKUN'}
-              <ArrowRight size={14} />
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  {mode === 'login' ? 'SEDANG MASUK...' : 'SEDANG MENDAFTAR...'}
+                </>
+              ) : (
+                <>
+                  {mode === 'login' ? 'MASUK SEKARANG' : 'BUAT AKUN'}
+                  <ArrowRight size={14} />
+                </>
+              )}
             </button>
           </form>
 
@@ -1923,10 +2071,55 @@ const PublishedSuccess = ({ data, onView, onHome }) => (
 );
 
 // ============ ARTICLE DETAIL ============
-const ArticleDetail = ({ article, onBack, onSelect }) => {
+const ArticleDetail = ({ article, onBack, onSelect, auth, openAuth }) => {
   const related = NEWS.filter(n => n.id !== article.id && n.category === article.category).slice(0, 3);
   const fallback = NEWS.filter(n => n.id !== article.id).slice(0, 3);
   const recommend = related.length > 0 ? related : fallback;
+  const articleRef = useRef(null);
+  const [quizOpen, setQuizOpen] = useState(false);
+  const [quizResult, setQuizResult] = useState(null);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [readMessage, setReadMessage] = useState('');
+
+  const {
+    progress,
+    quiz,
+    loading: progressLoading,
+    updateProgress,
+    readingCompleted,
+    quizCompleted,
+    quizCorrect,
+    scrollDepth
+  } = useArticleReading(auth?.id, article.id);
+
+  useScrollTracker(articleRef, async () => {
+    if (!auth) return;
+    const result = await updateProgress(100, true);
+    if (result) setReadMessage('✅ Artikel ditandai selesai. Poin telah dicatat.');
+  });
+
+  const markAsRead = async () => {
+    if (!auth) {
+      openAuth('login');
+      return;
+    }
+
+    const result = await updateProgress(100, true);
+    if (result) setReadMessage('✅ Artikel ditandai selesai. Poin telah dicatat.');
+  };
+
+  const handleQuizSubmit = async (selected) => {
+    if (!auth) {
+      openAuth('login');
+      return;
+    }
+    if (!quiz) return;
+
+    setQuizLoading(true);
+    const result = await submitQuizAnswer(auth.id, quiz.id, article.id, selected);
+    setQuizLoading(false);
+    setQuizResult(result);
+  };
 
   // Mock body content
   const body = [
@@ -1975,6 +2168,40 @@ const ArticleDetail = ({ article, onBack, onSelect }) => {
         </div>
       </div>
 
+      {auth && (
+        <div className="max-w-5xl mx-auto px-5 lg:px-8 mb-8">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6 grid gap-4 lg:grid-cols-[1fr_auto] items-center">
+            <div>
+              <div className="flex flex-wrap items-center gap-3 mb-3">
+                <span className="text-xs uppercase tracking-widest font-bold text-neutral-500">Progres Bacaan</span>
+                <span className="text-xs font-semibold text-neutral-700">{readingCompleted ? 'Selesai' : `${scrollDepth || 0}%`}</span>
+              </div>
+              <div className="h-3 w-full rounded-full bg-neutral-100 overflow-hidden mb-4">
+                <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${Math.min(scrollDepth || 0, 100)}%` }} />
+              </div>
+              <div className="flex flex-wrap gap-3 items-center">
+                <button onClick={markAsRead} className="px-4 py-3 rounded-full bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800">Tandai Sudah Dibaca</button>
+                {quiz && !quizCompleted && (
+                  <button onClick={() => setQuizOpen(true)} className="px-4 py-3 rounded-full border border-neutral-300 text-sm font-bold hover:border-neutral-900">Kerjakan Kuis</button>
+                )}
+                {quizCompleted && (
+                  <span className="text-sm font-semibold text-green-700">Kuis terselesaikan {quizCorrect ? '✅' : '⚠️'}</span>
+                )}
+              </div>
+              {readMessage && <p className="mt-3 text-sm text-emerald-700">{readMessage}</p>}
+            </div>
+            <div className="rounded-3xl bg-amber-50 p-4 text-sm text-neutral-700 border border-amber-100">
+              <div className="font-bold text-neutral-900 mb-2">Rewards</div>
+              <div className="grid gap-2 text-sm">
+                <div className="flex justify-between"><span>Poin baca</span><span>+10</span></div>
+                <div className="flex justify-between"><span>Quiz benar</span><span>+5</span></div>
+                <div className="flex justify-between"><span>Total bacaan</span><span>{progress?.read_completed ? 'Selesai' : 'Belum'}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hero Image */}
       <div className="max-w-5xl mx-auto px-5 lg:px-8 mb-10">
         <div className="aspect-[16/9] rounded-2xl relative overflow-hidden grain" style={{ background: article.color }}>
@@ -1996,6 +2223,18 @@ const ArticleDetail = ({ article, onBack, onSelect }) => {
             </p>
           ))}
         </div>
+
+        {quizOpen && (
+          <ArticleQuizModal
+            quiz={quiz}
+            onSubmit={handleQuizSubmit}
+            onClose={() => setQuizOpen(false)}
+            loading={quizLoading}
+          />
+        )}
+        {quizResult && (
+          <QuizResultToast result={quizResult} onClose={() => setQuizResult(null)} />
+        )}
 
         {/* Pull quote */}
         <blockquote className="my-12 border-l-4 pl-6 py-2" style={{ borderColor: '#E11D2E' }}>
@@ -2405,6 +2644,101 @@ const CoachDashboard = ({ onBack, auth }) => {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack }) => {
+  return (
+    <div className="bg-white min-h-screen">
+      <button onClick={onBack} className="max-w-7xl mx-auto px-5 lg:px-8 pt-6 flex items-center gap-2 text-sm font-bold text-neutral-700 hover:text-[#E11D2E]">
+        <ArrowLeft size={14} /> Kembali
+      </button>
+      <div className="max-w-7xl mx-auto px-5 lg:px-8 py-8 space-y-8">
+        <div className="grid lg:grid-cols-[1.4fr_0.9fr] gap-6">
+          <div className="rounded-3xl border border-neutral-200 bg-[#F8FAFC] p-8">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-16 h-16 rounded-full bg-[#E11D2E] text-white flex items-center justify-center font-display text-3xl">
+                {auth?.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Profil Gamer</div>
+                <div className="font-display text-3xl text-neutral-900">{auth?.name || 'Pengguna'}</div>
+                <div className="text-sm text-neutral-500">{auth?.email || 'Belum login'}</div>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-3xl bg-white border border-neutral-200 p-5">
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Poin</div>
+                <div className="text-4xl font-bold text-neutral-900">{stats?.points ?? 0}</div>
+              </div>
+              <div className="rounded-3xl bg-white border border-neutral-200 p-5">
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Koin</div>
+                <div className="text-4xl font-bold text-neutral-900">{stats?.coins ?? 0}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-neutral-200 bg-white p-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Tingkat</div>
+                <div className="text-3xl font-display text-neutral-900">{stats?.tier_level || currentTier?.name}</div>
+              </div>
+              <div className="text-sm text-neutral-500">Level {stats?.tier_level || currentTier?.name}</div>
+            </div>
+            <div className="h-3 w-full rounded-full bg-neutral-100 overflow-hidden mb-4">
+              <div className="h-full bg-gradient-to-r from-[#E11D2E] to-[#F59E0B]" style={{ width: `${Math.min(progressPercentage, 100)}%` }} />
+            </div>
+            {nextTier ? (
+              <div className="text-sm text-neutral-700">{pointsToNextTier} poin lagi untuk ke tier {nextTier.name}.</div>
+            ) : (
+              <div className="text-sm text-neutral-700">Kamu sudah mencapai tier tertinggi.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-6">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Riwayat Aktivitas</div>
+                <h2 className="font-display text-2xl text-neutral-900">Aktivitas Terbaru</h2>
+              </div>
+              <span className="text-sm text-neutral-500">{activities?.length ?? 0} entri</span>
+            </div>
+            {loading ? (
+              <div className="text-sm text-neutral-500">Memuat aktivitas...</div>
+            ) : activities?.length ? (
+              <div className="space-y-3">
+                {activities.map((activity, index) => (
+                  <ActivityCard key={index} activity={activity} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-neutral-500">Belum ada aktivitas gamifikasi.</div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-neutral-200 bg-white p-8">
+            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-4">Ringkasan Pencapaian</div>
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-[#FEF3C7] p-4">
+                <div className="text-sm font-semibold text-amber-800">Tier Saat Ini</div>
+                <div className="text-2xl font-bold text-neutral-900">{stats?.tier_level || currentTier?.name}</div>
+              </div>
+              <div className="rounded-2xl bg-[#EEF2FF] p-4">
+                <div className="text-sm font-semibold text-indigo-800">Poin Total</div>
+                <div className="text-2xl font-bold text-neutral-900">{stats?.points ?? 0}</div>
+              </div>
+              <div className="rounded-2xl bg-[#ECFDF5] p-4">
+                <div className="text-sm font-semibold text-emerald-800">Koin Total</div>
+                <div className="text-2xl font-bold text-neutral-900">{stats?.coins ?? 0}</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -3160,12 +3494,54 @@ export default function Stadione() {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState('login');
 
+  // Restore session from Supabase on app mount
+  useEffect(() => {
+    const restoreSession = async () => {
+      try {
+        const { supabase } = await import('./src/config/supabase.js');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!error && session?.user) {
+          setAuth({
+            name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
+            email: session.user.email,
+            id: session.user.id
+          });
+        }
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          async (event, currentSession) => {
+            if (currentSession?.user) {
+              setAuth({
+                name: currentSession.user.user_metadata?.name || currentSession.user.email?.split('@')[0],
+                email: currentSession.user.email,
+                id: currentSession.user.id
+              });
+            } else {
+              setAuth(null);
+            }
+          }
+        );
+
+        return () => subscription?.unsubscribe();
+      } catch (err) {
+        console.error('Failed to restore session:', err);
+      }
+    };
+
+    restoreSession();
+  }, []);
+
   // Fetch data from Supabase
   const { venues, loading: venuesLoading } = useVenues();
   const { tournaments, loading: tournamentsLoading } = useTournaments();
   const { news, loading: newsLoading } = useNews();
   const { coaches, loading: coachesLoading } = useCoaches();
   const { chats, loading: chatsLoading } = useChats();
+  const { stats: gamificationStats, loading: gamificationLoading } = useUserGamification(auth?.id);
+  const { activities, loading: activitiesLoading } = useActivityHistory(auth?.id, 20);
+  const { currentTier, nextTier, progressPercentage, pointsToNextTier } = useTierProgression(gamificationStats?.points || 0);
   
   // Fallback to hardcoded data if Supabase is not available
   const VENUES_DATA = venues.length > 0 ? venues : [];
@@ -3197,7 +3573,13 @@ export default function Stadione() {
     setAuth(user);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      const { supabase } = await import('./src/config/supabase.js');
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
     setAuth(null);
     setPage('home');
   };
@@ -3247,6 +3629,8 @@ export default function Stadione() {
         onOpenAuth={openAuth}
         onLogout={handleLogout}
         onChat={() => requireAuthThen(() => goTo('chat'))}
+        gamificationStats={gamificationStats}
+        statsLoading={gamificationLoading}
       />
       {(!SUPABASE_CONFIGURED || SUPABASE_ERROR) && (
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 bg-amber-100 border border-amber-300 text-amber-900 text-sm rounded-b-3xl">
@@ -3268,7 +3652,7 @@ export default function Stadione() {
           />
         )}
         {page === 'tournament' && <TournamentPage onSelect={(t) => goTo('tournament-detail', t)} onCreate={() => goTo('create-tournament')} tournaments={TOURNAMENTS_DATA} />}
-        {page === 'tournament-detail' && tournamentDetail && <TournamentDetail tournament={tournamentDetail} onBack={() => goTo('tournament')} tab={tab} setTab={setTab} />}
+        {page === 'tournament-detail' && tournamentDetail && <TournamentDetail tournament={tournamentDetail} onBack={() => goTo('tournament')} tab={tab} setTab={setTab} auth={auth} openAuth={openAuth} />}
         {page === 'create-tournament' && (
           <CreateTournamentWizard
             onBack={() => goTo('tournament')}
@@ -3283,7 +3667,8 @@ export default function Stadione() {
           />
         )}
         {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} news={NEWS_DATA} />}
-        {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} />}
+        {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} auth={auth} openAuth={openAuth} />}
+        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} />}
         {page === 'training' && (
           <TrainingPage
             onCoachDashboard={() => auth ? goTo('coach-dashboard') : openAuth('login')}
