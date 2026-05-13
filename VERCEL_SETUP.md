@@ -1,98 +1,95 @@
 # Deploy ke Vercel + Setup Supabase Environment Variables
 
-Panduan lengkap untuk deploy Stadione ke Vercel dengan konfigurasi Supabase yang benar.
+Panduan deploy Stadione ke Vercel dengan konfigurasi Supabase yang sesuai flow auth terbaru.
 
-## 1. Login & Connect GitHub ke Vercel
+## 1. Import Project ke Vercel
 
 1. Buka https://vercel.com
-2. Klik **Login** → pilih **GitHub**
-3. Authorize Vercel untuk akses repo GitHub kamu
+2. Login dengan GitHub
+3. Add New -> Project
+4. Pilih repo `stadione`
+5. Import
 
-## 2. Import Project ke Vercel
+## 2. Set Environment Variables
 
-1. Klik **Add New** → **Project**
-2. Pilih repo `stadione` dari GitHub
-3. Klik **Import**
+Di Vercel Project -> Settings -> Environment Variables, pastikan variabel berikut ada:
 
-Vercel akan auto-detect Next.js/Vite configuration dan setup building.
+- `VITE_SUPABASE_URL` = URL project Supabase
+- `VITE_SUPABASE_ANON_KEY` = anon public key Supabase
 
-## 3. **PENTING: Set Environment Variables**
+Opsional kompatibilitas tambahan (karena app juga membaca prefix lain):
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-Sebelum deploy, kamu HARUS set environment variables di Vercel:
+Disarankan tetap mengisi minimal pasangan `VITE_*`.
 
-1. Di halaman Import Project, lihat bagian **Environment Variables**
-2. Tambah 2 variables:
+## 3. Konfigurasi Auth Redirect (Wajib)
 
-   **Variable 1:**
-   - Name: `VITE_SUPABASE_URL`
-   - Value: `https://bkjsqfcjylgmxlauatwt.supabase.co`
+Selain env var, flow login Google dan reset password juga butuh konfigurasi di Supabase Dashboard.
 
-   **Variable 2:**
-   - Name: `VITE_SUPABASE_ANON_KEY`
-   - Value: `[COPY DARI SUPABASE DASHBOARD]`
-     - Buka: https://supabase.com/dashboard/project/bkjsqfcjylgmxlauatwt/settings/api
-     - Cari "Project API keys"
-     - Copy value dari "anon public" key
+Buka Supabase -> Authentication -> URL Configuration:
 
-3. Klik **Deploy**
+- Site URL:
+  - `https://stadione.vercel.app`
+- Additional Redirect URLs:
+  - `https://stadione.vercel.app`
+  - `http://localhost:5173` (untuk pengujian lokal)
 
-Vercel akan mulai build dan deploy aplikasi kamu.
+Buka Supabase -> Authentication -> Providers -> Google:
+- Enable Google provider
+- Isi Google Client ID dan Client Secret
+- Pastikan redirect URL dari Supabase sudah didaftarkan pada Google OAuth app
 
-## 4. Verifikasi Deployment
+## 4. Deploy dan Verifikasi
 
-Setelah Vercel selesai (biasanya 2-5 menit):
+1. Trigger redeploy dari Vercel
+2. Buka URL production
+3. Uji minimum berikut:
+   - Login Google
+   - Signup email/password (wajib verifikasi email)
+   - Forgot password -> buka link reset -> set password baru
 
-1. Klik link yang muncul (contoh: `https://stadione-xxx.vercel.app`)
-2. Aplikasi harus muncul tanpa banner warning berwarna kuning
-3. Homepage, Booking, Tournament semuanya harus bisa diklik
+## 5. Checklist Cepat Jika Auth Tidak Jalan di Production
 
-Jika masih ada banner kuning "Supabase belum terkonfigurasi", berarti:
-- Environment variables tidak tersimpan dengan benar
-- Kamu perlu redeploy dengan memasukkan variable yang tepat
-
-## 5. Update Environment Variables (Jika Ada Kesalahan)
-
-Kalau environment variable salah atau ingin update:
-
-1. Pergi ke project dashboard Vercel
-2. Klik **Settings** → **Environment Variables**
-3. Edit atau tambah variable baru
-4. Klik **Deploy** untuk trigger redeploy otomatis
-
-## 6. Siap Deploy!
-
-Setelah environment variables benar, deployment seharusnya sukses dan app bisa:
-- ✓ Login/Register
-- ✓ Lihat daftar venue, turnamen, berita
-- ✓ Fetch data dari Supabase
-- ✓ Chat dengan coach
-- ✓ Book venue atau sesi latihan
-
----
+1. Environment variables `VITE_SUPABASE_URL` dan `VITE_SUPABASE_ANON_KEY` benar
+2. Redeploy sudah dilakukan setelah update env var
+3. Domain production masuk ke Supabase URL Configuration
+4. Google provider aktif di Supabase
+5. Redirect URL Supabase sudah didaftarkan di Google OAuth app
+6. Link reset password mengarah kembali ke domain production
+7. Coba mode incognito untuk menghindari cache/session lama
 
 ## Troubleshooting
 
-### "Supabase belum terkonfigurasi dengan benar" - Banner masih muncul
-**Penyebab:** Environment variable tidak terisi atau masih placeholder
-**Solusi:**
-1. Buka project Vercel → Settings → Environment Variables
-2. Pastikan `VITE_SUPABASE_ANON_KEY` bukan `your_anon_key_here`
-3. Redeploy dengan klik **Deployments** → **...** → **Redeploy**
+### Banner Supabase belum terkonfigurasi
 
-### Build gagal di Vercel
-**Penyebab:** Build command error atau missing dependencies
-**Solusi:**
-1. Lihat build log di Vercel dashboard
-2. Pastikan semua dependencies ada di `package.json`
-3. Jalankan `npm run build` lokal untuk debug
+Penyebab:
+- Env var belum terisi, salah, atau belum redeploy.
 
-### Data tidak muncul setelah deploy
-**Penyebab:** API key tidak valid atau SQL schema belum diimport
-**Solusi:**
-1. Cek di browser console (F12 → Console) - lihat error message
-2. Pastikan SQL schema sudah diimport ke Supabase (lihat SUPABASE_SETUP.md)
-3. Verifikasi API key di Supabase dashboard masih valid
+Solusi:
+- Verifikasi env var di Vercel dan lakukan redeploy.
 
----
+### Login Google gagal di production
 
-**URL Project Supabase:** https://supabase.com/dashboard/project/bkjsqfcjylgmxlauatwt/settings/api
+Penyebab umum:
+- Google provider belum aktif
+- Redirect URI mismatch di Google OAuth app
+
+Solusi:
+- Samakan redirect URI antara Supabase dan Google Cloud OAuth config.
+
+### Reset password tidak kembali ke app
+
+Penyebab:
+- Domain redirect belum terdaftar di Supabase URL Configuration.
+
+Solusi:
+- Tambah domain production dan lokal di Additional Redirect URLs.
+
+## Referensi
+
+- Supabase Project API: https://supabase.com/dashboard/project/bkjsqfcjylgmxlauatwt/settings/api
+- Supabase Auth URL Config: https://supabase.com/dashboard/project/bkjsqfcjylgmxlauatwt/auth/url-configuration
+- Vercel Project Settings: https://vercel.com/dashboard

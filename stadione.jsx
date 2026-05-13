@@ -1495,98 +1495,218 @@ const Footer = ({ onNav, onCoachDashboard }) => (
 );
 
 // ============ LOGIN MODAL ============
+const AUTH_MODAL_MODES = {
+  login: 'login',
+  register: 'register',
+  forgotPassword: 'forgot-password',
+  recovery: 'recovery',
+};
+
+function getAuthRedirectUrl(mode) {
+  if (typeof window === 'undefined') return undefined;
+
+  const url = new URL(window.location.origin);
+  if (mode) url.searchParams.set('auth_mode', mode);
+  return url.toString();
+}
+
+function getAuthModeFromUrl() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('auth_mode') || null;
+}
+
+function clearAuthUrlArtifacts() {
+  if (typeof window === 'undefined') return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete('auth_mode');
+  url.hash = '';
+  window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+}
+
+function mapAuthErrorMessage(error) {
+  const rawMessage = String(error?.message || '').trim();
+  const message = rawMessage.toLowerCase();
+
+  if (!rawMessage) return 'Terjadi kesalahan. Silakan coba lagi.';
+  if (message.includes('rate limit')) return 'Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.';
+  if (message.includes('invalid login credentials')) return 'Email atau password salah. Silakan cek kembali.';
+  if (message.includes('email not confirmed')) return 'Email belum dikonfirmasi. Cek inbox email Anda terlebih dahulu.';
+  if (message.includes('password should be at least')) return 'Password minimal 6 karakter.';
+  if (message.includes('unable to validate email address')) return 'Format email tidak valid.';
+  if (message.includes('user already registered')) return 'Email ini sudah terdaftar. Silakan login atau gunakan lupa password.';
+  if (message.includes('oauth')) return 'Login Google belum berhasil. Periksa konfigurasi OAuth dan redirect URL.';
+
+  return rawMessage;
+}
+
 const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
-  const [mode, setMode] = useState(initMode || 'login');
+  const [mode, setMode] = useState(initMode || AUTH_MODAL_MODES.login);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
-  useEffect(() => { if (initMode) setMode(initMode); }, [initMode]);
+  useEffect(() => {
+    if (!initMode) return;
+    setMode(initMode);
+    setError('');
+    setSuccessMessage('');
+  }, [initMode]);
 
   if (!open) return null;
+
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    setError('');
+    setSuccessMessage('');
+    if (nextMode !== AUTH_MODAL_MODES.register) setName('');
+    if (nextMode !== AUTH_MODAL_MODES.recovery) {
+      setPassword('');
+      setConfirmPassword('');
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    setLoading(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const { supabase } = await import('./src/config/supabase.js');
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: getAuthRedirectUrl(),
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
+        },
+      });
+
+      if (oauthError) throw oauthError;
+    } catch (err) {
+      console.error('Google auth error:', err);
+      setError(mapAuthErrorMessage(err));
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
     setError('');
+    setSuccessMessage('');
     setLoading(true);
 
     try {
-      if (!email || !password) {
-        throw new Error('Email dan password tidak boleh kosong');
+      const { supabase } = await import('./src/config/supabase.js');
+
+      if (mode === AUTH_MODAL_MODES.forgotPassword) {
+        if (!email) throw new Error('Email tidak boleh kosong');
+
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: getAuthRedirectUrl(AUTH_MODAL_MODES.recovery),
+        });
+
+        if (resetError) throw resetError;
+
+        setSuccessMessage('Link reset password sudah dikirim. Cek inbox email Anda.');
+        setLoading(false);
+        return;
       }
 
-      const { supabase } = await import('./src/config/supabase.js');
-      
-      if (mode === 'register') {
+      if (mode === AUTH_MODAL_MODES.recovery) {
+        if (!password) throw new Error('Password baru tidak boleh kosong');
+        if (password.length < 6) throw new Error('Password minimal 6 karakter.');
+        if (password !== confirmPassword) throw new Error('Konfirmasi password belum cocok.');
+
+        const { error: updateError } = await supabase.auth.updateUser({ password });
+        if (updateError) throw updateError;
+
+        clearAuthUrlArtifacts();
+        setSuccessMessage('Password berhasil diperbarui. Silakan lanjut gunakan akun Anda.');
+        setPassword('');
+        setConfirmPassword('');
+        setTimeout(() => {
+          switchMode(AUTH_MODAL_MODES.login);
+          onClose();
+        }, 1200);
+        setLoading(false);
+        return;
+      }
+
+      if (!email || !password) throw new Error('Email dan password tidak boleh kosong');
+
+      if (mode === AUTH_MODAL_MODES.register) {
         if (!name) throw new Error('Nama tidak boleh kosong');
-        
-        // Sign up dengan Supabase
+
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            data: { name }
-          }
+            data: { name },
+            emailRedirectTo: getAuthRedirectUrl(),
+          },
         });
 
-        if (signUpError) throw new Error(signUpError.message);
+        if (signUpError) throw signUpError;
         if (!data.user) throw new Error('Registrasi gagal. Silakan coba lagi.');
 
-        // Automatically sign in after registration
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        setSuccessMessage('Registrasi berhasil. Cek email Anda untuk verifikasi sebelum login.');
+        switchMode(AUTH_MODAL_MODES.login);
+        setEmail(email);
+        setLoading(false);
+        return;
+      } else {
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
-          password
+          password,
         });
 
         if (signInError) throw signInError;
-        
-        onAuth({
-          name: data.user.user_metadata?.name || 'Pengguna Baru',
-          email: data.user.email,
-          id: data.user.id
-        });
-      } else {
-        // Sign in dengan Supabase
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
-
-        if (signInError) throw new Error(signInError.message);
         if (!data.user) throw new Error('Login gagal. Silakan coba lagi.');
 
         onAuth({
           name: data.user.user_metadata?.name || email.split('@')[0],
           email: data.user.email,
-          id: data.user.id
+          id: data.user.id,
         });
-      }
 
-      onClose();
+        clearAuthUrlArtifacts();
+        onClose();
+      }
     } catch (err) {
       console.error('Auth error:', err);
-      setError(err.message || 'Terjadi kesalahan. Silakan coba lagi.');
+      setError(mapAuthErrorMessage(err));
     } finally {
       setLoading(false);
     }
   };
+
+  const isRecoveryMode = mode === AUTH_MODAL_MODES.recovery;
+  const isForgotMode = mode === AUTH_MODAL_MODES.forgotPassword;
+  const isLoginMode = mode === AUTH_MODAL_MODES.login;
+  const isRegisterMode = mode === AUTH_MODAL_MODES.register;
+  const showGoogle = isLoginMode || isRegisterMode;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 fade-up" onClick={onClose}>
       <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="grid grid-cols-2">
           <button
-            onClick={() => setMode('login')}
-            className={`py-3.5 text-xs uppercase tracking-widest font-bold transition ${mode === 'login' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+            onClick={() => switchMode(AUTH_MODAL_MODES.login)}
+            className={`py-3.5 text-xs uppercase tracking-widest font-bold transition ${isLoginMode ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
           >
             Masuk
           </button>
           <button
-            onClick={() => setMode('register')}
-            className={`py-3.5 text-xs uppercase tracking-widest font-bold transition ${mode === 'register' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+            onClick={() => switchMode(AUTH_MODAL_MODES.register)}
+            className={`py-3.5 text-xs uppercase tracking-widest font-bold transition ${isRegisterMode ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
           >
             Daftar
           </button>
@@ -1595,32 +1715,46 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
         <div className="p-7 lg:p-9 relative">
           <button onClick={onClose} className="absolute top-4 right-4 p-2 hover:bg-neutral-100 rounded-full"><X size={18} /></button>
           <Logo size={42} />
-          <h2 className="font-display text-4xl mt-4 leading-tight">{mode === 'login' ? 'SELAMAT KEMBALI.' : 'GABUNG SEKARANG.'}</h2>
+          <h2 className="font-display text-4xl mt-4 leading-tight">
+            {isLoginMode && 'SELAMAT KEMBALI.'}
+            {isRegisterMode && 'GABUNG SEKARANG.'}
+            {isForgotMode && 'RESET PASSWORD.'}
+            {isRecoveryMode && 'ATUR PASSWORD BARU.'}
+          </h2>
           <p className="text-sm text-neutral-500 mb-6">
-            {mode === 'login' ? 'Lanjutkan ke akun Stadione Anda.' : 'Buat akun gratis, akses semua fitur.'}
+            {isLoginMode && 'Lanjutkan ke akun Stadione Anda.'}
+            {isRegisterMode && 'Buat akun gratis, akses semua fitur.'}
+            {isForgotMode && 'Masukkan email akun untuk menerima link reset password.'}
+            {isRecoveryMode && 'Masukkan password baru untuk menyelesaikan pemulihan akun.'}
           </p>
 
-          <button className="w-full mb-2.5 py-3 rounded-xl border-2 border-neutral-200 font-bold text-sm flex items-center justify-center gap-2 hover:bg-neutral-50 transition">
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
-              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
-              <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
-              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
-            </svg>
-            Lanjut dengan Google
-          </button>
-          <button className="w-full mb-4 py-3 rounded-xl border-2 border-neutral-200 font-bold text-sm flex items-center justify-center gap-2 hover:bg-neutral-50 transition">
-            <Facebook size={16} className="text-blue-600" /> Lanjut dengan Facebook
-          </button>
+          {showGoogle && (
+            <button
+              type="button"
+              onClick={handleGoogleAuth}
+              disabled={loading}
+              className="w-full mb-4 py-3 rounded-xl border-2 border-neutral-200 font-bold text-sm flex items-center justify-center gap-2 hover:bg-neutral-50 transition disabled:opacity-60"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18">
+                <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
+                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
+                <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
+                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
+              </svg>
+              {loading ? 'Memproses...' : 'Lanjut dengan Google'}
+            </button>
+          )}
 
-          <div className="flex items-center gap-3 my-4">
-            <div className="flex-1 h-px bg-neutral-200" />
-            <span className="text-xs text-neutral-400 font-bold uppercase">atau email</span>
-            <div className="flex-1 h-px bg-neutral-200" />
-          </div>
+          {showGoogle && (
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-neutral-200" />
+              <span className="text-xs text-neutral-400 font-bold uppercase">atau email</span>
+              <div className="flex-1 h-px bg-neutral-200" />
+            </div>
+          )}
 
           <form onSubmit={handleSubmit}>
-            {mode === 'register' && (
+            {isRegisterMode && (
               <input
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -1632,29 +1766,61 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
               value={email}
               onChange={e => setEmail(e.target.value)}
               type="email"
+              disabled={isRecoveryMode}
               className="w-full mb-3 px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
               placeholder="Email"
             />
-            <div className="relative mb-4">
-              <input
-                type={showPw ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12"
-                placeholder="Password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-500"
-              >
-                <Eye size={16} />
-              </button>
-            </div>
 
-            {mode === 'login' && (
+            {!isForgotMode && (
+              <div className="relative mb-4">
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12"
+                  placeholder={isRecoveryMode ? 'Password baru' : 'Password'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(!showPw)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-500"
+                >
+                  <Eye size={16} />
+                </button>
+              </div>
+            )}
+
+            {isRecoveryMode && (
+              <div className="relative mb-4">
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12"
+                  placeholder="Konfirmasi password baru"
+                />
+              </div>
+            )}
+
+            {isLoginMode && (
               <div className="text-right mb-4">
-                <button type="button" className="text-xs text-neutral-500 font-semibold hover:text-neutral-900">Lupa password?</button>
+                <button type="button" onClick={() => switchMode(AUTH_MODAL_MODES.forgotPassword)} className="text-xs text-neutral-500 font-semibold hover:text-neutral-900">
+                  Lupa password?
+                </button>
+              </div>
+            )}
+
+            {isForgotMode && (
+              <div className="text-right mb-4">
+                <button type="button" onClick={() => switchMode(AUTH_MODAL_MODES.login)} className="text-xs text-neutral-500 font-semibold hover:text-neutral-900">
+                  Kembali ke login
+                </button>
+              </div>
+            )}
+
+            {successMessage && (
+              <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                <p className="text-xs text-emerald-700 font-medium">{successMessage}</p>
               </div>
             )}
 
@@ -1673,18 +1839,24 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
               {loading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  {mode === 'login' ? 'SEDANG MASUK...' : 'SEDANG MENDAFTAR...'}
+                  {isLoginMode && 'SEDANG MASUK...'}
+                  {isRegisterMode && 'SEDANG MENDAFTAR...'}
+                  {isForgotMode && 'MENGIRIM LINK RESET...'}
+                  {isRecoveryMode && 'MENYIMPAN PASSWORD...'}
                 </>
               ) : (
                 <>
-                  {mode === 'login' ? 'MASUK SEKARANG' : 'BUAT AKUN'}
+                  {isLoginMode && 'MASUK SEKARANG'}
+                  {isRegisterMode && 'BUAT AKUN'}
+                  {isForgotMode && 'KIRIM LINK RESET'}
+                  {isRecoveryMode && 'SIMPAN PASSWORD BARU'}
                   <ArrowRight size={14} />
                 </>
               )}
             </button>
           </form>
 
-          {mode === 'register' && (
+          {isRegisterMode && (
             <p className="text-[11px] text-neutral-500 mt-4 leading-relaxed text-center">
               Dengan mendaftar, Anda menyetujui <span className="font-bold underline">Syarat Layanan</span> dan <span className="font-bold underline">Kebijakan Privasi</span> Stadione.
             </p>
@@ -3492,45 +3664,64 @@ export default function Stadione() {
   // Auth state
   const [auth, setAuth] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
+  const [authMode, setAuthMode] = useState(() => {
+    const mode = getAuthModeFromUrl();
+    return mode === AUTH_MODAL_MODES.recovery ? AUTH_MODAL_MODES.recovery : AUTH_MODAL_MODES.login;
+  });
 
   // Restore session from Supabase on app mount
   useEffect(() => {
+    let subscription;
+
     const restoreSession = async () => {
       try {
         const { supabase } = await import('./src/config/supabase.js');
+        if (getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery) {
+          setAuthMode(AUTH_MODAL_MODES.recovery);
+          setShowAuth(true);
+        }
+
         const { data: { session }, error } = await supabase.auth.getSession();
-        
+
         if (!error && session?.user) {
           setAuth({
             name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
             email: session.user.email,
-            id: session.user.id
+            id: session.user.id,
           });
         }
 
         // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        const { data } = supabase.auth.onAuthStateChange(
           async (event, currentSession) => {
+            if (event === 'PASSWORD_RECOVERY') {
+              setAuthMode(AUTH_MODAL_MODES.recovery);
+              setShowAuth(true);
+              return;
+            }
+
             if (currentSession?.user) {
               setAuth({
                 name: currentSession.user.user_metadata?.name || currentSession.user.email?.split('@')[0],
                 email: currentSession.user.email,
-                id: currentSession.user.id
+                id: currentSession.user.id,
               });
             } else {
               setAuth(null);
             }
           }
         );
-
-        return () => subscription?.unsubscribe();
+        subscription = data?.subscription;
       } catch (err) {
         console.error('Failed to restore session:', err);
       }
     };
 
     restoreSession();
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   // Fetch data from Supabase
@@ -3565,7 +3756,16 @@ export default function Stadione() {
   };
 
   const openAuth = (mode) => {
-    setAuthMode(mode);
+    if (
+      mode === AUTH_MODAL_MODES.login ||
+      mode === AUTH_MODAL_MODES.register ||
+      mode === AUTH_MODAL_MODES.forgotPassword ||
+      mode === AUTH_MODAL_MODES.recovery
+    ) {
+      setAuthMode(mode);
+    } else {
+      setAuthMode(AUTH_MODAL_MODES.login);
+    }
     setShowAuth(true);
   };
 

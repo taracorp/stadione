@@ -2,141 +2,118 @@
 
 ## Overview
 
-Stadione now has full Supabase authentication integration! Users can:
-- ✅ Register with email and password
-- ✅ Login with email and password
-- ✅ Session persistence (stays logged in across page refreshes)
-- ✅ Secure logout
+Stadione sekarang memakai auth flow berikut:
+- Google OAuth (aktif)
+- Email + password (aktif)
+- Forgot password + reset password recovery (aktif)
+- Email verification wajib untuk registrasi email/password
+- Facebook login (dinonaktifkan dari UI)
 
-## How It Works
+## Implementasi Saat Ini
 
-### Components Involved
+Lokasi utama implementasi ada di `stadione.jsx`:
+- `AUTH_MODAL_MODES`: `login`, `register`, `forgot-password`, `recovery`
+- Google OAuth: `supabase.auth.signInWithOAuth({ provider: 'google' })`
+- Register email/password: `supabase.auth.signUp(...)` dengan `emailRedirectTo`
+- Forgot password: `supabase.auth.resetPasswordForEmail(...)` dengan `redirectTo`
+- Recovery update password: `supabase.auth.updateUser({ password })`
+- Bootstrap auth state: `getSession()` + `onAuthStateChange(...)`
+- Recovery listener: event `PASSWORD_RECOVERY`
 
-1. **LoginModal** (`stadione.jsx` lines 1429+)
-   - Handles both login and registration UI
-   - Calls `supabase.auth.signUp()` for registration
-   - Calls `supabase.auth.signInWithPassword()` for login
-   - Displays loading state and error messages
+## Prasyarat Konfigurasi Supabase
 
-2. **Session Restoration** (Stadione component, useEffect)
-   - On app load, checks for existing Supabase session
-   - Restores user if already logged in
-   - Listens for auth state changes in real-time
+Buka Supabase Dashboard untuk project:
+- Authentication -> Providers -> Google
+- Authentication -> URL Configuration
 
-3. **Logout Handler**
-   - Calls `supabase.auth.signOut()`
-   - Clears local auth state
-   - Redirects to home
+### 1. Google Provider
 
-## Testing Authentication
+Pastikan:
+- Provider Google aktif (Enable)
+- Client ID dan Client Secret valid
+- Redirect URL yang diminta Supabase sudah didaftarkan di Google Cloud OAuth app
 
-### Local Testing
+### 2. URL Configuration
 
-1. **Start the dev server:**
-   ```bash
-   npm run dev
-   ```
+Tambahkan URL berikut pada Supabase Auth:
+- Site URL:
+  - Lokal: `http://localhost:5173`
+  - Produksi: `https://stadione.vercel.app`
+- Additional Redirect URLs:
+  - `http://localhost:5173`
+  - `https://stadione.vercel.app`
 
-2. **Register a new account:**
-   - Click "Daftar" in the header
-   - Enter: name, email, password (min 6 chars)
-   - Click "BUAT AKUN"
-   - App automatically logs you in
+Catatan:
+- Aplikasi menggunakan query `auth_mode=recovery` saat reset password.
+- Karena redirect kembali ke root URL app, URL root wajib terdaftar sebagai redirect URL.
 
-3. **Login with existing account:**
-   - Click "Masuk" in the header
-   - Enter: email, password
-   - Click "MASUK SEKARANG"
+### 3. Email Verification
 
-4. **Test session persistence:**
-   - Login successfully
-   - Refresh the page (Ctrl+R or Cmd+R)
-   - You should still be logged in
+Untuk email/password signup, pastikan verifikasi email aktif di Supabase Auth settings.
+Perilaku aplikasi:
+- Setelah signup, user diminta verifikasi email dulu
+- User tidak di-auto-login setelah signup email/password
 
-5. **Test logout:**
-   - Click your name in the header
-   - Click "Keluar"
-   - You should be logged out and redirected home
+## Alur yang Perlu Diuji
 
-### Production Testing on Vercel
+## 1) Login Google
 
-1. **Ensure env vars are set in Vercel:**
-   - Go to: https://vercel.com/[your-team]/stadione/settings/environment-variables
-   - Set `VITE_SUPABASE_URL` = Your Supabase project URL
-   - Set `VITE_SUPABASE_ANON_KEY` = Your Supabase anon key
-   - Redeploy the project
+1. Klik Masuk
+2. Klik Lanjut dengan Google
+3. Selesaikan consent di Google
+4. Kembali ke app dalam keadaan login
 
-2. **Visit your Vercel deployment URL**
-   - Test registration and login
-   - Verify session persists across page refreshes
+## 2) Register Email/Password
+
+1. Klik Daftar
+2. Isi nama, email, password
+3. Submit
+4. Muncul pesan untuk cek email verifikasi
+5. Verifikasi via link email
+6. Login dengan akun yang sudah diverifikasi
+
+## 3) Forgot Password + Recovery
+
+1. Dari tab Masuk klik Lupa password
+2. Masukkan email akun
+3. Klik Kirim link reset
+4. Buka link reset dari email
+5. App masuk mode recovery
+6. Isi password baru + konfirmasi
+7. Submit dan login ulang
 
 ## Troubleshooting
 
-### "Email dan password tidak boleh kosong"
-- Make sure both fields are filled before clicking the button
+### Login Google gagal
 
-### "Terjadi kesalahan. Silakan coba lagi."
-- Check browser console (F12 → Console tab) for detailed error
-- Verify `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are configured
-- Check Supabase dashboard for any service issues
+Cek:
+- Google provider sudah Enable di Supabase
+- Redirect URL Supabase sudah didaftarkan di Google OAuth app
+- URL domain app (lokal/produksi) ada di Supabase URL Configuration
 
-### Users can't login after registering
-- Supabase might require email verification
-- Check Supabase dashboard: Authentication → Email Templates
-- By default, email verification is OFF for development (no verification needed)
+### Error email belum dikonfirmasi
 
-### "Session not found" or similar
-- Clear browser cache/cookies and try again
-- Check that Supabase credentials are correct
+Penyebab:
+- User mencoba login sebelum klik link verifikasi email.
 
-## Architecture Notes
+Solusi:
+- Minta user cek inbox/spam lalu verifikasi email.
 
-### File Structure
-```
-stadione.jsx
-├── LoginModal component (auth UI)
-├── handleAuth() (stores user in state)
-├── handleLogout() (signs out + clears state)
-└── useEffect (restores session on mount)
+### Link reset password kembali ke halaman kosong/salah
 
-src/config/supabase.js
-└── supabase client initialization
-```
+Cek:
+- `http://localhost:5173` dan `https://stadione.vercel.app` ada di Additional Redirect URLs Supabase
+- Domain yang dipakai user sesuai daftar redirect
 
-### Data Flow: Registration
-1. User fills form → click "BUAT AKUN"
-2. LoginModal calls `supabase.auth.signUp(email, password)`
-3. Supabase creates account & returns user object
-4. LoginModal auto-logs in user with `signInWithPassword()`
-5. User data passed to `onAuth()` callback
-6. setAuth() updates app state
-7. Modal closes, user sees logged-in header
+### Recovery mode tidak terbuka
 
-### Data Flow: Login
-1. User fills form → click "MASUK SEKARANG"
-2. LoginModal calls `supabase.auth.signInWithPassword(email, password)`
-3. Supabase validates and returns session
-4. User data passed to `onAuth()` callback
-5. setAuth() updates app state
-6. Modal closes, user sees logged-in header
+Cek:
+- URL redirect dari email reset mengandung parameter auth Supabase
+- Event `PASSWORD_RECOVERY` diterima pada app bootstrap
+- Tidak ada script/router lain yang menghapus query terlalu dini
 
-### Data Flow: Persistence
-1. App mounts → Stadione useEffect runs
-2. Calls `supabase.auth.getSession()`
-3. If session exists → setAuth() updates state
-4. Listener watches for future auth changes
-5. If user logs out elsewhere → setAuth(null)
+## Catatan Keamanan
 
-## Security Notes
-
-- Passwords are **never** sent to your app backend (handled by Supabase)
-- Session tokens are stored in browser secure storage by Supabase
-- `VITE_SUPABASE_ANON_KEY` is safe to expose in client-side code (it's meant to be public)
-- Email verification can be enabled in Supabase settings for production
-
-## Next Steps
-
-- Enable email verification: Supabase Dashboard → Authentication → Email Templates
-- Add password reset: Create `/forgot-password` page with Supabase reset flow
-- Add OAuth: Enable Google/Facebook login in Supabase settings
-- Store user profile data: Create users table and sync on signup
+- Jangan commit service-role key ke frontend
+- Hanya gunakan anon key di frontend
+- Untuk produksi, gunakan domain final dan pastikan semua redirect URL konsisten
