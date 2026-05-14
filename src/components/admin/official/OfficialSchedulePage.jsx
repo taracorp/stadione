@@ -178,9 +178,9 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                       {a.round_name && <div className="text-xs text-neutral-400 mt-0.5">{a.round_name}</div>}
                       {a.venue && <div className="text-xs text-neutral-400 mt-0.5"><Calendar size={10} className="inline mr-1" />{a.venue}</div>}
                       {a.notes && <div className="text-xs text-neutral-400 italic mt-0.5">"{a.notes}"</div>}
-                      {a.source_ready === false && (
+                      {a.source_label === 'Venue Tournament' && (
                         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-2">
-                          Assignment venue tournament sudah tampil di official workspace. Match Center detail masih mengikuti engine tournament utama.
+                          Match Center untuk source venue tournament sudah tersedia. Laporan dan statistik detail masih mengikuti engine tournament utama.
                         </div>
                       )}
                       <div className="text-xs text-neutral-400 mt-1">
@@ -193,7 +193,7 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                       </button>
                       {canOpenCenter && (
                         <button
-                          onClick={() => onNav('match-center', { assignmentId: a.id, tournamentId: a.tournament_id, matchEntryId: a.match_entry_id, assignmentRole: a.role, assignmentStatus: a.status, tournamentName: a.tournament_name })}
+                          onClick={() => onNav('match-center', { assignmentId: a.id, tournamentId: a.tournament_id, matchEntryId: a.match_entry_id, assignmentRole: a.role, assignmentStatus: a.status, tournamentName: a.tournament_name, sourceType: a.source_type, venueTournamentId: a.venue_tournament_id, venueMatchId: a.venue_match_id })}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-neutral-900 text-white hover:bg-neutral-800 transition"
                         >
                           Match Center <ChevronRight size={12} />
@@ -248,9 +248,9 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                       <div className="text-neutral-700">{selectedAssignment.notes}</div>
                     </div>
                   )}
-                  {selectedAssignment.source_ready === false && (
+                  {selectedAssignment.source_label === 'Venue Tournament' && (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
-                      Assignment dari venue tournament sudah masuk ke daftar official. Integrasi Match Center detail masih menunggu penyatuan engine event, lineup, dan report lintas source.
+                      Match Center source venue tournament sudah aktif untuk konteks pertandingan. Engine laporan resmi dan statistik lanjutan masih tahap penyatuan lintas source.
                     </div>
                   )}
                 </div>
@@ -272,6 +272,9 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                         assignmentRole: selectedAssignment.role,
                         assignmentStatus: selectedAssignment.status,
                         tournamentName: selectedAssignment.tournament_name,
+                        sourceType: selectedAssignment.source_type,
+                        venueTournamentId: selectedAssignment.venue_tournament_id,
+                        venueMatchId: selectedAssignment.venue_match_id,
                       })}
                     >
                       Buka Match Center <ChevronRight size={14} />

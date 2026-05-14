@@ -2024,7 +2024,7 @@ export async function fetchOfficialAssignments({ userId, status = 'all', throwOn
           tournament_name: venueTournament?.name || item.display_name || 'Turnamen Venue',
           tournament_sport: venueTournament?.sport_type || '',
           source_label: 'Venue Tournament',
-          source_ready: false,
+          source_ready: true,
           venue: venueLabel,
           round_name: venueMatch?.round_name || null,
         };

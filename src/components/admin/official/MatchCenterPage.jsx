@@ -31,9 +31,18 @@ function isMissingSubstitutionRulesColumnError(error) {
 }
 
 export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
+  const sourceType = matchContext?.sourceType || matchContext?.source_type || (matchContext?.venueMatchId || matchContext?.venue_match_id ? 'venue_tournament' : 'tournament');
   const matchEntryId = matchContext?.matchEntryId || matchContext?.match_entry_id || matchContext?.match_id || matchContext?.entryId || null;
   const tournamentId = matchContext?.tournamentId || matchContext?.tournament_id || null;
-  const hasMatchContext = Boolean(tournamentId && matchEntryId);
+  const venueTournamentId = matchContext?.venueTournamentId || matchContext?.venue_tournament_id || null;
+  const venueMatchId = matchContext?.venueMatchId || matchContext?.venue_match_id || matchEntryId || null;
+  const isVenueTournamentSource = sourceType === 'venue_tournament';
+  const supportsLineupEngine = !isVenueTournamentSource;
+  const supportsEventEngine = !isVenueTournamentSource;
+  const supportsAdvancedReports = !isVenueTournamentSource;
+  const hasMatchContext = isVenueTournamentSource
+    ? Boolean(venueTournamentId && venueMatchId)
+    : Boolean(tournamentId && matchEntryId);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,6 +67,62 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
 
     setLoading(true);
     try {
+      if (isVenueTournamentSource) {
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }] = await Promise.all([
+          supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
+          supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id').eq('id', venueMatchId).maybeSingle(),
+          supabase.from('venue_tournament_teams').select('id,team_name,status').eq('tournament_id', venueTournamentId),
+        ]);
+
+        if (venueTournamentError) throw venueTournamentError;
+        if (venueMatchError) throw venueMatchError;
+        if (venueTeamsError) throw venueTeamsError;
+
+        let resolvedCourtName = matchContext?.courtName || matchContext?.court_name || '';
+        if (!resolvedCourtName && venueMatchData?.court_id) {
+          const { data: courtData, error: courtError } = await supabase
+            .from('venue_courts')
+            .select('id,name')
+            .eq('id', venueMatchData.court_id)
+            .maybeSingle();
+          if (courtError) throw courtError;
+          resolvedCourtName = courtData?.name || '';
+        }
+
+        const teamMap = (venueTeams || []).reduce((acc, item) => {
+          acc[item.id] = item;
+          return acc;
+        }, {});
+
+        setTournament(venueTournamentData ? {
+          id: venueTournamentData.id,
+          name: venueTournamentData.name,
+          sport: venueTournamentData.sport_type,
+          format: venueTournamentData.format,
+          status: venueTournamentData.status,
+        } : null);
+        setSchedule(venueMatchData ? {
+          tournament_id: venueTournamentId,
+          entry_id: String(venueMatchData.id),
+          date: venueMatchData.scheduled_date,
+          home: teamMap[venueMatchData.home_team_id]?.team_name || 'Home',
+          away: teamMap[venueMatchData.away_team_id]?.team_name || 'Away',
+          score: Number.isFinite(venueMatchData.home_score) || Number.isFinite(venueMatchData.away_score)
+            ? `${Number(venueMatchData.home_score || 0)}-${Number(venueMatchData.away_score || 0)}`
+            : null,
+          status: venueMatchData.status,
+          venue: [resolvedCourtName, venueMatchData.round_name].filter(Boolean).join(' · '),
+        } : null);
+        setEvents([]);
+        setPlayers([]);
+        setLineups([]);
+        setLineupDraft({});
+        setEventForm({ eventType: 'goal', playerId: '', minute: '', team: teamMap[venueMatchData?.home_team_id]?.team_name || '', description: '' });
+        setMessage({ type: 'success', text: 'Match Center venue tournament aktif. Metadata pertandingan sudah tersinkron, sementara lineup/event detail masih read-only sampai engine lintas source selesai.' });
+        setLoading(false);
+        return;
+      }
+
       const [{ data: tourData }, { data: scheduleData }, { data: eventData }, { data: playerData }, { data: lineupData }] = await Promise.all([
         (async () => {
           let result = await supabase
@@ -138,7 +203,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
     } finally {
       setLoading(false);
     }
-  }, [hasMatchContext, matchEntryId, tournamentId]);
+  }, [hasMatchContext, isVenueTournamentSource, matchContext?.courtId, matchContext?.courtName, matchContext?.court_id, matchContext?.court_name, matchEntryId, tournamentId, venueMatchId, venueTournamentId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -272,6 +337,10 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   }, [eventForm.team, events, lineups, players, schedule?.away, schedule?.home, substitutionRules, substitutionState]);
 
   async function saveLineup() {
+    if (!supportsLineupEngine) {
+      setMessage({ type: 'error', text: 'Lineup venue tournament belum memakai engine lineup official lama.' });
+      return;
+    }
     if (!auth?.id || !capabilities.manageLineup) return;
     setSaving(true);
     try {
@@ -304,6 +373,10 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   }
 
   async function addEvent() {
+    if (!supportsEventEngine) {
+      setMessage({ type: 'error', text: 'Input event live untuk venue tournament belum memakai engine match event official lama.' });
+      return;
+    }
     if (!auth?.id || !eventForm.playerId || !capabilities.recordEvents) return;
     setSaving(true);
     try {
@@ -370,6 +443,10 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   }
 
   async function removeEvent(eventId) {
+    if (!supportsEventEngine) {
+      setMessage({ type: 'error', text: 'Feed event venue tournament masih read-only.' });
+      return;
+    }
     if (!capabilities.recordEvents) return;
     try {
       await supabase.from('match_events').delete().eq('id', eventId);
@@ -379,7 +456,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
     }
   }
 
-  const canOpenReport = Boolean(tournamentId && matchEntryId);
+  const canOpenReport = !isVenueTournamentSource && Boolean(tournamentId && matchEntryId);
 
   if (!capabilities.openMatchCenter) {
     return (
@@ -440,6 +517,12 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
       {message && (
         <div className={`mb-6 rounded-2xl border px-4 py-3 text-sm font-semibold ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
           {message.text}
+        </div>
+      )}
+
+      {isVenueTournamentSource && (
+        <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          Match Center ini sudah membaca konteks venue tournament secara native. Fitur lineup, event live, laporan resmi, dan statistik masih dibatasi sampai engine lintas source selesai disatukan.
         </div>
       )}
 
@@ -515,7 +598,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
           <div>
             <div className="text-xs uppercase tracking-[0.22em] font-black text-neutral-400 mb-1">Pertandingan</div>
             <div className="text-sm text-neutral-500 mt-2">
-              {tournament?.name || matchContext?.tournamentName || 'Turnamen'} · Match {matchEntryId}
+              {tournament?.name || matchContext?.tournamentName || 'Turnamen'} · Match {isVenueTournamentSource ? venueMatchId : matchEntryId}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -549,14 +632,14 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
               <div className="font-display text-2xl text-neutral-900">Approve starting eleven</div>
             </div>
             <div className="ml-auto">
-              <ActionButton onClick={saveLineup} loading={saving} disabled={!capabilities.manageLineup}>
+              <ActionButton onClick={saveLineup} loading={saving} disabled={!capabilities.manageLineup || !supportsLineupEngine}>
                 <Save size={14} /> Simpan Lineup
               </ActionButton>
             </div>
           </div>
 
           {players.length === 0 ? (
-            <EmptyState icon={Users} title="Belum ada player tournament" description="Tambahkan player melalui turnamen atau roster." />
+            <EmptyState icon={Users} title={isVenueTournamentSource ? 'Lineup venue tournament belum tersambung' : 'Belum ada player tournament'} description={isVenueTournamentSource ? 'Source venue tournament sudah terbuka, tetapi roster player belum masuk ke engine lineup official.' : 'Tambahkan player melalui turnamen atau roster.'} />
           ) : (
             <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
               {players.map((player) => {
@@ -621,13 +704,13 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
             </Field>
 
             <div className="flex flex-wrap gap-3 justify-end pt-1">
-              <ActionButton onClick={addEvent} loading={saving} disabled={!eventForm.playerId || !capabilities.recordEvents}>
+              <ActionButton onClick={addEvent} loading={saving} disabled={!eventForm.playerId || !capabilities.recordEvents || !supportsEventEngine}>
                 <Save size={14} /> Simpan Event
               </ActionButton>
-              <ActionButton variant="outline" onClick={() => onNav('match-report', matchContext)} disabled={!canOpenReport || !capabilities.openMatchReport}>
+              <ActionButton variant="outline" onClick={() => onNav('match-report', matchContext)} disabled={!canOpenReport || !capabilities.openMatchReport || !supportsAdvancedReports}>
                 Buka Laporan <ArrowRight size={14} />
               </ActionButton>
-              <ActionButton variant="ghost" onClick={() => onNav('match-statistics', matchContext)} disabled={!canOpenReport || !capabilities.openMatchStatistics}>
+              <ActionButton variant="ghost" onClick={() => onNav('match-statistics', matchContext)} disabled={!canOpenReport || !capabilities.openMatchStatistics || !supportsAdvancedReports}>
                 Statistik <ArrowRight size={14} />
               </ActionButton>
             </div>
@@ -647,7 +730,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
         {loading ? (
           <div className="space-y-3">{[...Array(4)].map((_, index) => <div key={index} className="h-20 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
         ) : events.length === 0 ? (
-          <EmptyState icon={Activity} title="Belum ada event" description="Input event pertandingan akan muncul di sini." />
+          <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Feed venue tournament belum tersambung' : 'Belum ada event'} description={isVenueTournamentSource ? 'Timeline event untuk source venue tournament akan muncul di sini setelah engine event lintas source selesai.' : 'Input event pertandingan akan muncul di sini.'} />
         ) : (
           <div className="space-y-2">
             {events.map((event) => (
@@ -674,10 +757,10 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
       </div>
 
       <div className="mt-6 flex flex-wrap gap-3 justify-end">
-        <ActionButton variant="outline" onClick={() => onNav('match-report', matchContext)} disabled={!capabilities.openMatchReport}>
+        <ActionButton variant="outline" onClick={() => onNav('match-report', matchContext)} disabled={!capabilities.openMatchReport || !supportsAdvancedReports}>
           Buka Laporan <ArrowRight size={14} />
         </ActionButton>
-        <ActionButton variant="ghost" onClick={() => onNav('match-statistics', matchContext)} disabled={!capabilities.openMatchStatistics}>
+        <ActionButton variant="ghost" onClick={() => onNav('match-statistics', matchContext)} disabled={!capabilities.openMatchStatistics || !supportsAdvancedReports}>
           Buka Statistik <ArrowRight size={14} />
         </ActionButton>
       </div>
