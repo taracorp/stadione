@@ -227,6 +227,44 @@ export const useMembership = () => {
     []
   );
 
+  /**
+   * Get active membership for a customer by phone number (for POS walk-in use)
+   */
+  const getMembershipByPhone = useCallback(async (phone, venueId) => {
+    if (!phone || !venueId) return null;
+    try {
+      const { data, error } = await supabase
+        .rpc('get_membership_by_phone', {
+          p_phone: phone.trim(),
+          p_venue_id: venueId,
+        });
+      if (error) throw error;
+      return data?.[0] || null;
+    } catch (err) {
+      console.error('Error fetching membership by phone:', err);
+      return null;
+    }
+  }, []);
+
+  /**
+   * Get available bonus hours for a customer by phone number (for POS walk-in use)
+   */
+  const getBonusHoursByPhone = useCallback(async (phone, venueId) => {
+    if (!phone || !venueId) return [];
+    try {
+      const { data, error } = await supabase
+        .rpc('get_bonus_hours_by_phone', {
+          p_phone: phone.trim(),
+          p_venue_id: venueId,
+        });
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      console.error('Error fetching bonus hours by phone:', err);
+      return [];
+    }
+  }, []);
+
   return {
     getActiveMembership,
     calculateDiscount,
@@ -235,5 +273,7 @@ export const useMembership = () => {
     hasPriorityBooking,
     getAvailableBonusHours,
     useBonusHour,
+    getMembershipByPhone,
+    getBonusHoursByPhone,
   };
 };

@@ -153,7 +153,7 @@ export default function VenueCalendarPage({ venue }) {
         <p className="text-neutral-500 text-sm mt-1">Lihat jadwal per tanggal untuk setiap court secara cepat.</p>
       </div>
 
-      <div className="rounded-3xl border border-neutral-200 bg-white p-4 grid md:grid-cols-3 gap-3">
+      <div className="rounded-3xl border border-neutral-200 bg-white p-4 grid md:grid-cols-4 gap-3">
         <Field label="Tanggal">
           <input type="date" className={inputCls} value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
         </Field>
@@ -172,6 +172,15 @@ export default function VenueCalendarPage({ venue }) {
           <div>
             <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Total Booking</p>
             <p className="text-2xl font-display text-neutral-900">{filteredBookings.length}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3 col-span-full md:col-span-1">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-lg">👑</div>
+          <div>
+            <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Member Discount</p>
+            <p className="text-2xl font-display text-neutral-900">
+              {Object.keys(discountInfo).filter(id => filteredBookings.some(b => b.id === id)).length}
+            </p>
           </div>
         </div>
       </div>

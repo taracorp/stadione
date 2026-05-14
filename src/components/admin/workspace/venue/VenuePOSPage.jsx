@@ -34,7 +34,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   // venueId can come from props or from parent context
   const venueId = propVenueId;
   const { user } = useContext(DataContext);
-  const { calculateDiscount, applyDiscountToBooking, earnRewardPoints } = useMembership();
+  const { calculateDiscount, applyDiscountToBooking, earnRewardPoints, getMembershipByPhone, getBonusHoursByPhone, useBonusHour } = useMembership();
   
   const [activeShift, setActiveShift] = useState(null);
   const [showStartShiftModal, setShowStartShiftModal] = useState(false);
@@ -60,6 +60,10 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   const [courts, setCourts] = useState([]);
   const [bookingData, setBookingData] = useState(null);
   const [membershipDiscount, setMembershipDiscount] = useState(null);
+  const [customerMembership, setCustomerMembership] = useState(null);
+  const [availableBonusHours, setAvailableBonusHours] = useState([]);
+  const [selectedBonusHourId, setSelectedBonusHourId] = useState(null);
+  const [bonusHoursToUse, setBonusHoursToUse] = useState(0);
 
   // Fetch active shift
   useEffect(() => {
@@ -255,14 +259,33 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
       // Store booking data for payment
       setBookingData(booking[0]);
       
-      // Check for membership and calculate discount
+      // Check for membership and calculate discount + bonus hours by customer phone
       try {
-        const discountInfo = await calculateDiscount(venueId, totalPrice);
+        const [discountInfo, membershipInfo] = await Promise.all([
+          calculateDiscount(venueId, totalPrice),
+          walkInForm.customerPhone 
+            ? getMembershipByPhone(walkInForm.customerPhone, venueId)
+            : Promise.resolve(null),
+        ]);
         setMembershipDiscount(discountInfo);
+        setCustomerMembership(membershipInfo);
+
+        // Fetch bonus hours if membership found
+        if (membershipInfo && walkInForm.customerPhone) {
+          const bonusHrs = await getBonusHoursByPhone(walkInForm.customerPhone, venueId);
+          setAvailableBonusHours(bonusHrs);
+        } else {
+          setAvailableBonusHours([]);
+        }
       } catch (err) {
-        console.error('Error calculating discount:', err);
+        console.error('Error fetching membership info:', err);
         setMembershipDiscount(null);
+        setCustomerMembership(null);
+        setAvailableBonusHours([]);
       }
+      // Reset bonus hour selection
+      setSelectedBonusHourId(null);
+      setBonusHoursToUse(0);
       
       setShowWalkInForm(false);
       setShowPaymentModal(true);
@@ -293,8 +316,20 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
       if (!bookingData || !activeShift) return;
 
       const paymentMethod = walkInForm.paymentMethod;
-      // Use final price from membershipDiscount if available
-      const finalPrice = membershipDiscount?.final_price || bookingData.total_price;
+      // Chain: base → membership discount → bonus hour deduction
+      const afterDiscount = membershipDiscount?.final_price || bookingData.total_price;
+
+      // Calculate bonus hour deduction
+      let bonusDeduction = 0;
+      if (selectedBonusHourId && bonusHoursToUse > 0) {
+        const selectedCourt = courts.find(c => c.id === walkInForm.courtId);
+        const hourlyRate = selectedCourt?.price_per_hour || 0;
+        // Cap bonus hours to actual booking duration
+        const actualHoursToUse = Math.min(bonusHoursToUse, bookingData.duration_hours);
+        bonusDeduction = Math.min(hourlyRate * actualHoursToUse, afterDiscount);
+      }
+
+      const finalPrice = Math.max(0, afterDiscount - bonusDeduction);
       let amount = finalPrice;
 
       // Validate split payment
@@ -312,14 +347,14 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
 
       const { data: userData } = await supabase.auth.getUser();
 
-      // Create payment with discounted amount
+      // Create payment with discounted + bonus-reduced amount
       const { data: payment, error: paymentErr } = await supabase
         .from('venue_payments')
         .insert({
           booking_id: bookingData.id,
           shift_id: activeShift.id,
           amount,
-          method: paymentMethod,
+          method: amount === 0 ? 'cash' : paymentMethod,
           split_cash: paymentMethod === 'split' ? parseFloat(walkInForm.splitCash || 0) : null,
           split_qris: paymentMethod === 'split' ? parseFloat(walkInForm.splitQris || 0) : null,
           split_transfer: paymentMethod === 'split' ? parseFloat(walkInForm.splitTransfer || 0) : null,
@@ -335,14 +370,13 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
         .from('venue_bookings')
         .update({ 
           status: 'paid',
-          // Update price if discount was applied
-          ...(membershipDiscount?.discount_percent > 0 && { total_price: finalPrice })
+          ...(finalPrice !== bookingData.total_price && { total_price: finalPrice }),
         })
         .eq('id', bookingData.id);
 
       if (updateErr) throw updateErr;
 
-      // If membership discount was applied, log it
+      // Log membership discount if applied
       if (membershipDiscount?.discount_percent > 0) {
         await applyDiscountToBooking(
           bookingData.id,
@@ -352,22 +386,38 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
         );
       }
 
-      // Create invoice with final price
+      // Apply bonus hours if used
+      if (selectedBonusHourId && bonusHoursToUse > 0) {
+        const actualHoursToUse = Math.min(bonusHoursToUse, bookingData.duration_hours);
+        await useBonusHour(selectedBonusHourId, bookingData.id, actualHoursToUse);
+      }
+
+      // Create invoice
       const invoiceNumber = `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.random()).slice(2, 5)}`;
+      const selectedCourt = courts.find(c => c.id === walkInForm.courtId);
+      const invoiceItems = [
+        {
+          description: `${selectedCourt?.name || 'Court'} - ${bookingData.duration_hours}jam${membershipDiscount?.discount_percent > 0 ? ` (${membershipDiscount.discount_percent}% member diskon)` : ''}`,
+          quantity: 1,
+          unit_price: selectedCourt?.price_per_hour || 0,
+          total: bookingData.total_price,
+        },
+      ];
+      if (bonusDeduction > 0) {
+        invoiceItems.push({
+          description: `Bonus Hours Redemption (${bonusHoursToUse} jam)`,
+          quantity: 1,
+          unit_price: -bonusDeduction,
+          total: -bonusDeduction,
+        });
+      }
       const { error: invoiceErr } = await supabase
         .from('venue_invoices')
         .insert({
           booking_id: bookingData.id,
           payment_id: payment[0].id,
           invoice_number: invoiceNumber,
-          items: [
-            {
-              description: `${courts.find(c => c.id === walkInForm.courtId)?.name || 'Court'} - ${bookingData.duration_hours}jam${membershipDiscount?.discount_percent > 0 ? ` (${membershipDiscount.discount_percent}% diskon)` : ''}`,
-              quantity: 1,
-              unit_price: courts.find(c => c.id === walkInForm.courtId)?.price_per_hour || 0,
-              total: finalPrice,
-            },
-          ],
+          items: invoiceItems,
           subtotal: bookingData.total_price,
           tax: 0,
           total: finalPrice,
@@ -379,38 +429,33 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
 
       if (invoiceErr) throw invoiceErr;
 
-      // Earn reward points if membership exists
-      if (membershipDiscount?.tier_name) {
+      // Earn reward points if membership exists (only on amount paid, not bonus-covered part)
+      if ((customerMembership?.membership_id || membershipDiscount?.tier_name) && finalPrice > 0) {
         try {
-          // Try to find the customer's membership to log points
-          const { data: membershipData } = await supabase
-            .from('customer_memberships')
-            .select('id')
-            .eq('customer_id', userData.user.id)
-            .eq('venue_id', venueId)
-            .eq('status', 'active')
-            .single();
-
-          if (membershipData) {
-            await earnRewardPoints(
-              membershipData.id,
-              bookingData.id,
-              finalPrice,
-              'Reward points earned from booking'
-            );
+          const membershipId = customerMembership?.membership_id;
+          if (membershipId) {
+            await earnRewardPoints(membershipId, bookingData.id, finalPrice, 'Reward points earned from booking');
           }
         } catch (err) {
           console.error('Error earning reward points:', err);
-          // Don't fail the payment if points earning fails
         }
       }
+
+      // Build success message
+      const savingsParts = [];
+      if (membershipDiscount?.discount_percent > 0) savingsParts.push(`Diskon: Rp ${membershipDiscount.discount_amount.toLocaleString('id-ID')}`);
+      if (bonusDeduction > 0) savingsParts.push(`Bonus Hours: Rp ${bonusDeduction.toLocaleString('id-ID')}`);
+      const savingsMsg = savingsParts.length > 0 ? ` (${savingsParts.join(', ')})` : '';
 
       setShowPaymentModal(false);
       setBookingData(null);
       setMembershipDiscount(null);
-      setToast({ type: 'success', message: `Pembayaran berhasil! Invoice: ${invoiceNumber}${membershipDiscount?.discount_percent > 0 ? ` (Diskon: Rp ${membershipDiscount.discount_amount.toLocaleString('id-ID')})` : ''}` });
+      setCustomerMembership(null);
+      setAvailableBonusHours([]);
+      setSelectedBonusHourId(null);
+      setBonusHoursToUse(0);
+      setToast({ type: 'success', message: `Pembayaran berhasil! Invoice: ${invoiceNumber}${savingsMsg}` });
 
-      // Reload active shift to get updated totals
       loadActiveShift();
     } catch (err) {
       console.error('Error processing payment:', err);
@@ -648,6 +693,90 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
                 </div>
               </div>
             )}
+
+            {/* Bonus Hours Redemption */}
+            {availableBonusHours.length > 0 && (
+              <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200">
+                <div className="text-sm font-semibold text-blue-900 mb-2">⏰ Bonus Hours Tersedia</div>
+                <div className="space-y-2 mb-3">
+                  {availableBonusHours.map(bh => (
+                    <label key={bh.bonus_hour_id} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="bonusHour"
+                        value={bh.bonus_hour_id}
+                        checked={selectedBonusHourId === bh.bonus_hour_id}
+                        onChange={() => {
+                          setSelectedBonusHourId(bh.bonus_hour_id);
+                          // Default to max usable hours (capped to available & booking duration)
+                          const maxHours = bookingData ? Math.min(bh.hours_remaining, bookingData.duration_hours) : bh.hours_remaining;
+                          setBonusHoursToUse(Math.floor(maxHours));
+                        }}
+                        className="text-blue-600"
+                      />
+                      <span className="text-sm text-blue-800">
+                        {bh.hours_remaining} jam tersisa — kedaluwarsa {new Date(bh.expiration_date).toLocaleDateString('id-ID')}
+                      </span>
+                    </label>
+                  ))}
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="bonusHour"
+                      value=""
+                      checked={selectedBonusHourId === null}
+                      onChange={() => { setSelectedBonusHourId(null); setBonusHoursToUse(0); }}
+                      className="text-blue-600"
+                    />
+                    <span className="text-sm text-blue-800">Tidak pakai bonus hours</span>
+                  </label>
+                </div>
+                {selectedBonusHourId && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-semibold text-blue-900">Jam yang dipakai:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={bookingData ? Math.min(
+                        availableBonusHours.find(bh => bh.bonus_hour_id === selectedBonusHourId)?.hours_remaining || 0,
+                        bookingData.duration_hours
+                      ) : 0}
+                      step="0.5"
+                      value={bonusHoursToUse}
+                      onChange={(e) => setBonusHoursToUse(parseFloat(e.target.value) || 0)}
+                      className="border rounded-lg px-3 py-1 w-20 text-center"
+                    />
+                    <span className="text-sm text-blue-700">
+                      {(() => {
+                        const selectedCourt = courts.find(c => c.id === walkInForm.courtId);
+                        const hourlyRate = selectedCourt?.price_per_hour || 0;
+                        const afterDiscount = membershipDiscount?.final_price || bookingData?.total_price || 0;
+                        const deduction = Math.min(hourlyRate * bonusHoursToUse, afterDiscount);
+                        return `= -Rp ${deduction.toLocaleString('id-ID')}`;
+                      })()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Price Summary */}
+            {(membershipDiscount?.discount_percent > 0 || (selectedBonusHourId && bonusHoursToUse > 0)) && (() => {
+              const selectedCourt = courts.find(c => c.id === walkInForm.courtId);
+              const hourlyRate = selectedCourt?.price_per_hour || 0;
+              const afterDiscount = membershipDiscount?.final_price || bookingData?.total_price || 0;
+              const bonusDeduction = selectedBonusHourId
+                ? Math.min(hourlyRate * bonusHoursToUse, afterDiscount)
+                : 0;
+              const finalAmt = Math.max(0, afterDiscount - bonusDeduction);
+              return (
+                <div className="bg-gray-900 text-white rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">Total yang harus dibayar</div>
+                  <div className="text-2xl font-bold">Rp {finalAmt.toLocaleString('id-ID')}</div>
+                  {finalAmt === 0 && <div className="text-xs text-green-400 mt-1">✓ Ditanggung penuh oleh benefit membership</div>}
+                </div>
+              );
+            })()}
 
             <div>
               <label className="block text-sm font-semibold mb-2">Metode Pembayaran</label>
