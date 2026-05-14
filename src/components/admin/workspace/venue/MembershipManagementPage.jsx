@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import AdminLayout from '../../AdminLayout';
 import { DataContext } from '../../../../context/DataContext';
-import supabase from '../../../../config/supabase';
+import { supabase } from '../../../../config/supabase';
 
 export default function MembershipManagementPage({ venueId }) {
   const { user } = useContext(DataContext);

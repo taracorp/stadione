@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { DataContext } from '../../../../context/DataContext';
-import supabase from '../../../../config/supabase';
+import { supabase } from '../../../../config/supabase';
 
 export default function MembershipEnrollmentPage({ venueId, onSuccess }) {
   const { user } = useContext(DataContext);

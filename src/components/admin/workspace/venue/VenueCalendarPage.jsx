@@ -45,12 +45,6 @@ function formatShortDate(dateKey) {
   return new Date(`${dateKey}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
 }
 
-function formatLongDate(dateKey) {
-  return new Date(`${dateKey}T00:00:00`).toLocaleDateString('id-ID', {
-    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-  });
-}
-
 function formatTime(timeValue) {
   return String(timeValue || '').slice(0, 5);
 }
@@ -98,7 +92,6 @@ export default function VenueCalendarPage({ venue }) {
     const first = parseDate(startOfMonth(selectedDate));
     const startOffset = (first.getDay() + 6) % 7;
     const days = [];
-
     for (let i = 0; i < startOffset; i += 1) days.push(null);
 
     const cursor = parseDate(startOfMonth(selectedDate));
@@ -107,7 +100,6 @@ export default function VenueCalendarPage({ venue }) {
       days.push(toDateKey(cursor));
       cursor.setDate(cursor.getDate() + 1);
     }
-
     return days;
   }, [selectedDate]);
 
@@ -131,10 +123,9 @@ export default function VenueCalendarPage({ venue }) {
     return map;
   }, [filteredBookings, visibleDays]);
 
-  const totalDiscountBookings = useMemo(
-    () => Object.keys(discountInfo).filter((id) => filteredBookings.some((booking) => booking.id === id)).length,
-    [discountInfo, filteredBookings],
-  );
+  const totalDiscountBookings = useMemo(() => (
+    Object.keys(discountInfo).filter((id) => filteredBookings.some((booking) => String(booking.id) === String(id))).length
+  ), [discountInfo, filteredBookings]);
 
   function showToast(type, message) {
     setToast({ type, message });
@@ -246,12 +237,7 @@ export default function VenueCalendarPage({ venue }) {
 
       const { error } = await supabase
         .from('venue_bookings')
-        .update({
-          booking_date: targetDate,
-          court_id: targetCourtId,
-          start_time: targetStartTime,
-          end_time: targetEndTime,
-        })
+        .update({ booking_date: targetDate, court_id: targetCourtId, start_time: targetStartTime, end_time: targetEndTime })
         .eq('id', booking.id);
 
       if (error) throw error;
@@ -303,13 +289,7 @@ export default function VenueCalendarPage({ venue }) {
 
   async function handleDrop(targetDate, targetCourtId, booking) {
     if (!booking) return;
-    await rescheduleBooking(
-      booking,
-      targetDate,
-      targetCourtId,
-      formatTime(booking.start_time),
-      formatTime(booking.end_time),
-    );
+    await rescheduleBooking(booking, targetDate, targetCourtId, formatTime(booking.start_time), formatTime(booking.end_time));
   }
 
   if (!venue?.id) {
@@ -393,7 +373,6 @@ export default function VenueCalendarPage({ venue }) {
         <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">Kalender</p>
         <h1 className="font-display text-3xl lg:text-4xl text-neutral-900">Kalender Booking Venue</h1>
         <p className="text-neutral-500 text-sm mt-1">Weekly, monthly, drag-and-drop rebooking, dan cleanup expired booking otomatis.</p>
-        <p className="text-xs text-blue-700 mt-2">Slot prioritas member: {PRIORITY_SLOT_START}-{PRIORITY_SLOT_END}</p>
       </div>
 
       <div className="rounded-3xl border border-neutral-200 bg-white p-4 space-y-4">
@@ -432,7 +411,6 @@ export default function VenueCalendarPage({ venue }) {
               <option value="checked-in">Checked-in</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
-              <option value="expired">Expired</option>
             </select>
           </Field>
           <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3">
@@ -442,119 +420,42 @@ export default function VenueCalendarPage({ venue }) {
               <p className="text-2xl font-display text-neutral-900">{filteredBookings.length}</p>
             </div>
           </div>
-          <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3">
+          <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3 col-span-full md:col-span-1">
             <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-lg">👑</div>
             <div>
               <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Member Discount</p>
               <p className="text-2xl font-display text-neutral-900">{totalDiscountBookings}</p>
             </div>
           </div>
-          <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center text-lg">⏳</div>
-            <div>
-              <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Expired Cleanup</p>
-              <p className="text-2xl font-display text-neutral-900">Aktif</p>
-            </div>
-          </div>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="space-y-4">
-          {[...Array(4)].map((_, index) => <div key={index} className="h-24 rounded-2xl bg-neutral-100 animate-pulse" />)}
-        </div>
-      ) : courts.length === 0 ? (
-        <EmptyState icon={CalendarDays} title="Belum ada court" description="Tambahkan court agar jadwal bisa ditampilkan di kalender." />
-      ) : view === 'day' ? (
-        <div className="space-y-4">
-          {courts.map((court) => {
-            const courtBookings = dayBookingsByCourt.find((item) => item.court.id === court.id)?.bookings || [];
-            return (
-              <DropZone
-                key={court.id}
-                onDrop={() => {
-                  const booking = bookings.find((item) => item.id === dragBookingId);
-                  if (booking) handleDrop(selectedDate, court.id, booking);
-                }}
-                className="rounded-3xl border border-neutral-200 bg-white p-5"
-              >
-                <div className="flex items-center justify-between gap-4 mb-3">
+        {view === 'day' && (
+          <div className="space-y-4">
+            {dayBookingsByCourt.map(({ court, bookings: courtBookings }) => (
+              <div key={court.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
                   <div>
                     <h2 className="font-display text-2xl text-neutral-900">{court.name}</h2>
                     <p className="text-sm text-neutral-500">{court.sport_type} · Rp {Number(court.price_per_hour || 0).toLocaleString('id-ID')}/jam</p>
                   </div>
                   <StatusBadge status={court.status} />
                 </div>
-
                 {courtBookings.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-neutral-300 px-4 py-5 text-sm text-neutral-500">
-                    Seret booking ke sini untuk pindah ke court {court.name} pada {formatLongDate(selectedDate)}.
-                  </div>
+                  <div className="rounded-2xl border border-dashed border-neutral-300 px-4 py-5 text-sm text-neutral-500">Tidak ada booking untuk court ini pada tanggal {selectedDate}.</div>
                 ) : (
                   <div className="space-y-2">
                     {courtBookings.map((booking) => <BookingCard key={booking.id} booking={booking} />)}
                   </div>
                 )}
-              </DropZone>
-            );
-          })}
-        </div>
-      ) : view === 'week' ? (
-        <div className="overflow-x-auto rounded-3xl border border-neutral-200 bg-white">
-          <div className="min-w-[1100px]">
-            <div className="grid border-b border-neutral-200 bg-neutral-50" style={{ gridTemplateColumns: `180px repeat(${visibleDays.length}, minmax(140px, 1fr))` }}>
-              <div className="p-4 text-xs font-black uppercase tracking-[0.2em] text-neutral-400">Court / Hari</div>
-              {visibleDays.map((day) => (
-                <div key={day} className="p-4 border-l border-neutral-200">
-                  <div className="text-xs font-black uppercase tracking-[0.18em] text-neutral-400">{formatShortDate(day)}</div>
-                  <div className="text-sm font-semibold text-neutral-900 mt-1">{formatLongDate(day)}</div>
-                </div>
-              ))}
-            </div>
-
-            {courts.map((court) => (
-              <div key={court.id} className="grid border-b border-neutral-200 last:border-b-0" style={{ gridTemplateColumns: `180px repeat(${visibleDays.length}, minmax(140px, 1fr))` }}>
-                <div className="p-4 bg-neutral-50 border-r border-neutral-200">
-                  <div className="font-semibold text-neutral-900">{court.name}</div>
-                  <div className="text-xs text-neutral-500 mt-1">{court.sport_type}</div>
-                </div>
-                {visibleDays.map((day) => {
-                  const cellBookings = filteredBookings.filter((booking) => booking.court_id === court.id && booking.booking_date === day);
-                  return (
-                    <DropZone
-                      key={`${court.id}-${day}`}
-                      onDrop={() => {
-                        const booking = bookings.find((item) => item.id === dragBookingId);
-                        if (booking) handleDrop(day, court.id, booking);
-                      }}
-                      className="min-h-[150px] p-2 border-l border-neutral-200 bg-white"
-                    >
-                      <div className="space-y-2">
-                        {cellBookings.map((booking) => <BookingCard key={booking.id} booking={booking} compact />)}
-                      </div>
-                      {cellBookings.length === 0 && <div className="text-[11px] text-neutral-400 px-2 py-3">Drop booking di sini</div>}
-                    </DropZone>
-                  );
-                })}
               </div>
             ))}
           </div>
-        </div>
-      ) : (
-        <div className="rounded-3xl border border-neutral-200 bg-white p-4">
-          <div className="grid grid-cols-7 gap-2 mb-3">
-            {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((day) => (
-              <div key={day} className="text-xs font-black uppercase tracking-[0.2em] text-neutral-400 px-2 py-1">{day}</div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-2">
-            {monthGridDays.map((day, index) => {
-              if (!day) {
-                return <div key={`empty-${index}`} className="min-h-[140px] rounded-2xl bg-neutral-50 border border-neutral-100" />;
-              }
+        )}
 
-              const dayBookings = monthBookingsByDate[day] || [];
-
+        {view === 'week' && (
+          <div className="grid lg:grid-cols-7 gap-3">
+            {visibleDays.map((day) => {
+              const dayBookings = filteredBookings.filter((booking) => booking.booking_date === day);
               return (
                 <DropZone
                   key={day}
@@ -576,8 +477,32 @@ export default function VenueCalendarPage({ venue }) {
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+
+        {view === 'month' && (
+          <div className="grid grid-cols-7 gap-3">
+            {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((label) => (
+              <div key={label} className="text-xs font-bold uppercase tracking-widest text-neutral-400 px-2">{label}</div>
+            ))}
+            {monthGridDays.map((day, index) => {
+              if (!day) return <div key={`empty-${index}`} className="min-h-[120px] rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/50" />;
+              const dayBookings = monthBookingsByDate[day] || [];
+              return (
+                <div key={day} className={`min-h-[120px] rounded-2xl border p-3 ${day === selectedDate ? 'border-emerald-400 bg-emerald-50' : 'border-neutral-200 bg-white'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">{formatShortDate(day)}</span>
+                    <span className="text-[11px] text-neutral-400">{dayBookings.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {dayBookings.slice(0, 2).map((booking) => <BookingCard key={booking.id} booking={booking} compact />)}
+                    {dayBookings.length > 2 && <div className="text-xs text-neutral-500 px-2">+{dayBookings.length - 2} booking lain</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <Modal open={!!editingBooking} onClose={() => setEditingBooking(null)} title="Edit Slot Booking" width="max-w-xl">
         {editingBooking ? (
@@ -613,494 +538,11 @@ export default function VenueCalendarPage({ venue }) {
 
             <div className="flex gap-2 justify-end">
               <ActionButton variant="outline" onClick={() => setEditingBooking(null)}>Batal</ActionButton>
-              <ActionButton onClick={saveReschedule} loading={savingSlot}>Simpan Slot</ActionButton>
+              <ActionButton onClick={() => rescheduleBooking(editingBooking, editForm.booking_date, editForm.court_id, editForm.start_time, editForm.end_time)} loading={savingSlot}>Simpan Slot</ActionButton>
             </div>
           </div>
         ) : null}
       </Modal>
-    </div>
-  );
-
-  async function saveReschedule() {
-    if (!editingBooking) return;
-
-    if (!editForm.booking_date || !editForm.start_time || !editForm.end_time || !editForm.court_id) {
-      showToast('error', 'Tanggal, court, jam mulai, dan jam selesai wajib diisi.');
-      return;
-    }
-
-    if (editForm.end_time <= editForm.start_time) {
-      showToast('error', 'Jam selesai harus lebih besar dari jam mulai.');
-      return;
-    }
-
-    setSavingSlot(true);
-    try {
-      const conflict = await findConflict(editingBooking.id, editForm.booking_date, editForm.court_id, editForm.start_time, editForm.end_time);
-      if (conflict) {
-        showToast('error', `Slot bentrok dengan booking ${conflict.customer_name} (${formatTime(conflict.start_time)} - ${formatTime(conflict.end_time)}).`);
-        return;
-      }
-
-      const { error } = await supabase
-        .from('venue_bookings')
-        .update({
-          booking_date: editForm.booking_date,
-          court_id: editForm.court_id,
-          start_time: editForm.start_time,
-          end_time: editForm.end_time,
-        })
-        .eq('id', editingBooking.id);
-
-      if (error) throw error;
-
-      showToast('success', 'Slot booking berhasil diubah.');
-      setEditingBooking(null);
-      await load();
-    } catch (error) {
-      const rawMessage = error?.message || 'Gagal mengubah slot booking.';
-      const mappedMessage = rawMessage.includes('Court sudah dibooking')
-        ? 'Reschedule ditolak: slot bentrok dengan booking lain.'
-        : rawMessage;
-      showToast('error', mappedMessage);
-    } finally {
-      setSavingSlot(false);
-    }
-  }
-}import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Clock3, Edit3 } from 'lucide-react';
-import { ActionButton, EmptyState, Field, Modal, StatusBadge, inputCls, selectCls } from '../../AdminLayout.jsx';
-import { supabase } from '../../../../config/supabase.js';
-
-const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'checked-in'];
-
-export default function VenueCalendarPage({ venue }) {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
-  const [bookings, setBookings] = useState([]);
-  const [courts, setCourts] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
-  const [editingBooking, setEditingBooking] = useState(null);
-  const [editForm, setEditForm] = useState({ booking_date: '', start_time: '', end_time: '', court_id: '' });
-  const [savingSlot, setSavingSlot] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [discountInfo, setDiscountInfo] = useState({});
-    const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'checked-in'];
-    const VIEW_LABELS = { day: 'Harian', week: 'Mingguan', month: 'Bulanan' };
-
-    function toDateKey(date) {
-      return new Date(date).toISOString().slice(0, 10);
-    }
-
-    function parseDate(dateKey) {
-      return new Date(`${dateKey}T00:00:00`);
-    }
-
-    function addDays(dateKey, days) {
-      const date = parseDate(dateKey);
-      date.setDate(date.getDate() + days);
-      return toDateKey(date);
-    }
-
-    function startOfWeek(dateKey) {
-      const date = parseDate(dateKey);
-      const offset = (date.getDay() + 6) % 7;
-      date.setDate(date.getDate() - offset);
-      return toDateKey(date);
-    }
-
-    function endOfWeek(dateKey) {
-      return addDays(startOfWeek(dateKey), 6);
-    }
-
-    function startOfMonth(dateKey) {
-      const date = parseDate(dateKey);
-      date.setDate(1);
-      return toDateKey(date);
-    }
-
-    function endOfMonth(dateKey) {
-      const date = parseDate(dateKey);
-      date.setMonth(date.getMonth() + 1, 0);
-      return toDateKey(date);
-    }
-
-    function formatShortDate(dateKey) {
-      return new Date(`${dateKey}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
-    }
-
-    function formatLongDate(dateKey) {
-      return new Date(`${dateKey}T00:00:00`).toLocaleDateString('id-ID', {
-        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-      });
-    }
-
-    function formatTime(timeValue) {
-      return String(timeValue || '').slice(0, 5);
-    }
-
-    function overlaps(aStart, aEnd, bStart, bEnd) {
-      return aStart < bEnd && aEnd > bStart;
-    }
-
-    const range = useMemo(() => {
-      if (view === 'day') return { start: selectedDate, end: selectedDate };
-      if (view === 'month') return { start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) };
-      return { start: startOfWeek(selectedDate), end: endOfWeek(selectedDate) };
-    }, [selectedDate, view]);
-
-    const visibleDays = useMemo(() => {
-      const days = [];
-      let cursor = range.start;
-      while (cursor <= range.end) {
-        days.push(cursor);
-        cursor = addDays(cursor, 1);
-      }
-      return days;
-    }, [range.end, range.start]);
-
-    const monthGridDays = useMemo(() => {
-      const first = parseDate(startOfMonth(selectedDate));
-      const startOffset = (first.getDay() + 6) % 7;
-      const days = [];
-
-      for (let i = 0; i < startOffset; i += 1) days.push(null);
-
-      const cursor = parseDate(startOfMonth(selectedDate));
-      const monthEnd = parseDate(endOfMonth(selectedDate));
-      while (cursor <= monthEnd) {
-        days.push(toDateKey(cursor));
-        cursor.setDate(cursor.getDate() + 1);
-      }
-
-      return days;
-    }, [selectedDate]);
-
-    const filteredBookings = useMemo(() => {
-      if (statusFilter === 'all') return bookings;
-      return bookings.filter((booking) => booking.status === statusFilter);
-    }, [bookings, statusFilter]);
-
-    const filteredBookingsByCourt = useMemo(() => {
-      return courts.map((court) => ({
-        court,
-        bookings: filteredBookings.filter((booking) => booking.court_id === court.id && booking.booking_date === selectedDate),
-      }));
-    }, [courts, filteredBookings, selectedDate]);
-
-    return (
-      <div className="max-w-7xl mx-auto px-5 lg:px-8 py-8 space-y-6">
-        <div>
-          <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">Kalender</p>
-          <h1 className="font-display text-3xl lg:text-4xl text-neutral-900">Kalender Booking Venue</h1>
-          <p className="text-neutral-500 text-sm mt-1">Weekly, monthly, drag-and-drop rebooking, dan cleanup expired booking otomatis.</p>
-        </div>
-        {/* Additional code for rendering the calendar views */}
-      </div>
-    );
-
-  function showToast(type, message) {
-    setToast({ type, message });
-  }
-
-  useEffect(() => {
-    if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(null), 3200);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  const load = useCallback(async () => {
-    if (!venue?.id || !supabase) return;
-
-    setLoading(true);
-    try {
-      const [bookingResult, courtResult, discountResult] = await Promise.all([
-        supabase.from('venue_bookings').select('*').eq('venue_id', venue.id).eq('booking_date', selectedDate).order('start_time', { ascending: true }),
-        supabase.from('venue_courts').select('*').eq('venue_id', venue.id).order('name', { ascending: true }),
-        supabase.from('membership_discount_log').select('*').in('booking_id', bookingResult?.data?.map(b => b.id) || []),
-      ]);
-
-      setBookings(bookingResult.data || []);
-      setCourts(courtResult.data || []);
-      
-      // Create discount map by booking_id
-      const discountMap = {};
-      (discountResult.data || []).forEach(discount => {
-        discountMap[discount.booking_id] = discount;
-      });
-      setDiscountInfo(discountMap);
-    } catch (error) {
-      console.error('VenueCalendarPage load error:', error.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [venue?.id, selectedDate]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const filteredBookings = useMemo(() => {
-    if (statusFilter === 'all') return bookings;
-    return bookings.filter((booking) => booking.status === statusFilter);
-  }, [bookings, statusFilter]);
-
-  const bookingsByCourt = useMemo(() => {
-    return courts.map((court) => ({
-      court,
-      bookings: filteredBookings.filter((booking) => booking.court_id === court.id),
-    }));
-  }, [courts, filteredBookings]);
-
-  const editConflict = useMemo(() => {
-    if (!editingBooking || !editForm.booking_date || !editForm.start_time || !editForm.end_time || !editForm.court_id) return null;
-    if (editForm.end_time <= editForm.start_time) return null;
-
-    return bookings.find((booking) => {
-      if (booking.id === editingBooking.id) return false;
-      if (!ACTIVE_BOOKING_STATUSES.includes(booking.status)) return false;
-      if (booking.booking_date !== editForm.booking_date) return false;
-      if (booking.court_id !== editForm.court_id) return false;
-      return editForm.start_time < booking.end_time && editForm.end_time > booking.start_time;
-    }) || null;
-  }, [bookings, editingBooking, editForm.booking_date, editForm.start_time, editForm.end_time, editForm.court_id]);
-
-  function openEditSlot(booking) {
-    setEditingBooking(booking);
-    setEditForm({
-      booking_date: booking.booking_date,
-      start_time: booking.start_time?.slice(0, 5) || '',
-      end_time: booking.end_time?.slice(0, 5) || '',
-      court_id: booking.court_id || '',
-    });
-  }
-
-  async function saveReschedule() {
-    if (!editingBooking) return;
-
-    if (!editForm.booking_date || !editForm.start_time || !editForm.end_time || !editForm.court_id) {
-      showToast('error', 'Tanggal, court, jam mulai, dan jam selesai wajib diisi.');
-      return;
-    }
-
-    if (editForm.end_time <= editForm.start_time) {
-      showToast('error', 'Jam selesai harus lebih besar dari jam mulai.');
-      return;
-    }
-
-    if (editConflict) {
-      showToast('error', `Slot bentrok dengan booking ${editConflict.customer_name} (${editConflict.start_time} - ${editConflict.end_time}).`);
-      return;
-    }
-
-    setSavingSlot(true);
-    try {
-      await supabase
-        .from('venue_bookings')
-        .update({
-          booking_date: editForm.booking_date,
-          start_time: editForm.start_time,
-          end_time: editForm.end_time,
-          court_id: editForm.court_id,
-        })
-        .eq('id', editingBooking.id);
-
-      showToast('success', 'Slot booking berhasil diubah.');
-      setEditingBooking(null);
-      await load();
-    } catch (error) {
-      const rawMessage = error?.message || 'Gagal mengubah slot booking.';
-      const mappedMessage = rawMessage.includes('Court sudah dibooking')
-        ? 'Reschedule ditolak: slot bentrok dengan booking lain.'
-        : rawMessage;
-      showToast('error', mappedMessage);
-    } finally {
-      setSavingSlot(false);
-    }
-  }
-
-  if (!venue?.id) {
-    return (
-      <div className="max-w-7xl mx-auto px-5 lg:px-8 py-8">
-        <EmptyState icon={CalendarDays} title="Belum ada venue" description="Daftarkan venue dulu untuk melihat kalender booking." />
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-7xl mx-auto px-5 lg:px-8 py-8 space-y-6">
-      <div>
-        <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">Kalender</p>
-        <h1 className="font-display text-3xl lg:text-4xl text-neutral-900">Kalender Booking Venue</h1>
-        <p className="text-neutral-500 text-sm mt-1">Lihat jadwal per tanggal untuk setiap court secara cepat.</p>
-      </div>
-
-      <div className="rounded-3xl border border-neutral-200 bg-white p-4 grid md:grid-cols-4 gap-3">
-        <Field label="Tanggal">
-          <input type="date" className={inputCls} value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-        </Field>
-        <Field label="Filter Status">
-          <select className={selectCls} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="all">Semua</option>
-            <option value="pending">Pending</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="checked-in">Checked-in</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </Field>
-        <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-neutral-900 text-white flex items-center justify-center"><Clock3 size={16} /></div>
-          <div>
-            <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Total Booking</p>
-            <p className="text-2xl font-display text-neutral-900">{filteredBookings.length}</p>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3 col-span-full md:col-span-1">
-          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-lg">👑</div>
-          <div>
-            <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Member Discount</p>
-            <p className="text-2xl font-display text-neutral-900">
-              {Object.keys(discountInfo).filter(id => filteredBookings.some(b => b.id === id)).length}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {loading ? (
-          [...Array(3)].map((_, index) => <div key={index} className="h-24 rounded-2xl bg-neutral-100 animate-pulse" />)
-        ) : bookingsByCourt.length === 0 ? (
-          <EmptyState icon={CalendarDays} title="Belum ada court" description="Tambahkan court agar jadwal bisa ditampilkan di kalender." />
-        ) : (
-          bookingsByCourt.map(({ court, bookings: courtBookings }) => (
-            <div key={court.id} className="rounded-3xl border border-neutral-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <div>
-                  <h2 className="font-display text-2xl text-neutral-900">{court.name}</h2>
-                  <p className="text-sm text-neutral-500">{court.sport_type} · Rp {Number(court.price_per_hour || 0).toLocaleString('id-ID')}/jam</p>
-                </div>
-                <StatusBadge status={court.status} />
-              </div>
-
-              {courtBookings.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-neutral-300 px-4 py-5 text-sm text-neutral-500">
-                  Tidak ada booking untuk court ini pada tanggal {selectedDate}.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {courtBookings.map((booking) => {
-                    const discount = discountInfo[booking.id];
-                    return (
-                      <div key={booking.id} className={`rounded-2xl border p-4 flex items-center justify-between gap-3 ${discount ? 'border-green-200 bg-green-50' : 'border-neutral-200'}`}>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-neutral-900">{booking.customer_name}</p>
-                            {discount && (
-                              <span className="text-xs font-semibold bg-green-200 text-green-900 px-2 py-1 rounded">
-                                🎁 {discount.discount_percent}% OFF
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-neutral-500">
-                            {booking.start_time} - {booking.end_time} · {booking.booking_type}
-                            {discount && (
-                              <span className="ml-2 text-green-600 font-semibold">
-                                (Rp {discount.discount_amount?.toLocaleString('id-ID')} saved)
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={booking.status} />
-                          <button
-                            type="button"
-                            onClick={() => openEditSlot(booking)}
-                            className="w-9 h-9 rounded-xl border border-neutral-200 flex items-center justify-center hover:border-neutral-900"
-                            title="Edit Slot"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-
-      <Modal open={!!editingBooking} onClose={() => setEditingBooking(null)} title="Edit Slot Booking" width="max-w-xl">
-        {editingBooking ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-              <p className="font-semibold text-neutral-900">{editingBooking.customer_name}</p>
-              <p className="text-sm text-neutral-500">{editingBooking.booking_type} · Status {editingBooking.status}</p>
-            </div>
-
-            {editConflict ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Slot bentrok dengan booking {editConflict.customer_name} ({editConflict.start_time} - {editConflict.end_time}).
-              </div>
-            ) : null}
-
-            <div className="grid md:grid-cols-2 gap-3">
-              <Field label="Tanggal">
-                <input
-                  type="date"
-                  className={inputCls}
-                  value={editForm.booking_date}
-                  onChange={(event) => setEditForm((current) => ({ ...current, booking_date: event.target.value }))}
-                />
-              </Field>
-              <Field label="Court">
-                <select
-                  className={selectCls}
-                  value={editForm.court_id}
-                  onChange={(event) => setEditForm((current) => ({ ...current, court_id: event.target.value }))}
-                >
-                  <option value="">Pilih court</option>
-                  {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Jam Mulai">
-                <input
-                  type="time"
-                  className={inputCls}
-                  value={editForm.start_time}
-                  onChange={(event) => setEditForm((current) => ({ ...current, start_time: event.target.value }))}
-                />
-              </Field>
-              <Field label="Jam Selesai">
-                <input
-                  type="time"
-                  className={inputCls}
-                  value={editForm.end_time}
-                  onChange={(event) => setEditForm((current) => ({ ...current, end_time: event.target.value }))}
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-2 justify-end">
-              <ActionButton variant="outline" onClick={() => setEditingBooking(null)}>Batal</ActionButton>
-              <ActionButton onClick={saveReschedule} loading={savingSlot}>Simpan Slot</ActionButton>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
-
-      {toast ? (
-        <div className={`fixed right-4 top-4 z-[70] max-w-sm rounded-2xl px-4 py-3 text-sm text-white shadow-xl ${toast.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'}`}>
-          {toast.message}
-        </div>
-      ) : null}
     </div>
   );
 }

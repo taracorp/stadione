@@ -2997,6 +2997,10 @@ const ArticleDetail = ({ article, onBack, onSelect, auth, openAuth }) => {
 // ============ COACH DASHBOARD ============
 const CoachDashboard = ({ onBack, auth }) => {
   const [tab, setTab] = useState('overview');
+  const [showQuickRegistration, setShowQuickRegistration] = useState(false);
+  const [showTeamWorkspace, setShowTeamWorkspace] = useState(false);
+  const [workspaceContext, setWorkspaceContext] = useState({ registration: null, team: null });
+  const coachDashboardTournament = TOURNAMENTS.find((item) => String(item.status || '').toLowerCase() === 'pendaftaran') || TOURNAMENTS[0];
 
   const earningsData = [
     { month: 'Nov', amount: 8500000, sessions: 34 },
@@ -3060,7 +3064,11 @@ const CoachDashboard = ({ onBack, auth }) => {
             <button className="px-4 py-2.5 rounded-full text-sm font-bold border-2 border-neutral-300 hover:border-neutral-900 flex items-center gap-2">
               <Edit3 size={14} /> Edit Profil
             </button>
-            <button className="px-4 py-2.5 rounded-full text-sm font-bold text-white flex items-center gap-2" style={{ background: '#E11D2E' }}>
+            <button
+              onClick={() => setShowQuickRegistration(true)}
+              className="px-4 py-2.5 rounded-full text-sm font-bold text-white flex items-center gap-2"
+              style={{ background: '#E11D2E' }}
+            >
               <Plus size={14} /> Buka Slot
             </button>
           </div>
@@ -3339,7 +3347,7 @@ const CoachDashboard = ({ onBack, auth }) => {
         <Suspense fallback={null}>
           <QuickRegistrationModal
             isOpen={showQuickRegistration}
-            tournament={tournament}
+            tournament={coachDashboardTournament}
             auth={auth}
             onClose={() => setShowQuickRegistration(false)}
             onSuccess={(data) => {
@@ -3359,7 +3367,7 @@ const CoachDashboard = ({ onBack, auth }) => {
             isOpen={showTeamWorkspace}
             registration={workspaceContext.registration}
             team={workspaceContext.team}
-            tournament={tournament}
+            tournament={coachDashboardTournament}
             auth={auth}
             onClose={() => setShowTeamWorkspace(false)}
           />

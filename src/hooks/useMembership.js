@@ -1,6 +1,6 @@
 import { useContext, useCallback } from 'react';
 import { DataContext } from '../context/DataContext';
-import supabase from '../config/supabase';
+import { supabase } from '../config/supabase';
 
 /**
  * Hook for membership-related operations

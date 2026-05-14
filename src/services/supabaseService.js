@@ -2164,9 +2164,9 @@ export async function fetchUserActivityHistory(userId, options = {}) {
 
       const { data: quizRows, error: quizError } = await supabase
         .from('quiz_results')
-        .select('id, article_id, created_at, is_correct')
+        .select('id, article_id, answered_at, is_correct')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+        .order('answered_at', { ascending: false })
         .limit(limit);
 
       if (quizError) {
@@ -2182,7 +2182,7 @@ export async function fetchUserActivityHistory(userId, options = {}) {
           activity_metadata: { articleId: row.article_id, source: 'quiz_results_fallback' },
           status: 'completed',
           is_completed: true,
-          activity_date: row.created_at || new Date().toISOString(),
+          activity_date: row.answered_at || new Date().toISOString(),
         }));
       }
 
