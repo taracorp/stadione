@@ -139,6 +139,33 @@ CREATE TRIGGER trg_venue_bookings_no_overlap
   BEFORE INSERT OR UPDATE ON venue_bookings
   FOR EACH ROW EXECUTE FUNCTION prevent_overlapping_venue_bookings();
 
+CREATE OR REPLACE FUNCTION expire_old_venue_bookings(p_venue_id INTEGER DEFAULT NULL)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  expired_count INTEGER;
+BEGIN
+  UPDATE venue_bookings
+  SET status = 'expired',
+      updated_at = NOW()
+  WHERE status IN ('pending', 'confirmed', 'checked-in')
+    AND (
+      booking_date < CURRENT_DATE
+      OR (booking_date = CURRENT_DATE AND end_time <= CURRENT_TIME)
+    )
+    AND (p_venue_id IS NULL OR venue_id = p_venue_id);
+
+  GET DIAGNOSTICS expired_count = ROW_COUNT;
+  RETURN expired_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION expire_old_venue_bookings(INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION expire_old_venue_bookings(INTEGER) TO authenticated;
+
 -- ============================================================
 -- 4. VENUE STAFF
 -- ============================================================
