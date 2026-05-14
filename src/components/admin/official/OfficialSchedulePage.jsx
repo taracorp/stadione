@@ -74,6 +74,11 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
     timekeeper: 'bg-red-100 text-red-700',
   };
 
+  const sourceColors = {
+    Tournament: 'bg-neutral-900 text-white',
+    'Venue Tournament': 'bg-emerald-100 text-emerald-700',
+  };
+
   if (!auth?.id) {
     return (
       <AdminLayout
@@ -150,7 +155,7 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
             {assignments.map((a) => {
               const isSelected = a.id === selectedId;
               const rowCaps = getOfficialMatchCapabilities({ userRoles: auth?.roles || [], assignmentRole: a.role });
-              const canOpenCenter = rowCaps.openMatchCenter && ['assigned', 'confirmed', 'completed'].includes(a.status);
+              const canOpenCenter = rowCaps.openMatchCenter && a.source_ready !== false && ['assigned', 'confirmed', 'completed'].includes(a.status);
 
               return (
                 <div key={a.id} className={`p-4 rounded-2xl border bg-white transition ${isSelected ? 'border-neutral-900 shadow-sm' : 'border-neutral-200 hover:border-neutral-300'}`}>
@@ -162,13 +167,22 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <span className="font-semibold text-neutral-900">{a.tournament_name}</span>
                         <StatusBadge status={a.status} />
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-[0.1em] ${sourceColors[a.source_label] || 'bg-neutral-100 text-neutral-600'}`}>
+                          {a.source_label || 'Tournament'}
+                        </span>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-[0.1em] ${roleColors[a.role] || 'bg-neutral-100 text-neutral-600'}`}>
                           {a.role?.replace(/_/g, ' ')}
                         </span>
                       </div>
                       <div className="text-sm text-neutral-500">{a.tournament_sport} · Match {a.match_entry_id}</div>
+                      {a.round_name && <div className="text-xs text-neutral-400 mt-0.5">{a.round_name}</div>}
                       {a.venue && <div className="text-xs text-neutral-400 mt-0.5"><Calendar size={10} className="inline mr-1" />{a.venue}</div>}
                       {a.notes && <div className="text-xs text-neutral-400 italic mt-0.5">"{a.notes}"</div>}
+                      {a.source_ready === false && (
+                        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-2">
+                          Assignment venue tournament sudah tampil di official workspace. Match Center detail masih mengikuti engine tournament utama.
+                        </div>
+                      )}
                       <div className="text-xs text-neutral-400 mt-1">
                         Ditugaskan {new Date(a.assigned_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </div>
@@ -207,6 +221,10 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
 
                 <div className="space-y-3 text-sm">
                   <div className="rounded-2xl border border-neutral-200 p-3">
+                    <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">Source</div>
+                    <div className="font-semibold text-neutral-800">{selectedAssignment.source_label || 'Tournament'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200 p-3">
                     <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">Status</div>
                     <StatusBadge status={selectedAssignment.status} />
                   </div>
@@ -218,10 +236,21 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                     <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">Venue</div>
                     <div className="font-semibold text-neutral-800">{selectedAssignment.venue || 'Belum diisi'}</div>
                   </div>
+                  {selectedAssignment.round_name && (
+                    <div className="rounded-2xl border border-neutral-200 p-3">
+                      <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">Ronde</div>
+                      <div className="font-semibold text-neutral-800">{selectedAssignment.round_name}</div>
+                    </div>
+                  )}
                   {selectedAssignment.notes && (
                     <div className="rounded-2xl border border-neutral-200 p-3">
                       <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">Catatan Operator</div>
                       <div className="text-neutral-700">{selectedAssignment.notes}</div>
+                    </div>
+                  )}
+                  {selectedAssignment.source_ready === false && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                      Assignment dari venue tournament sudah masuk ke daftar official. Integrasi Match Center detail masih menunggu penyatuan engine event, lineup, dan report lintas source.
                     </div>
                   )}
                 </div>
@@ -233,7 +262,7 @@ export default function OfficialSchedulePage({ auth, onBack, onNav }) {
                     </ActionButton>
                   )}
 
-                  {['assigned', 'confirmed', 'completed'].includes(selectedAssignment.status) && selectedCaps.openMatchCenter && (
+                  {['assigned', 'confirmed', 'completed'].includes(selectedAssignment.status) && selectedCaps.openMatchCenter && selectedAssignment.source_ready !== false && (
                     <ActionButton
                       variant="outline"
                       onClick={() => onNav('match-center', {

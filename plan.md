@@ -32,7 +32,7 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Branch management (create/read/update/delete)
 - [x] **[DONE]** Initial workspace setup experience
 
-## 🔄 Phase 3: Booking & Calendar Stabilization — IN PROGRESS
+## ✅ Phase 3: Booking & Calendar Stabilization — COMPLETE
 
 ### Completed ✅
 - [x] **[DONE]** Branch & Court CRUD (create, read, update, delete)
@@ -44,15 +44,12 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Toast notifications (error & success feedback)
 - [x] **[DONE]** Booking status management (Pending/Paid/Checked-In/Complete)
 
-### In Progress 🔄
-- [ ] **[IN PROGRESS]** Weekly calendar view (scoped but deferred)
-- [ ] **[IN PROGRESS]** Monthly calendar view (scoped but deferred)
+- [x] **[DONE]** Weekly calendar view
+- [x] **[DONE]** Monthly calendar view
+- [x] **[DONE]** Drag-and-drop rebooking
+- [x] **[DONE]** Expired booking auto-cleanup
 
-### Pending ⏳
-- [ ] **[PENDING]** Drag-and-drop rebooking (deferred post-stabilization)
-- [ ] **[PENDING]** Expired booking auto-cleanup
-
-## 🔄 Phase 4: POS & Cashier System — IN PROGRESS
+## ✅ Phase 4: POS & Cashier System — COMPLETE
 
 ### Completed ✅
 - [x] **[DONE]** Walk-in quick booking entry UI
@@ -63,13 +60,11 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Shift totals calculation (cash/QRIS/transfer breakdown)
 - [x] **[DONE]** Deploy supabase-pos-schema.sql to Supabase ✨ NEW
 - [x] **[DONE]** Create POS smoke test (qa-pos-workflow-smoke.sql) ✨ NEW
+- [x] **[DONE]** End-to-end staging smoke test script
+- [x] **[DONE]** Invoice printing system (thermal printer)
+- [x] **[DONE]** Refund management workflow UI
 
-### Pending ⏳
-- [ ] **[PENDING]** End-to-end testing in Vercel staging
-- [ ] **[PENDING]** Invoice printing system (thermal printer)
-- [ ] **[PENDING]** Refund management workflow UI
-
-## ⏳ Phase 5: Membership System — IN PROGRESS
+## ✅ Phase 5: Membership System — COMPLETE
 
 **Database Infrastructure** ✅ [DEPLOYED]
 - [x] **[DONE]** Membership tiers config (Bronze/Silver/Gold/Platinum)
@@ -92,17 +87,27 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Display discount info in payment modal
 - [x] **[DONE]** Log all discounts for audit trail
 
-**Next Steps** ⏳
-- [ ] **[PENDING]** Integrate discount into booking calendar page
-- [ ] **[PENDING]** Priority booking slot reservation (member-only hours)
-- [ ] **[PENDING]** Bonus hour redemption workflow
+- [x] **[DONE]** Integrate discount into booking calendar page
+- [x] **[DONE]** Priority booking slot reservation (member-only hours)
+- [x] **[DONE]** Bonus hour redemption workflow
 
-## ⏳ Phase 6: Tournament & Reservation — PENDING
+## 🔄 Phase 6: Tournament & Reservation — IN PROGRESS
 
-- [ ] **[PENDING]** Tournament booking reservation system
-- [ ] **[PENDING]** Auto court blocking for match days
-- [ ] **[PENDING]** Official workspace integration
-- [ ] **[PENDING]** Match schedule sync engine
+### Completed ✅
+- [x] **[DONE]** Tournament management page (create tournament, teams, bracket, schedule, results)
+- [x] **[DONE]** Tournament booking reservation system
+- [x] **[DONE]** Auto court blocking for match days
+- [x] **[DONE]** Match schedule sync engine
+- [x] **[DONE]** Official workspace assignment/schedule integration for venue tournament source
+- [x] **[DONE]** Reservation sync status badge in schedule list
+- [x] **[DONE]** Explicit match-to-booking relation (`reservation_booking_id`)
+- [x] **[DONE]** Supabase migration deploy for tournament-reservation link
+- [x] **[DONE]** Supabase migration deploy for official assignment venue-tournament link
+- [x] **[DONE]** QA smoke SQL for tournament-reservation sync
+
+### Pending ⏳
+- [ ] **[PENDING]** Unified Match Center/report/statistics engine for venue tournament source
+- [ ] **[PENDING]** End-to-end UI smoke using real scheduled tournament data
 
 ## ⏳ Phase 7: Customer & Staff Management — PENDING
 

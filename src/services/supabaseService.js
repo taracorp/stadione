@@ -1920,7 +1920,7 @@ export async function fetchOfficialAssignments({ userId, status = 'all', throwOn
   try {
     let query = supabase
       .from('match_assignments')
-      .select('id,tournament_id,match_entry_id,display_name,role,status,venue,notes,assigned_at,updated_at')
+      .select('id,tournament_id,match_entry_id,display_name,role,status,venue,notes,assigned_at,updated_at,source_type,venue_tournament_id,venue_match_id')
       .eq('user_id', userId)
       .order('assigned_at', { ascending: false });
 
@@ -1934,7 +1934,23 @@ export async function fetchOfficialAssignments({ userId, status = 'all', throwOn
     const assignments = data || [];
     if (assignments.length === 0) return [];
 
-    const tournamentIds = [...new Set(assignments.map((item) => item.tournament_id).filter(Boolean))];
+    const normalizedAssignments = assignments.map((item) => ({
+      ...item,
+      source_type: item.source_type || 'tournament',
+    }));
+
+    const tournamentIds = [...new Set(normalizedAssignments
+      .filter((item) => item.source_type === 'tournament')
+      .map((item) => item.tournament_id)
+      .filter(Boolean))];
+    const venueTournamentIds = [...new Set(normalizedAssignments
+      .filter((item) => item.source_type === 'venue_tournament')
+      .map((item) => item.venue_tournament_id)
+      .filter(Boolean))];
+    const venueMatchIds = [...new Set(normalizedAssignments
+      .filter((item) => item.source_type === 'venue_tournament')
+      .map((item) => item.venue_match_id)
+      .filter(Boolean))];
 
     let tournamentMap = {};
     if (tournamentIds.length > 0) {
@@ -1950,11 +1966,78 @@ export async function fetchOfficialAssignments({ userId, status = 'all', throwOn
       }, {});
     }
 
-    return assignments.map((item) => ({
-      ...item,
-      tournament_name: tournamentMap[item.tournament_id]?.name || 'Turnamen',
-      tournament_sport: tournamentMap[item.tournament_id]?.sport || '',
-    }));
+    let venueTournamentMap = {};
+    if (venueTournamentIds.length > 0) {
+      const { data: venueTournaments, error: venueTournamentError } = await supabase
+        .from('venue_tournaments')
+        .select('id,name,sport_type')
+        .in('id', venueTournamentIds);
+
+      if (venueTournamentError) throw venueTournamentError;
+      venueTournamentMap = (venueTournaments || []).reduce((acc, item) => {
+        acc[item.id] = item;
+        return acc;
+      }, {});
+    }
+
+    let venueMatchMap = {};
+    let courtMap = {};
+    if (venueMatchIds.length > 0) {
+      const { data: venueMatches, error: venueMatchError } = await supabase
+        .from('venue_tournament_matches')
+        .select('id,round_name,scheduled_date,scheduled_time,court_id')
+        .in('id', venueMatchIds);
+
+      if (venueMatchError) throw venueMatchError;
+      venueMatchMap = (venueMatches || []).reduce((acc, item) => {
+        acc[item.id] = item;
+        return acc;
+      }, {});
+
+      const courtIds = [...new Set((venueMatches || []).map((item) => item.court_id).filter(Boolean))];
+      if (courtIds.length > 0) {
+        const { data: courts, error: courtsError } = await supabase
+          .from('venue_courts')
+          .select('id,name')
+          .in('id', courtIds);
+
+        if (courtsError) throw courtsError;
+        courtMap = (courts || []).reduce((acc, item) => {
+          acc[item.id] = item;
+          return acc;
+        }, {});
+      }
+    }
+
+    return normalizedAssignments.map((item) => {
+      if (item.source_type === 'venue_tournament') {
+        const venueTournament = venueTournamentMap[item.venue_tournament_id] || null;
+        const venueMatch = venueMatchMap[item.venue_match_id] || null;
+        const court = courtMap[venueMatch?.court_id] || null;
+        const venueLabel = item.venue
+          || (venueMatch?.scheduled_date
+            ? `${new Date(venueMatch.scheduled_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}${venueMatch?.scheduled_time ? ` · ${String(venueMatch.scheduled_time).slice(0, 5)}` : ''}${court?.name ? ` · ${court.name}` : ''}`
+            : (court?.name || 'Venue match venue'));
+
+        return {
+          ...item,
+          tournament_name: venueTournament?.name || item.display_name || 'Turnamen Venue',
+          tournament_sport: venueTournament?.sport_type || '',
+          source_label: 'Venue Tournament',
+          source_ready: false,
+          venue: venueLabel,
+          round_name: venueMatch?.round_name || null,
+        };
+      }
+
+      return {
+        ...item,
+        tournament_name: tournamentMap[item.tournament_id]?.name || 'Turnamen',
+        tournament_sport: tournamentMap[item.tournament_id]?.sport || '',
+        source_label: 'Tournament',
+        source_ready: true,
+      };
+    });
   } catch (err) {
     console.error('Error fetching official assignments:', err.message);
     if (throwOnError) throw err;
