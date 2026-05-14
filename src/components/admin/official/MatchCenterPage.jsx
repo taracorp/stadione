@@ -39,7 +39,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   const isVenueTournamentSource = sourceType === 'venue_tournament';
   const supportsLineupEngine = !isVenueTournamentSource;
   const supportsEventEngine = !isVenueTournamentSource;
-  const supportsAdvancedReports = !isVenueTournamentSource;
+  const supportsAdvancedReports = true;
   const hasMatchContext = isVenueTournamentSource
     ? Boolean(venueTournamentId && venueMatchId)
     : Boolean(tournamentId && matchEntryId);
@@ -522,7 +522,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
 
       {isVenueTournamentSource && (
         <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Match Center ini sudah membaca konteks venue tournament secara native. Fitur lineup, event live, laporan resmi, dan statistik masih dibatasi sampai engine lintas source selesai disatukan.
+          Match Center ini sudah membaca konteks venue tournament secara native. Laporan resmi dan statistik sudah source-aware, sementara lineup dan event live masih dibatasi sampai engine lintas source selesai disatukan.
         </div>
       )}
 

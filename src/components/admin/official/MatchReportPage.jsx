@@ -89,9 +89,15 @@ function deriveStatisticsFromEvents(players = [], lineups = [], events = []) {
 }
 
 export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
+  const sourceType = matchContext?.sourceType || matchContext?.source_type || (matchContext?.venueMatchId || matchContext?.venue_match_id ? 'venue_tournament' : 'tournament');
   const tournamentId = matchContext?.tournamentId || matchContext?.tournament_id || null;
   const matchEntryId = matchContext?.matchEntryId || matchContext?.match_entry_id || null;
-  const hasMatchContext = Boolean(tournamentId && matchEntryId);
+  const venueTournamentId = matchContext?.venueTournamentId || matchContext?.venue_tournament_id || null;
+  const venueMatchId = matchContext?.venueMatchId || matchContext?.venue_match_id || matchEntryId || null;
+  const isVenueTournamentSource = sourceType === 'venue_tournament';
+  const hasMatchContext = isVenueTournamentSource
+    ? Boolean(venueTournamentId && venueMatchId)
+    : Boolean(tournamentId && matchEntryId);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -136,6 +142,70 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
 
     setLoading(true);
     try {
+      if (isVenueTournamentSource) {
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueReportData, error: venueReportError }] = await Promise.all([
+          supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
+          supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id,winner_team_id').eq('id', venueMatchId).maybeSingle(),
+          supabase.from('venue_tournament_teams').select('id,team_name').eq('tournament_id', venueTournamentId),
+          supabase.from('venue_match_reports').select('*').eq('venue_match_id', venueMatchId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        ]);
+
+        if (venueTournamentError) throw venueTournamentError;
+        if (venueMatchError) throw venueMatchError;
+        if (venueTeamsError) throw venueTeamsError;
+        if (venueReportError) throw venueReportError;
+
+        let courtName = '';
+        if (venueMatchData?.court_id) {
+          const { data: courtData, error: courtError } = await supabase.from('venue_courts').select('id,name').eq('id', venueMatchData.court_id).maybeSingle();
+          if (courtError) throw courtError;
+          courtName = courtData?.name || '';
+        }
+
+        const teamMap = (venueTeams || []).reduce((acc, item) => {
+          acc[item.id] = item;
+          return acc;
+        }, {});
+        const homeTeamName = teamMap[venueMatchData?.home_team_id]?.team_name || 'Home';
+        const awayTeamName = teamMap[venueMatchData?.away_team_id]?.team_name || 'Away';
+        const venueLabel = [courtName, venueMatchData?.round_name].filter(Boolean).join(' · ');
+
+        setTournament(venueTournamentData ? {
+          id: venueTournamentData.id,
+          name: venueTournamentData.name,
+          sport: venueTournamentData.sport_type,
+          format: venueTournamentData.format,
+          status: venueTournamentData.status,
+        } : null);
+        setSchedule(venueMatchData ? {
+          tournament_id: venueTournamentId,
+          entry_id: String(venueMatchData.id),
+          date: venueMatchData.scheduled_date,
+          home: homeTeamName,
+          away: awayTeamName,
+          score: `${Number(venueMatchData.home_score || 0)}-${Number(venueMatchData.away_score || 0)}`,
+          status: venueMatchData.status,
+          venue: venueLabel || null,
+          home_team_id: venueMatchData.home_team_id,
+          away_team_id: venueMatchData.away_team_id,
+        } : null);
+        setEvents([]);
+        setPlayers([]);
+        setLineups([]);
+        setExistingReport(venueReportData || null);
+        setForm({
+          homeScore: venueReportData?.final_score_home !== undefined && venueReportData?.final_score_home !== null ? String(venueReportData.final_score_home) : String(venueMatchData?.home_score || 0),
+          awayScore: venueReportData?.final_score_away !== undefined && venueReportData?.final_score_away !== null ? String(venueReportData.final_score_away) : String(venueMatchData?.away_score || 0),
+          attendance: venueReportData?.attendance !== null && venueReportData?.attendance !== undefined ? String(venueReportData.attendance) : '',
+          venue: venueReportData?.venue || venueLabel || '',
+          reportText: venueReportData?.report_text || '',
+          incidents: venueReportData?.incidents || '',
+        });
+        setMessage(null);
+        setLoading(false);
+        return;
+      }
+
       const [{ data: tourData }, { data: scheduleData }, { data: eventData }, { data: reportData }, { data: playerData }, { data: lineupData }] = await Promise.all([
         supabase.from('tournaments').select('id,name,sport,format,host,color,status').eq('id', tournamentId).maybeSingle(),
         supabase.from('tournament_schedule').select('tournament_id,entry_id,date,home,away,score,status,venue').eq('tournament_id', tournamentId).eq('entry_id', matchEntryId).maybeSingle(),
@@ -167,13 +237,14 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
     } finally {
       setLoading(false);
     }
-  }, [hasMatchContext, matchEntryId, tournamentId]);
+  }, [hasMatchContext, isVenueTournamentSource, matchEntryId, tournamentId, venueMatchId, venueTournamentId]);
 
   useEffect(() => { load(); }, [load]);
 
   const goalEvents = events.filter((event) => event.event_type === 'goal');
 
   async function syncMatchStatistics() {
+    if (isVenueTournamentSource) return;
     const derived = deriveStatisticsFromEvents(players, lineups, events);
     if (!derived.length) return;
 
@@ -212,6 +283,66 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
     if (!auth?.id) return;
     setSaving(true);
     try {
+      if (isVenueTournamentSource) {
+        const homeScore = Number(form.homeScore || 0);
+        const awayScore = Number(form.awayScore || 0);
+        const winnerTeamId = homeScore > awayScore
+          ? schedule?.home_team_id || null
+          : awayScore > homeScore
+            ? schedule?.away_team_id || null
+            : null;
+
+        const venuePayload = {
+          venue_tournament_id: venueTournamentId,
+          venue_match_id: venueMatchId,
+          submitted_by: auth.id,
+          submitter_name: auth.name,
+          final_score_home: homeScore,
+          final_score_away: awayScore,
+          home_team: schedule?.home || null,
+          away_team: schedule?.away || null,
+          report_text: form.reportText,
+          incidents: form.incidents,
+          attendance: form.attendance ? Number(form.attendance) : null,
+          venue: form.venue || null,
+          status,
+          submitted_at: status === 'submitted' ? new Date().toISOString() : existingReport?.submitted_at || null,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (existingReport?.id) {
+          await supabase.from('venue_match_reports').update(venuePayload).eq('id', existingReport.id);
+        } else {
+          const { data } = await supabase.from('venue_match_reports').insert(venuePayload).select('*').single();
+          setExistingReport(data || null);
+        }
+
+        if (status === 'submitted') {
+          await supabase
+            .from('venue_tournament_matches')
+            .update({
+              home_score: homeScore,
+              away_score: awayScore,
+              winner_team_id: winnerTeamId,
+              status: 'completed',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', venueMatchId);
+
+          if (matchContext?.assignmentId && auth?.id && capabilities.finalizeAssignment) {
+            try {
+              await supabase.from('match_assignments').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', matchContext.assignmentId).eq('user_id', auth.id);
+            } catch (assignmentError) {
+              console.warn('Assignment status update skipped:', assignmentError?.message);
+            }
+          }
+        }
+
+        setMessage({ type: 'success', text: status === 'submitted' ? 'Laporan venue match dikirim. Assignment ditandai selesai.' : 'Draft laporan venue match disimpan.' });
+        await load();
+        return;
+      }
+
       const payload = {
         tournament_id: tournamentId,
         match_entry_id: String(matchEntryId),
@@ -280,6 +411,11 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
 
       {!loading && hasMatchContext ? (
         <>
+      {isVenueTournamentSource && (
+        <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          Laporan source venue tournament sudah aktif. Timeline event official lama belum tersambung, jadi laporan memakai skor akhir, attendance, venue, dan narasi resmi match venue.
+        </div>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard label="Goals" value={loading ? '—' : goalEvents.length} icon={CheckCircle} accent="emerald" />
         <StatCard label="Events" value={loading ? '—' : events.length} icon={Activity} accent="blue" />
@@ -356,7 +492,7 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
           {loading ? (
             <div className="space-y-3">{[...Array(4)].map((_, index) => <div key={index} className="h-20 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
           ) : events.length === 0 ? (
-            <EmptyState icon={Activity} title="Belum ada event" description="Event pertandingan akan tampil di sini sebagai referensi." />
+            <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Timeline venue match belum tersambung' : 'Belum ada event'} description={isVenueTournamentSource ? 'Source venue tournament memakai laporan resmi + skor akhir. Event timeline official lama belum tersedia untuk source ini.' : 'Event pertandingan akan tampil di sini sebagai referensi.'} />
           ) : (
             <div className="space-y-2 max-h-[640px] overflow-auto pr-1">
               {events.map((event) => (

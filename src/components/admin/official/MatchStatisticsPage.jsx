@@ -12,9 +12,15 @@ function normalizeName(value) {
 }
 
 export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext }) {
+  const sourceType = matchContext?.sourceType || matchContext?.source_type || (matchContext?.venueMatchId || matchContext?.venue_match_id ? 'venue_tournament' : 'tournament');
   const tournamentId = matchContext?.tournamentId || matchContext?.tournament_id || null;
   const matchEntryId = matchContext?.matchEntryId || matchContext?.match_entry_id || null;
-  const hasMatchContext = Boolean(tournamentId && matchEntryId);
+  const venueTournamentId = matchContext?.venueTournamentId || matchContext?.venue_tournament_id || null;
+  const venueMatchId = matchContext?.venueMatchId || matchContext?.venue_match_id || matchEntryId || null;
+  const isVenueTournamentSource = sourceType === 'venue_tournament';
+  const hasMatchContext = isVenueTournamentSource
+    ? Boolean(venueTournamentId && venueMatchId)
+    : Boolean(tournamentId && matchEntryId);
 
   const [loading, setLoading] = useState(true);
   const [tournament, setTournament] = useState(null);
@@ -23,6 +29,7 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
   const [stats, setStats] = useState([]);
   const [events, setEvents] = useState([]);
   const [lineups, setLineups] = useState([]);
+  const [report, setReport] = useState(null);
 
   const load = useCallback(async () => {
     if (!hasMatchContext) {
@@ -32,6 +39,57 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
 
     setLoading(true);
     try {
+      if (isVenueTournamentSource) {
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueReportData, error: venueReportError }] = await Promise.all([
+          supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
+          supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id').eq('id', venueMatchId).maybeSingle(),
+          supabase.from('venue_tournament_teams').select('id,team_name').eq('tournament_id', venueTournamentId),
+          supabase.from('venue_match_reports').select('*').eq('venue_match_id', venueMatchId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        ]);
+
+        if (venueTournamentError) throw venueTournamentError;
+        if (venueMatchError) throw venueMatchError;
+        if (venueTeamsError) throw venueTeamsError;
+        if (venueReportError) throw venueReportError;
+
+        let courtName = '';
+        if (venueMatchData?.court_id) {
+          const { data: courtData, error: courtError } = await supabase.from('venue_courts').select('id,name').eq('id', venueMatchData.court_id).maybeSingle();
+          if (courtError) throw courtError;
+          courtName = courtData?.name || '';
+        }
+
+        const teamMap = (venueTeams || []).reduce((acc, item) => {
+          acc[item.id] = item;
+          return acc;
+        }, {});
+
+        setTournament(venueTournamentData ? {
+          id: venueTournamentData.id,
+          name: venueTournamentData.name,
+          sport: venueTournamentData.sport_type,
+          format: venueTournamentData.format,
+          status: venueTournamentData.status,
+        } : null);
+        setSchedule(venueMatchData ? {
+          tournament_id: venueTournamentId,
+          entry_id: String(venueMatchData.id),
+          date: venueMatchData.scheduled_date,
+          home: teamMap[venueMatchData.home_team_id]?.team_name || 'Home',
+          away: teamMap[venueMatchData.away_team_id]?.team_name || 'Away',
+          score: `${Number(venueMatchData.home_score || 0)}-${Number(venueMatchData.away_score || 0)}`,
+          status: venueMatchData.status,
+          venue: [courtName, venueMatchData.round_name].filter(Boolean).join(' · '),
+        } : null);
+        setReport(venueReportData || null);
+        setStats([]);
+        setEvents([]);
+        setPlayers([]);
+        setLineups([]);
+        setLoading(false);
+        return;
+      }
+
       const [{ data: tourData }, { data: scheduleData }, { data: statsData }, { data: eventData }, { data: playerData }, { data: lineupData }] = await Promise.all([
         supabase.from('tournaments').select('id,name,sport,format,host,status').eq('id', tournamentId).maybeSingle(),
         supabase.from('tournament_schedule').select('tournament_id,entry_id,date,home,away,score,status').eq('tournament_id', tournamentId).eq('entry_id', matchEntryId).maybeSingle(),
@@ -47,12 +105,13 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
       setEvents(eventData || []);
       setPlayers(playerData || []);
       setLineups(lineupData || []);
+      setReport(null);
     } catch (err) {
       console.error('MatchStatistics load error:', err);
     } finally {
       setLoading(false);
     }
-  }, [hasMatchContext, matchEntryId, tournamentId]);
+  }, [hasMatchContext, isVenueTournamentSource, matchEntryId, tournamentId, venueMatchId, venueTournamentId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -73,6 +132,30 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
   }, [players]);
 
   const enrichedStats = useMemo(() => {
+    if (isVenueTournamentSource) {
+      const [homeGoals = 0, awayGoals = 0] = String(schedule?.score || '0-0').split('-').map((value) => Number(value || 0));
+      return [
+        {
+          player_label: schedule?.home || 'Home',
+          goals: homeGoals,
+          assists: 0,
+          yellow_cards: 0,
+          red_cards: 0,
+          minutes_played: 90,
+          rating: report?.status === 'submitted' ? 'final' : 'draft',
+        },
+        {
+          player_label: schedule?.away || 'Away',
+          goals: awayGoals,
+          assists: 0,
+          yellow_cards: 0,
+          red_cards: 0,
+          minutes_played: 90,
+          rating: report?.status === 'submitted' ? 'final' : 'draft',
+        },
+      ];
+    }
+
     if (stats.length > 0) {
       return stats
         .map((stat) => ({
@@ -151,7 +234,7 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
       })
       .filter((row) => row.goals || row.assists || row.yellow_cards || row.red_cards || row.minutes_played)
       .sort((a, b) => b.goals - a.goals || b.assists - a.assists);
-  }, [events, lineups, playerMap, players, stats]);
+  }, [events, isVenueTournamentSource, lineups, playerMap, players, report?.status, schedule?.away, schedule?.home, schedule?.score, stats]);
 
   const totalGoals = scoreSummary[schedule?.home || 'Home'] + scoreSummary[schedule?.away || 'Away'];
   const yellowTotal = events.filter((event) => event.event_type === 'yellow_card').length;
@@ -177,11 +260,16 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
 
       {!loading && hasMatchContext ? (
         <>
+      {isVenueTournamentSource && (
+        <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          Statistik source venue tournament sudah memakai skor match + laporan resmi venue. Statistik pemain detail akan menyusul setelah engine roster dan event lintas source disatukan.
+        </div>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard label="Goals" value={loading ? '—' : totalGoals} icon={Target} accent="emerald" />
-        <StatCard label="Yellow Cards" value={loading ? '—' : yellowTotal} icon={ShieldCheck} accent="amber" />
-        <StatCard label="Red Cards" value={loading ? '—' : redTotal} icon={ShieldCheck} accent="red" />
-        <StatCard label="Pemain" value={loading ? '—' : players.length} icon={Users} accent="violet" />
+        <StatCard label={isVenueTournamentSource ? 'Attendance' : 'Yellow Cards'} value={loading ? '—' : (isVenueTournamentSource ? (report?.attendance || '—') : yellowTotal)} icon={ShieldCheck} accent="amber" />
+        <StatCard label={isVenueTournamentSource ? 'Report' : 'Red Cards'} value={loading ? '—' : (isVenueTournamentSource ? (report?.status || 'draft') : redTotal)} icon={ShieldCheck} accent="red" />
+        <StatCard label={isVenueTournamentSource ? 'Tim' : 'Pemain'} value={loading ? '—' : (isVenueTournamentSource ? 2 : players.length)} icon={Users} accent="violet" />
       </div>
 
       <div className="rounded-3xl border border-neutral-200 bg-white p-6 mb-6">
@@ -207,8 +295,8 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
             <div className="font-semibold text-neutral-900">{matchContext?.assignmentRole || 'Match Official'}</div>
           </div>
           <div className="rounded-2xl border border-neutral-200 p-4">
-            <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">Event Count</div>
-            <div className="font-semibold text-neutral-900">{events.length} event tercatat</div>
+            <div className="text-xs uppercase tracking-[0.16em] font-black text-neutral-400 mb-1">{isVenueTournamentSource ? 'Report Status' : 'Event Count'}</div>
+            <div className="font-semibold text-neutral-900">{isVenueTournamentSource ? (report?.status || 'draft') : `${events.length} event tercatat`}</div>
           </div>
         </div>
       </div>
@@ -219,14 +307,14 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
             <BarChart3 size={16} className="text-violet-600" />
             <div>
               <div className="text-xs uppercase tracking-[0.2em] font-black text-neutral-400">Leaderboard</div>
-              <div className="font-display text-2xl text-neutral-900">Player performance</div>
+                <div className="font-display text-2xl text-neutral-900">{isVenueTournamentSource ? 'Team performance' : 'Player performance'}</div>
             </div>
           </div>
 
           {loading ? (
             <div className="space-y-3">{[...Array(4)].map((_, index) => <div key={index} className="h-20 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
           ) : enrichedStats.length === 0 ? (
-            <EmptyState icon={BarChart3} title="Belum ada statistik" description="Statistik match akan muncul setelah data dimasukkan." />
+            <EmptyState icon={BarChart3} title={isVenueTournamentSource ? 'Belum ada ringkasan venue match' : 'Belum ada statistik'} description={isVenueTournamentSource ? 'Submit laporan venue match untuk melihat ringkasan skor dan attendance di sini.' : 'Statistik match akan muncul setelah data dimasukkan.'} />
           ) : (
             <div className="space-y-2">
               {enrichedStats.map((row, index) => (
@@ -263,7 +351,7 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
             </div>
 
             {events.length === 0 ? (
-              <EmptyState icon={Activity} title="Tidak ada event" />
+              <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Timeline event belum tersedia' : 'Tidak ada event'} description={isVenueTournamentSource ? 'Source venue tournament saat ini menampilkan statistik dari skor dan laporan resmi, bukan timeline event official lama.' : undefined} />
             ) : (
               <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
                 {events.map((event) => (

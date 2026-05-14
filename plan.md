@@ -100,14 +100,18 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Match schedule sync engine
 - [x] **[DONE]** Official workspace assignment/schedule integration for venue tournament source
 - [x] **[DONE]** Source-aware Match Center context for venue tournament assignment
+- [x] **[DONE]** Source-aware Match Report for venue tournament assignment
+- [x] **[DONE]** Source-aware Match Statistics for venue tournament assignment
 - [x] **[DONE]** Reservation sync status badge in schedule list
 - [x] **[DONE]** Explicit match-to-booking relation (`reservation_booking_id`)
 - [x] **[DONE]** Supabase migration deploy for tournament-reservation link
 - [x] **[DONE]** Supabase migration deploy for official assignment venue-tournament link
+- [x] **[DONE]** Supabase migration deploy for venue official match reporting storage
 - [x] **[DONE]** QA smoke SQL for tournament-reservation sync
+- [x] **[DONE]** QA smoke SQL for official venue assignment sync
 
 ### Pending ⏳
-- [ ] **[PENDING]** Unified lineup/event/report/statistics engine for venue tournament source
+- [ ] **[PENDING]** Unified lineup/event live engine for venue tournament source
 - [ ] **[PENDING]** End-to-end UI smoke using real scheduled tournament data
 
 ## ⏳ Phase 7: Customer & Staff Management — PENDING
