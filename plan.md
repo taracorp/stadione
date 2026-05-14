@@ -81,11 +81,16 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** RLS policies for all tables
 - [x] **[DONE]** Triggers for auto-balance calculation
 
+**UI Components** ✅ [IN PROGRESS]
+- [x] **[DONE]** MembershipManagementPage (Owner/Manager: create/edit tiers)
+- [x] **[DONE]** MembershipEnrollmentPage (Customer: signup flow with payment)
+- [x] **[DONE]** MembershipProfilePage (Customer: view tier, points, bonus hours)
+- [x] **[DONE]** useMembership hook (discount calc, points earning, bonus hours)
+
 **Next Steps** ⏳
-- [ ] **[PENDING]** Membership management page (Owner/Manager: create tiers, set pricing)
-- [ ] **[PENDING]** Customer membership enrollment UI (sign up flow)
-- [ ] **[PENDING]** Integrate discounts into booking creation
-- [ ] **[PENDING]** Reward points dashboard (customer view)
+- [ ] **[PENDING]** Integrate discount calculation into VenuePOSPage
+- [ ] **[PENDING]** Integrate discount into booking calendar
+- [ ] **[PENDING]** Auto-earn reward points on booking completion
 
 ## ⏳ Phase 6: Tournament & Reservation — PENDING
 

@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { supabase } from '../../../../config/supabase';
 import AdminLayout from '../../AdminLayout';
+import { DataContext } from '../../../../context/DataContext';
+import { useMembership } from '../../../../hooks/useMembership';
 
 // Simple Toast component inline
 const Toast = ({ type, message, onClose }) => (
@@ -31,6 +33,9 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 const VenuePOSPage = ({ venueId: propVenueId }) => {
   // venueId can come from props or from parent context
   const venueId = propVenueId;
+  const { user } = useContext(DataContext);
+  const { calculateDiscount, applyDiscountToBooking, earnRewardPoints } = useMembership();
+  
   const [activeShift, setActiveShift] = useState(null);
   const [showStartShiftModal, setShowStartShiftModal] = useState(false);
   const [showWalkInForm, setShowWalkInForm] = useState(false);
@@ -54,6 +59,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
 
   const [courts, setCourts] = useState([]);
   const [bookingData, setBookingData] = useState(null);
+  const [membershipDiscount, setMembershipDiscount] = useState(null);
 
   // Fetch active shift
   useEffect(() => {
@@ -248,6 +254,16 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
 
       // Store booking data for payment
       setBookingData(booking[0]);
+      
+      // Check for membership and calculate discount
+      try {
+        const discountInfo = await calculateDiscount(venueId, totalPrice);
+        setMembershipDiscount(discountInfo);
+      } catch (err) {
+        console.error('Error calculating discount:', err);
+        setMembershipDiscount(null);
+      }
+      
       setShowWalkInForm(false);
       setShowPaymentModal(true);
       
@@ -277,7 +293,9 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
       if (!bookingData || !activeShift) return;
 
       const paymentMethod = walkInForm.paymentMethod;
-      let amount = bookingData.total_price;
+      // Use final price from membershipDiscount if available
+      const finalPrice = membershipDiscount?.final_price || bookingData.total_price;
+      let amount = finalPrice;
 
       // Validate split payment
       if (paymentMethod === 'split') {
@@ -292,9 +310,9 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
         }
       }
 
-      const { data: user } = await supabase.auth.getUser();
+      const { data: userData } = await supabase.auth.getUser();
 
-      // Create payment
+      // Create payment with discounted amount
       const { data: payment, error: paymentErr } = await supabase
         .from('venue_payments')
         .insert({
@@ -306,21 +324,35 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
           split_qris: paymentMethod === 'split' ? parseFloat(walkInForm.splitQris || 0) : null,
           split_transfer: paymentMethod === 'split' ? parseFloat(walkInForm.splitTransfer || 0) : null,
           status: 'confirmed',
-          processed_by: user.user.id,
+          processed_by: userData.user.id,
         })
         .select();
 
       if (paymentErr) throw paymentErr;
 
-      // Update booking status to paid
+      // Update booking status to paid and apply final price
       const { error: updateErr } = await supabase
         .from('venue_bookings')
-        .update({ status: 'paid' })
+        .update({ 
+          status: 'paid',
+          // Update price if discount was applied
+          ...(membershipDiscount?.discount_percent > 0 && { total_price: finalPrice })
+        })
         .eq('id', bookingData.id);
 
       if (updateErr) throw updateErr;
 
-      // Create invoice
+      // If membership discount was applied, log it
+      if (membershipDiscount?.discount_percent > 0) {
+        await applyDiscountToBooking(
+          bookingData.id,
+          venueId,
+          bookingData.total_price,
+          membershipDiscount
+        );
+      }
+
+      // Create invoice with final price
       const invoiceNumber = `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.random()).slice(2, 5)}`;
       const { error: invoiceErr } = await supabase
         .from('venue_invoices')
@@ -330,14 +362,15 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
           invoice_number: invoiceNumber,
           items: [
             {
-              description: `${courts.find(c => c.id === walkInForm.courtId)?.name || 'Court'} - ${bookingData.duration_hours}jam`,
+              description: `${courts.find(c => c.id === walkInForm.courtId)?.name || 'Court'} - ${bookingData.duration_hours}jam${membershipDiscount?.discount_percent > 0 ? ` (${membershipDiscount.discount_percent}% diskon)` : ''}`,
               quantity: 1,
               unit_price: courts.find(c => c.id === walkInForm.courtId)?.price_per_hour || 0,
-              total: bookingData.total_price,
+              total: finalPrice,
             },
           ],
           subtotal: bookingData.total_price,
-          total: bookingData.total_price,
+          tax: 0,
+          total: finalPrice,
           customer_name: bookingData.customer_name,
           customer_phone: bookingData.customer_phone,
           status: 'issued',
@@ -346,9 +379,36 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
 
       if (invoiceErr) throw invoiceErr;
 
+      // Earn reward points if membership exists
+      if (membershipDiscount?.tier_name) {
+        try {
+          // Try to find the customer's membership to log points
+          const { data: membershipData } = await supabase
+            .from('customer_memberships')
+            .select('id')
+            .eq('customer_id', userData.user.id)
+            .eq('venue_id', venueId)
+            .eq('status', 'active')
+            .single();
+
+          if (membershipData) {
+            await earnRewardPoints(
+              membershipData.id,
+              bookingData.id,
+              finalPrice,
+              'Reward points earned from booking'
+            );
+          }
+        } catch (err) {
+          console.error('Error earning reward points:', err);
+          // Don't fail the payment if points earning fails
+        }
+      }
+
       setShowPaymentModal(false);
       setBookingData(null);
-      setToast({ type: 'success', message: `Pembayaran berhasil! Invoice: ${invoiceNumber}` });
+      setMembershipDiscount(null);
+      setToast({ type: 'success', message: `Pembayaran berhasil! Invoice: ${invoiceNumber}${membershipDiscount?.discount_percent > 0 ? ` (Diskon: Rp ${membershipDiscount.discount_amount.toLocaleString('id-ID')})` : ''}` });
 
       // Reload active shift to get updated totals
       loadActiveShift();
@@ -564,6 +624,30 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
                 </div>
               </div>
             </div>
+
+            {/* Membership Discount Display */}
+            {membershipDiscount && membershipDiscount.discount_percent > 0 && (
+              <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold text-green-900">🎁 Membership Discount Applied!</div>
+                  <span className="text-xs bg-green-200 px-2 py-1 rounded">{membershipDiscount.tier_name}</span>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>Original Price:</span>
+                    <span>Rp {bookingData.total_price?.toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between text-green-600 font-semibold">
+                    <span>Diskon ({membershipDiscount.discount_percent}%):</span>
+                    <span>-Rp {membershipDiscount.discount_amount?.toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="border-t border-green-300 pt-2 mt-2 flex justify-between font-bold text-base">
+                    <span>Final Price:</span>
+                    <span className="text-green-600">Rp {membershipDiscount.final_price?.toLocaleString('id-ID')}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-semibold mb-2">Metode Pembayaran</label>
