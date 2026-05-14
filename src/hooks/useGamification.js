@@ -5,6 +5,7 @@ import {
   updateArticleProgress,
   getArticleQuiz,
   getArticleProgress,
+  hasTriviaAttempt,
   getTournamentPlayers,
   getUserTournamentRecord,
   getPlayerStatistics,
@@ -12,6 +13,7 @@ import {
   getPlayerSuspensions,
   getUserActivityHistory
 } from '../services/gamificationService';
+import { fetchUserActivityHistory } from '../services/supabaseService';
 
 /**
  * Hook: Track user's coins and points
@@ -50,6 +52,7 @@ export function useArticleReading(userId, articleId) {
   const [quiz, setQuiz] = useState(null);
   const [loading, setLoading] = useState(false);
   const [quizLoading, setQuizLoading] = useState(false);
+  const [quizAttemptFallback, setQuizAttemptFallback] = useState(false);
 
   // Fetch existing progress
   useEffect(() => {
@@ -85,6 +88,24 @@ export function useArticleReading(userId, articleId) {
     fetchQuiz();
   }, [articleId]);
 
+  useEffect(() => {
+    if (!userId || !articleId) {
+      setQuizAttemptFallback(false);
+      return;
+    }
+
+    const fetchQuizAttemptFallback = async () => {
+      try {
+        const attempted = await hasTriviaAttempt(userId, articleId);
+        setQuizAttemptFallback(Boolean(attempted));
+      } catch {
+        setQuizAttemptFallback(false);
+      }
+    };
+
+    fetchQuizAttemptFallback();
+  }, [userId, articleId]);
+
   const updateProgress = useCallback(async (scrollDepth, completed) => {
     if (!userId || !articleId) return null;
     const data = await updateArticleProgress(userId, articleId, scrollDepth, completed);
@@ -99,7 +120,7 @@ export function useArticleReading(userId, articleId) {
     quizLoading,
     updateProgress,
     readingCompleted: progress?.read_completed || false,
-    quizCompleted: progress?.quiz_attempted || false,
+    quizCompleted: progress?.quiz_attempted || quizAttemptFallback || false,
     quizCorrect: progress?.quiz_correct || false,
     scrollDepth: progress?.scroll_depth_percent || 0
   };
@@ -113,14 +134,17 @@ export function useScrollTracker(articleRef, onReadComplete) {
   const [hasTriggeredCompletion, setHasTriggeredCompletion] = useState(false);
 
   useEffect(() => {
-    if (!articleRef?.current) return;
+    const element = articleRef?.current || null;
+    const canUseElementScroll = Boolean(element && (element.scrollHeight - element.clientHeight > 1));
+    const isWindowMode = !canUseElementScroll;
 
     const handleScroll = () => {
-      const element = articleRef.current;
-      if (!element) return;
-
-      const contentHeight = element.scrollHeight - element.clientHeight;
-      const scrollTop = element.scrollTop;
+      const contentHeight = isWindowMode
+        ? Math.max((document.documentElement.scrollHeight || 0) - window.innerHeight, 0)
+        : Math.max((element.scrollHeight || 0) - (element.clientHeight || 0), 0);
+      const scrollTop = isWindowMode
+        ? window.scrollY || document.documentElement.scrollTop || 0
+        : element.scrollTop || 0;
       const depth = contentHeight > 0 ? Math.round((scrollTop / contentHeight) * 100) : 0;
 
       setScrollDepth(depth);
@@ -132,8 +156,14 @@ export function useScrollTracker(articleRef, onReadComplete) {
       }
     };
 
-    const element = articleRef.current;
-    element.addEventListener('scroll', handleScroll);
+    if (isWindowMode) {
+      window.addEventListener('scroll', handleScroll, { passive: true });
+      handleScroll();
+      return () => window.removeEventListener('scroll', handleScroll);
+    }
+
+    element.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
     return () => element.removeEventListener('scroll', handleScroll);
   }, [articleRef, onReadComplete, hasTriggeredCompletion]);
 
@@ -285,11 +315,17 @@ export function useActivityHistory(userId, limit = 50) {
     if (!userId) return;
     setLoading(true);
     try {
-      const data = await getUserActivityHistory(userId, limit);
+      const data = await fetchUserActivityHistory(userId, { limit });
       setActivities(data);
       setError(null);
     } catch (err) {
-      setError(err.message);
+      try {
+        const fallbackData = await getUserActivityHistory(userId, limit);
+        setActivities(fallbackData);
+        setError(null);
+      } catch (fallbackErr) {
+        setError(fallbackErr.message || err.message);
+      }
     } finally {
       setLoading(false);
     }

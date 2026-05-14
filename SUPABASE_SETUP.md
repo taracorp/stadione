@@ -27,9 +27,12 @@ Ganti `your_anon_key_here` dengan kunci yang sudah dicopy.
 1. Buka project Supabase dashboard
 2. Klik **SQL Editor** di sidebar
 3. Buat query baru
-4. Copy seluruh isi file `supabase-schema.sql` ke SQL editor
-5. Jalankan (klik tombol play atau Ctrl+Enter)
-6. Tunggu sampai selesai ✓
+4. Jalankan file SQL dengan urutan berikut:
+  1. `supabase-schema.sql`
+  2. `supabase-tournament-rls.sql`
+  3. `supabase-community.sql`
+  4. `supabase-activity-rls-fix.sql` (wajib jika riwayat aktivitas tidak tercatat)
+5. Tunggu sampai masing-masing query selesai ✓
 
 ## 4. Verifikasi Tabel
 
@@ -50,6 +53,20 @@ Setelah SQL selesai, periksa di **Table Editor**:
 - ✓ coach_programs
 - ✓ chats
 - ✓ chat_messages
+- ✓ app_roles
+- ✓ app_permissions
+- ✓ role_permissions
+- ✓ user_roles
+- ✓ admin_audit_logs
+- ✓ tournament_operator_verification_requests
+- ✓ tournament_registrations
+- ✓ tournament_registration_roster
+- ✓ sport_communities
+- ✓ community_memberships
+- ✓ community_feed_posts
+- ✓ community_events
+- ✓ community_chat_messages
+- ✓ academy_trial_bookings
 
 ## 5. Test Koneksi
 
@@ -71,6 +88,43 @@ Semua fungsi ada di `src/services/supabaseService.js`:
 - `fetchChats()` - Ambil chat
 - `fetchTournamentDetail(id)` - Detail turnamen + standings & schedule
 - `fetchCoachDetail(id)` - Detail pelatih + bio, languages, programs
+
+## 6. Role & Permission Mapping
+
+Stadione memakai `user_roles` dan `get_current_user_permissions()` sebagai sumber utama akses. Untuk menjaga UI tetap konsisten saat RPC permission belum mengembalikan data, frontend punya fallback ringan di `src/services/supabaseService.js`.
+
+Fallback ini hanya lapisan bantu di client. RLS, `app_roles`, `app_permissions`, dan `role_permissions` tetap menjadi sumber otoritas utama di Supabase.
+
+### Mapping fallback yang dipakai frontend
+
+| Role | Permission fallback |
+| --- | --- |
+| `super_admin` | `platform.all`, `operator.verify`, `registration.approve`, `registration.reject`, `payment.verify` |
+| `internal_admin` | `platform.all`, `operator.verify`, `registration.approve`, `registration.reject`, `payment.verify` |
+| `reviewer` | `operator.verify` |
+| `verification_admin` | `operator.verify` |
+| `admin` | `operator.verify` |
+| `finance_admin` | `payment.verify`, `registration.approve` |
+
+### Catatan implementasi
+
+- Jika `get_current_user_permissions()` berhasil, hasil RPC tetap dipakai.
+- Jika RPC kosong atau gagal, frontend akan membaca `user_roles` dan menurunkan permission dasar dari mapping di atas.
+- Mapping ini membantu menjaga item seperti verifikasi, platform console, dan approval workflow tetap muncul hanya untuk role yang relevan.
+
+### Bootstrap super admin pertama
+
+Jika akun dengan email `taradfworkspace@gmail.com` sudah ada di `auth.users`, jalankan query ini di SQL Editor untuk memberi role `super_admin`:
+
+```sql
+INSERT INTO user_roles (user_id, role, granted_by)
+SELECT id, 'super_admin', id
+FROM auth.users
+WHERE email = 'taradfworkspace@gmail.com'
+ON CONFLICT (user_id, role) DO NOTHING;
+```
+
+Jika email tersebut belum terdaftar, buat akun dulu lewat auth flow biasa, lalu jalankan query di atas.
 
 ## Custom Hooks
 

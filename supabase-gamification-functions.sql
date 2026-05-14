@@ -17,6 +17,11 @@ DECLARE
   v_new_points INT;
   v_new_tier TEXT;
 BEGIN
+  -- Ensure stats row exists for legacy users.
+  INSERT INTO user_stats (user_id, coins, points, tier_level)
+  VALUES (p_user_id, 0, 0, 'Bronze')
+  ON CONFLICT (user_id) DO NOTHING;
+
   -- Update user stats
   UPDATE user_stats
   SET points = points + p_points,
@@ -43,7 +48,7 @@ BEGIN
 
   RETURN QUERY SELECT v_new_points, v_new_tier, p_points;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function: Award coins from transaction
 CREATE OR REPLACE FUNCTION award_coins_from_transaction(
@@ -58,6 +63,11 @@ DECLARE
   v_coins_earned INT;
   v_new_coins INT;
 BEGIN
+  -- Ensure stats row exists for legacy users.
+  INSERT INTO user_stats (user_id, coins, points, tier_level)
+  VALUES (p_user_id, 0, 0, 'Bronze')
+  ON CONFLICT (user_id) DO NOTHING;
+
   -- Calculate coins (1 coin per 10,000 currency)
   v_coins_earned := (p_transaction_amount / 10000)::INT;
 
@@ -81,7 +91,7 @@ BEGIN
 
   RETURN QUERY SELECT v_new_coins, v_coins_earned;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function: Get user gamification stats
 CREATE OR REPLACE FUNCTION get_user_gamification_stats(p_user_id UUID)
@@ -96,6 +106,10 @@ RETURNS TABLE (
   tournaments_joined INT
 ) AS $$
 BEGIN
+  INSERT INTO user_stats (user_id, coins, points, tier_level)
+  VALUES (p_user_id, 0, 0, 'Bronze')
+  ON CONFLICT (user_id) DO NOTHING;
+
   RETURN QUERY
   SELECT
     us.coins,
@@ -114,7 +128,7 @@ BEGIN
   WHERE us.user_id = p_user_id
   GROUP BY us.coins, us.points, us.tier_level, us.total_spent;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function: Check player suspension status
 CREATE OR REPLACE FUNCTION is_player_suspended(

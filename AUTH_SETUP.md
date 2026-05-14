@@ -14,11 +14,13 @@ Stadione sekarang memakai auth flow berikut:
 Lokasi utama implementasi ada di `stadione.jsx`:
 - `AUTH_MODAL_MODES`: `login`, `register`, `forgot-password`, `recovery`
 - Google OAuth: `supabase.auth.signInWithOAuth({ provider: 'google' })`
+- Daftar via Google dan login via Google memakai flow OAuth yang sama; perbedaannya hanya konteks tombol di modal.
 - Register email/password: `supabase.auth.signUp(...)` dengan `emailRedirectTo`
 - Forgot password: `supabase.auth.resetPasswordForEmail(...)` dengan `redirectTo`
 - Recovery update password: `supabase.auth.updateUser({ password })`
-- Bootstrap auth state: `getSession()` + `onAuthStateChange(...)`
+- Bootstrap auth state: `onAuthStateChange(...)` dipasang sebelum `getSession()` agar callback OAuth/recovery tidak terlewat.
 - Recovery listener: event `PASSWORD_RECOVERY`
+- Error callback OAuth/reset dari URL dibaca dan ditampilkan di modal sebelum URL dibersihkan.
 
 ## Prasyarat Konfigurasi Supabase
 
@@ -63,7 +65,15 @@ Perilaku aplikasi:
 3. Selesaikan consent di Google
 4. Kembali ke app dalam keadaan login
 
-## 2) Register Email/Password
+## 2) Daftar via Google
+
+1. Klik Daftar
+2. Klik Daftar dengan Google
+3. Selesaikan consent di Google
+4. Kembali ke app dalam keadaan login
+5. Buka profil dan pastikan stats/riwayat tidak error untuk user baru
+
+## 3) Register Email/Password
 
 1. Klik Daftar
 2. Isi nama, email, password
@@ -72,7 +82,7 @@ Perilaku aplikasi:
 5. Verifikasi via link email
 6. Login dengan akun yang sudah diverifikasi
 
-## 3) Forgot Password + Recovery
+## 4) Forgot Password + Recovery
 
 1. Dari tab Masuk klik Lupa password
 2. Masukkan email akun
@@ -80,7 +90,7 @@ Perilaku aplikasi:
 4. Buka link reset dari email
 5. App masuk mode recovery
 6. Isi password baru + konfirmasi
-7. Submit dan login ulang
+7. Submit dan pastikan user bisa lanjut memakai akun atau login ulang dengan password baru
 
 ## Troubleshooting
 
@@ -90,6 +100,7 @@ Cek:
 - Google provider sudah Enable di Supabase
 - Redirect URL Supabase sudah didaftarkan di Google OAuth app
 - URL domain app (lokal/produksi) ada di Supabase URL Configuration
+- Jika modal menampilkan error redirect/OAuth, cek pesan error URL callback yang ditampilkan app.
 
 ### Error email belum dikonfirmasi
 

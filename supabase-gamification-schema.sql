@@ -152,9 +152,17 @@ CREATE POLICY "Users can update their own stats"
   ON user_stats FOR UPDATE
   USING (auth.uid() = user_id);
 
+CREATE POLICY "Users can insert their own stats"
+  ON user_stats FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
 CREATE POLICY "Users can view their own activity log"
   ON activity_log FOR SELECT
   USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own activity log"
+  ON activity_log FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can view their own article progress"
   ON article_progress FOR SELECT

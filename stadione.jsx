@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Calendar, MapPin, Star, Users, Trophy, Newspaper, Dumbbell,
+  Calendar, MapPin, Star, Users, Trophy, Newspaper, Dumbbell, Building2,
   ChevronRight, Filter, Search, Clock, Zap, Plus, Award,
   ArrowRight, ArrowUpRight, Target, Flame, BookOpen, ShieldCheck,
   TrendingUp, Play, Menu, X, CheckCircle, Bell, Eye,
@@ -30,8 +30,35 @@ import {
   ArticleQuizModal,
   QuizResultToast
 } from './src/components/GamificationUI.jsx';
-import { registerTournamentPlayer, submitQuizAnswer } from './src/services/gamificationService.js';
-import { SUPABASE_CONFIGURED, SUPABASE_ERROR } from './src/config/supabase.js';
+import { registerTournamentPlayer, submitGeneratedQuizAttempt, hasTriviaAttempt } from './src/services/gamificationService.js';
+import { fetchCurrentUserActiveContext, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
+import { fetchRegistrationWorkspaceContext } from './src/services/registrationService.js';
+import { canAccessAdminPage, deriveConsoleAccess, getOfficialMatchCapabilities, PAGE_ACCESS } from './src/utils/permissions.js';
+import { getUserRoleBadges, normalizeRoles } from './src/utils/roles.js';
+import { clearStoredActiveWorkspaceContext, getStoredActiveWorkspaceContext, setStoredActiveWorkspaceContext } from './src/utils/activeWorkspaceContext.js';
+import { generateTriviaQuestionsFromContent } from './src/utils/quizGeneration.js';
+import { supabase, SUPABASE_CONFIGURED, SUPABASE_ERROR, SUPABASE_KEY, SUPABASE_URL } from './src/config/supabase.js';
+
+const PlatformDashboard = lazy(() => import('./src/components/admin/platform/PlatformDashboard.jsx'));
+const AnalyticsPage = lazy(() => import('./src/components/admin/platform/AnalyticsPage.jsx'));
+const ModerationPage = lazy(() => import('./src/components/admin/platform/ModerationPage.jsx'));
+const NewsroomPage = lazy(() => import('./src/components/admin/platform/NewsroomPage.jsx'));
+const VerificationQueuePage = lazy(() => import('./src/components/admin/platform/VerificationQueuePage.jsx'));
+const WorkspaceConsolePage = lazy(() => import('./src/components/admin/workspace/WorkspaceConsolePage.jsx'));
+const CommunityManagerPage = lazy(() => import('./src/components/admin/workspace/CommunityManagerPage.jsx'));
+const SponsorManagerPage = lazy(() => import('./src/components/admin/workspace/SponsorManagerPage.jsx'));
+const TournamentManagerPage = lazy(() => import('./src/components/admin/workspace/TournamentManagerPage.jsx'));
+const TrainingManagerPage = lazy(() => import('./src/components/admin/workspace/TrainingManagerPage.jsx'));
+const VenueManagerPage = lazy(() => import('./src/components/admin/workspace/VenueManagerPage.jsx'));
+const VenueRegistrationPage = lazy(() => import('./src/components/admin/workspace/VenueRegistrationPage.jsx'));
+const VenueWorkspacePage = lazy(() => import('./src/components/admin/workspace/VenueWorkspacePage.jsx'));
+const OfficialCenterPage = lazy(() => import('./src/components/admin/official/OfficialCenterPage.jsx'));
+const OfficialSchedulePage = lazy(() => import('./src/components/admin/official/OfficialSchedulePage.jsx'));
+const MatchCenterPage = lazy(() => import('./src/components/admin/official/MatchCenterPage.jsx'));
+const MatchReportPage = lazy(() => import('./src/components/admin/official/MatchReportPage.jsx'));
+const MatchStatisticsPage = lazy(() => import('./src/components/admin/official/MatchStatisticsPage.jsx'));
+const QuickRegistrationModal = lazy(() => import('./src/components/QuickRegistrationModal.jsx'));
+const TeamWorkspaceModal = lazy(() => import('./src/components/TeamWorkspaceModal.jsx'));
 
 // ============ DATA ============
 const VENUES = [
@@ -318,19 +345,14 @@ const FontStyles = () => (
 
 // ============ LOGO ============
 const Logo = ({ size = 36 }) => (
-  <svg viewBox="0 0 80 80" width={size} height={size} fill="none" style={{ display: 'block' }}>
-    <path
-      d="M22 14 L62 14 L62 28 L36 28 Q30 28 30 33 Q30 38 36 38 L48 38 Q62 38 62 53 Q62 68 42 68 L18 68 L18 54 L44 54 Q48 54 48 49 Q48 44 44 44 L32 44 Q18 44 18 29 Q18 14 22 14 Z"
-      fill="#E11D2E"
-    />
-    <path
-      d="M48 8 L34 36 L43 36 L30 72 L56 32 L46 32 L58 8 Z"
-      fill="#F4F4F4"
-      stroke="#F4F4F4"
-      strokeWidth="2.5"
-      strokeLinejoin="round"
-    />
-  </svg>
+  <img
+    src="/stadione-logo.png"
+    alt="Stadione"
+    width={size}
+    height={size}
+    className="object-contain"
+    style={{ display: 'block' }}
+  />
 );
 
 const Wordmark = ({ size = 22, color = '#E11D2E' }) => (
@@ -342,8 +364,31 @@ const Wordmark = ({ size = 22, color = '#E11D2E' }) => (
   </span>
 );
 
+const LazyFallback = ({ label = 'Memuat halaman...' }) => (
+  <div className="min-h-[40vh] bg-[#F4F4F4] flex items-center justify-center px-5">
+    <div className="rounded-3xl border border-neutral-200 bg-white px-6 py-5 text-sm font-semibold text-neutral-600">
+      {label}
+    </div>
+  </div>
+);
+
+const AccessDeniedPage = ({ title = 'Akses tidak tersedia', description = 'Halaman ini hanya tersedia untuk role yang sesuai.', onBack }) => (
+  <div className="bg-[#F4F4F4] min-h-[70vh] px-5 py-10 lg:px-8 flex items-center justify-center">
+    <div className="max-w-xl w-full rounded-3xl border border-neutral-200 bg-white p-8 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-neutral-900 text-white flex items-center justify-center mx-auto mb-5">
+        <ShieldCheck size={22} />
+      </div>
+      <h2 className="font-display text-3xl text-neutral-900 mb-3">{title}</h2>
+      <p className="text-sm text-neutral-500 leading-relaxed mb-6">{description}</p>
+      <button onClick={onBack} className="px-5 py-3 rounded-full bg-neutral-900 text-white text-sm font-bold">
+        Kembali ke Profil
+      </button>
+    </div>
+  </div>
+);
+
 // ============ HEADER ============
-const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, gamificationStats, statsLoading }) => {
+const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchContext, gamificationStats, statsLoading }) => {
   const [open, setOpen] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const items = [
@@ -353,6 +398,31 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, gamificati
     { id: 'training', label: 'Pelatihan' },
   ];
   const totalUnread = CHATS.reduce((s, c) => s + (c.unread || 0), 0);
+  const activeScope = auth?.activeContext?.context_scope;
+  const contextAccess = {
+    platform: activeScope ? activeScope === 'platform' : auth?.access?.platform,
+    workspace: activeScope ? activeScope === 'workspace' : auth?.access?.workspace,
+    official: activeScope ? activeScope === 'official' : auth?.access?.official,
+  };
+  const consoleItems = [
+    contextAccess.platform && { id: 'platform-console', label: 'Platform Console', icon: BarChart3 },
+    contextAccess.workspace && { id: 'workspace-console', label: 'Workspace Console', icon: Building2 },
+    contextAccess.official && { id: 'official-center', label: 'Official Center', icon: ShieldCheck },
+  ].filter(Boolean);
+  const contextOptions = [
+    auth?.access?.platform && { scope: 'platform', label: 'Platform', page: 'platform-console', icon: BarChart3 },
+    auth?.access?.workspace && { scope: 'workspace', label: 'Workspace', page: 'workspace-console', icon: Building2 },
+    auth?.access?.official && { scope: 'official', label: 'Official', page: 'official-center', icon: ShieldCheck },
+  ].filter(Boolean);
+  const officialCapabilities = getOfficialMatchCapabilities({ userRoles: auth?.roles || [] });
+
+  const handleContextSelection = async (scope, pageTarget) => {
+    if (typeof onSwitchContext === 'function') {
+      await onSwitchContext(scope);
+    }
+    onNav(pageTarget);
+    setUserMenu(false);
+  };
   return (
     <header className="sticky top-0 z-50 border-b border-neutral-300" style={{ background: 'rgba(244,244,244,0.92)', backdropFilter: 'blur(12px)' }}>
       <div className="max-w-7xl mx-auto px-5 lg:px-8 h-16 flex items-center justify-between">
@@ -412,27 +482,164 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, gamificati
                     <div className="p-4 border-b border-neutral-100">
                       <div className="font-bold text-sm">{auth.name}</div>
                       <div className="text-xs text-neutral-500">{auth.email}</div>
+                      {auth?.roleBadges?.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {auth.roleBadges.slice(0, 3).map((badge) => (
+                            <span key={badge} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-100 text-neutral-700">
+                              {badge}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {auth?.activeContext?.context_scope && (
+                        <div className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-neutral-500">
+                          Context aktif: {auth.activeContext.context_scope}
+                        </div>
+                      )}
                     </div>
                     <div className="py-2">
+                      {contextOptions.length > 1 && (
+                        <div className="px-4 pb-2 border-b border-neutral-100">
+                          <div className="pb-1 text-[10px] uppercase tracking-[0.22em] font-bold text-neutral-400">Context</div>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {contextOptions.map((option) => {
+                              const Icon = option.icon;
+                              const isActive = activeScope === option.scope;
+
+                              return (
+                                <button
+                                  key={option.scope}
+                                  onClick={() => handleContextSelection(option.scope, option.page)}
+                                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-bold border transition ${
+                                    isActive
+                                      ? 'bg-neutral-900 text-white border-neutral-900'
+                                      : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-500'
+                                  }`}
+                                >
+                                  <Icon size={12} /> {option.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="px-4 pb-1 text-[10px] uppercase tracking-[0.22em] font-bold text-neutral-400">Account</div>
                       <button onClick={() => { onNav('profile'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                         <User size={14} /> Profil Saya
-                      </button>
-                      <button onClick={() => { onNav('coach-dashboard'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
-                        <BarChart3 size={14} /> Dashboard Pelatih
                       </button>
                       <button onClick={() => { onChat(); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3 justify-between">
                         <span className="flex items-center gap-3"><MessageCircle size={14} /> Pesan</span>
                         {totalUnread > 0 && <span className="text-[10px] font-bold text-white px-1.5 rounded-full" style={{ background: '#E11D2E', minWidth: 18, height: 18, lineHeight: '18px' }}>{totalUnread}</span>}
                       </button>
                       <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
-                        <Calendar size={14} /> Booking Saya
-                      </button>
-                      <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
-                        <Trophy size={14} /> Turnamen Saya
+                        <Bell size={14} /> Notifikasi
                       </button>
                       <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                         <Settings size={14} /> Pengaturan
                       </button>
+
+                      <div className="mt-2 pt-2 border-t border-neutral-100">
+                        <div className="px-4 pb-1 text-[10px] uppercase tracking-[0.22em] font-bold text-neutral-400">Aktivitas</div>
+                        <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <Calendar size={14} /> Booking Saya
+                        </button>
+                        <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <Trophy size={14} /> Turnamen Saya
+                        </button>
+                        <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <Users size={14} /> Komunitas Saya
+                        </button>
+                        <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <Dumbbell size={14} /> Pelatihan Saya
+                        </button>
+                        {contextAccess.official && (
+                          <button onClick={() => { onNav('official-schedule'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <ShieldCheck size={14} /> Jadwal Saya
+                          </button>
+                        )}
+                      </div>
+
+                      {contextAccess.workspace && (
+                        <div className="mt-2 pt-2 border-t border-neutral-100">
+                          <div className="px-4 pb-1 text-[10px] uppercase tracking-[0.22em] font-bold text-neutral-400">Workspace</div>
+                          <button onClick={() => { onNav('tournament-manager'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Trophy size={14} /> Kelola Turnamen
+                          </button>
+                          <button onClick={() => { onNav('community-manager'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Users size={14} /> Kelola Komunitas
+                          </button>
+                          <button onClick={() => { onNav('training-manager'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Dumbbell size={14} /> Kelola Pelatihan
+                          </button>
+                          <button onClick={() => { onNav('venue-workspace'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <MapPin size={14} /> Kelola Venue
+                          </button>
+                          <button onClick={() => { onNav('sponsor-manager'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Wallet size={14} /> Kelola Sponsor
+                          </button>
+                        </div>
+                      )}
+
+                      {contextAccess.official && (
+                        <div className="mt-2 pt-2 border-t border-neutral-100">
+                          <div className="px-4 pb-1 text-[10px] uppercase tracking-[0.22em] font-bold text-neutral-400">Official</div>
+                          <button onClick={() => { onNav('official-schedule'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Calendar size={14} /> Jadwal Pertandingan
+                          </button>
+                          {officialCapabilities.openMatchCenter && (
+                            <button onClick={() => { onNav('match-center'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                              <Activity size={14} /> Match Center
+                            </button>
+                          )}
+                          {officialCapabilities.openMatchReport && (
+                            <button onClick={() => { onNav('match-report'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                              <BookOpen size={14} /> Laporan Pertandingan
+                            </button>
+                          )}
+                          {officialCapabilities.openMatchStatistics && (
+                            <button onClick={() => { onNav('match-statistics'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                              <BarChart3 size={14} /> Statistik Pertandingan
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {consoleItems.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-neutral-100">
+                          <div className="px-4 pb-1 text-[10px] uppercase tracking-[0.22em] font-bold text-neutral-400">Platform</div>
+                          {consoleItems.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <button key={item.id} onClick={() => { onNav(item.id); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                                <Icon size={14} /> {item.label}
+                              </button>
+                            );
+                          })}
+                          {contextAccess.platform && (
+                            <>
+                              <button onClick={() => { onNav('admin-verification-queue'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                                <ShieldCheck size={14} /> Verifikasi
+                              </button>
+                              <button onClick={() => { onNav('moderation'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                                <Sparkles size={14} /> Moderasi
+                              </button>
+                              <button onClick={() => { onNav('newsroom'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                                <Newspaper size={14} /> Newsroom
+                              </button>
+                              <button onClick={() => { onNav('analytics'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                                <BarChart3 size={14} /> Analytics
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="mt-2 pt-2 border-t border-neutral-100">
+                        <button onClick={() => { onNav('coach-dashboard'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <BarChart3 size={14} /> Dashboard Pelatih
+                        </button>
+                      </div>
                     </div>
                     <div className="border-t border-neutral-100 py-2">
                       <button onClick={() => { onLogout(); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 flex items-center gap-3">
@@ -499,6 +706,9 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
     { id: 'news', label: 'BERITA & MEDIA', desc: 'Berita olahraga Indonesia, eksklusif & dipercepat.', count: '24/7 Update', icon: Newspaper },
     { id: 'training', label: 'PELATIHAN', desc: 'Booking pelatih profesional bersertifikasi nasional.', count: '300+ Pelatih', icon: Dumbbell },
   ];
+  const registrationReadyTournaments = (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS)
+    .filter((item) => String(item.status || '').toLowerCase() === 'pendaftaran')
+    .slice(0, 2);
 
   return (
     <div>
@@ -547,6 +757,33 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
                 <div className="text-xs uppercase tracking-wider font-bold text-neutral-500">{s.l}</div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-8 grid lg:grid-cols-[1.2fr_0.8fr] gap-4 fade-up" style={{ animationDelay: '0.35s' }}>
+            <button onClick={() => onNav('tournament')} className="rounded-3xl border border-neutral-300 bg-white/70 p-6 text-left hover:bg-white transition backdrop-blur-sm">
+              <div className="text-xs uppercase tracking-[0.22em] font-black text-neutral-500 mb-3">Fitur Baru</div>
+              <div className="font-display text-3xl text-neutral-900 leading-[0.95] mb-3">Pendaftaran cepat dan workspace tim.</div>
+              <p className="text-sm text-neutral-600 leading-relaxed mb-5">Masuk ke detail turnamen yang sedang membuka pendaftaran untuk mengamankan slot, bayar lebih cepat, lalu kelola roster tim dari workspace khusus.</p>
+              <div className="inline-flex items-center gap-2 text-sm font-bold" style={{ color: '#E11D2E' }}>
+                LIHAT TURNAMEN PENDAFTARAN <ArrowRight size={16} />
+              </div>
+            </button>
+            <div className="rounded-3xl border border-neutral-300 bg-neutral-900 text-white p-6">
+              <div className="text-xs uppercase tracking-[0.22em] font-black text-neutral-400 mb-3">Siap Didukung</div>
+              <div className="space-y-3">
+                {registrationReadyTournaments.length > 0 ? registrationReadyTournaments.map((item) => (
+                  <button key={item.id} onClick={() => onNav('tournament-detail', item)} className="w-full rounded-2xl border border-neutral-800 bg-neutral-800 px-4 py-3 text-left hover:border-neutral-600 transition">
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <span className="text-xs font-bold uppercase text-emerald-300">Pendaftaran Cepat</span>
+                      <span className="text-xs text-neutral-400">{item.sport}</span>
+                    </div>
+                    <div className="font-semibold text-white">{item.name}</div>
+                  </button>
+                )) : (
+                  <div className="text-sm text-neutral-400 leading-relaxed">Belum ada turnamen berstatus pendaftaran di feed publik saat ini.</div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -901,6 +1138,7 @@ const BookingDetail = ({ venue, onBack, onPay }) => {
 const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
   const [filter, setFilter] = useState('Semua');
   const filtered = filter === 'Semua' ? (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS) : (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS).filter(t => t.sport === filter);
+  const quickRegistrationCount = filtered.filter((item) => String(item.status || '').toLowerCase() === 'pendaftaran').length;
 
   return (
     <div>
@@ -933,9 +1171,23 @@ const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
       </div>
 
       <div className="max-w-7xl mx-auto px-5 lg:px-8 py-12">
+        <div className="grid lg:grid-cols-2 gap-4 mb-8">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6">
+            <div className="text-xs uppercase tracking-[0.22em] font-black text-neutral-500 mb-2">Fitur Baru</div>
+            <div className="font-display text-3xl text-neutral-900 mb-2">Pendaftaran Cepat</div>
+            <p className="text-sm text-neutral-600 leading-relaxed">Turnamen dengan status pendaftaran sekarang bisa dibuka lewat alur registrasi cepat, lanjut pembayaran, dan langsung masuk ke workspace tim.</p>
+          </div>
+          <div className="rounded-3xl border border-neutral-200 bg-neutral-900 text-white p-6">
+            <div className="text-xs uppercase tracking-[0.22em] font-black text-neutral-400 mb-2">Ringkasan</div>
+            <div className="font-display text-5xl leading-none mb-2">{quickRegistrationCount}</div>
+            <p className="text-sm text-neutral-300 leading-relaxed">turnamen di filter saat ini siap untuk quick registration dan workflow workspace tim.</p>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((t, i) => {
             const Icon = sportIcon(t.sport);
+            const isRegistrationOpen = String(t.status || '').toLowerCase() === 'pendaftaran';
             return (
               <button key={t.id} onClick={() => onSelect(t)} className="text-left bg-white rounded-2xl overflow-hidden hover-lift fade-up border border-neutral-200" style={{ animationDelay: `${i * 0.05}s` }}>
                 <div className="p-6 relative overflow-hidden text-white grain" style={{ background: t.color, minHeight: 200 }}>
@@ -948,6 +1200,7 @@ const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
                       {t.status}
                     </span>
                     <span className="text-xs font-semibold opacity-80">{t.format}</span>
+                    {isRegistrationOpen && <span className="text-[10px] font-black uppercase px-2 py-1 rounded bg-emerald-300 text-emerald-950">Quick Reg</span>}
                   </div>
                   <div className="font-display text-3xl leading-tight mb-1 relative">{t.name}</div>
                   <div className="text-xs opacity-80">{t.host}</div>
@@ -1016,10 +1269,63 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab, auth, openAuth }) =
   const { players, loading: playersLoading, refetch: refetchTournamentPlayers } = useTournamentPlayers(tournament.id);
   const [joining, setJoining] = useState(false);
   const [registered, setRegistered] = useState(false);
+  const [checkingRegistration, setCheckingRegistration] = useState(false);
+  const [showQuickRegistration, setShowQuickRegistration] = useState(false);
+  const [showTeamWorkspace, setShowTeamWorkspace] = useState(false);
+  const [workspaceContext, setWorkspaceContext] = useState({ registration: null, team: null });
+
+  const supportsQuickRegistration = String(tournament.status || '').toLowerCase() === 'pendaftaran';
+  const isTeamTournament = String(tournament.sport || '').toLowerCase() !== 'esports';
+  const hasWorkspace = Boolean(workspaceContext.registration && (!isTeamTournament || workspaceContext.team));
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadRegistrationContext() {
+      if (!auth?.id || !supportsQuickRegistration) {
+        if (active) {
+          setWorkspaceContext({ registration: null, team: null });
+          setRegistered(false);
+          setCheckingRegistration(false);
+        }
+        return;
+      }
+
+      setCheckingRegistration(true);
+      const context = await fetchRegistrationWorkspaceContext(tournament.id, auth.id);
+
+      if (!active) return;
+
+      setWorkspaceContext(context);
+      setRegistered(Boolean(context?.registration));
+      setCheckingRegistration(false);
+    }
+
+    loadRegistrationContext();
+
+    return () => {
+      active = false;
+    };
+  }, [auth?.id, supportsQuickRegistration, tournament.id]);
 
   const handleJoinTournament = async () => {
     if (!auth) {
       openAuth('login');
+      return;
+    }
+
+    if (supportsQuickRegistration) {
+      if (hasWorkspace && isTeamTournament) {
+        setShowTeamWorkspace(true);
+        return;
+      }
+
+      if (!isTeamTournament && workspaceContext.registration) {
+        setRegistered(true);
+        return;
+      }
+
+      setShowQuickRegistration(true);
       return;
     }
 
@@ -1037,6 +1343,36 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab, auth, openAuth }) =
       refetchTournamentPlayers();
     }
   };
+
+  const actionTitle = supportsQuickRegistration
+    ? registered
+      ? isTeamTournament
+        ? 'Workspace tim Anda sudah siap'
+        : 'Pendaftaran individu sudah masuk'
+      : 'Daftar cepat dan amankan slot'
+    : registered
+      ? 'Kamu sudah terdaftar'
+      : 'Ayo gabung turnamen';
+
+  const actionDescription = supportsQuickRegistration
+    ? registered
+      ? isTeamTournament
+        ? 'Kelola roster, undangan pemain, dan progres pembayaran langsung dari workspace tim.'
+        : 'Slot Anda sudah diamankan. Tunggu update jadwal dan verifikasi berikutnya.'
+      : 'Selesaikan pendaftaran, pembayaran, dan pembentukan tim dalam satu alur.'
+    : 'Daftar sebagai pemain dan dapatkan reward gamifikasi.';
+
+  const actionButtonLabel = supportsQuickRegistration
+    ? registered
+      ? isTeamTournament
+        ? 'Buka Workspace Tim'
+        : 'Pendaftaran Terkirim'
+      : 'Daftar Cepat'
+    : registered
+      ? 'Terdaftar'
+      : joining
+        ? 'Sedang mendaftar...'
+        : 'Gabung Turnamen';
 
   return (
     <div>
@@ -1078,17 +1414,27 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab, auth, openAuth }) =
           <div className="rounded-3xl border border-neutral-200 bg-white p-6 sm:flex items-center justify-between gap-4">
             <div>
               <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-2">Aksi Turnamen</div>
-              <div className="text-lg font-bold text-neutral-900">{registered ? 'Kamu sudah terdaftar' : 'Ayo gabung turnamen'}</div>
-              <p className="text-sm text-neutral-600 mt-1">Daftar sebagai pemain dan dapatkan reward gamifikasi.</p>
+              <div className="text-lg font-bold text-neutral-900">{actionTitle}</div>
+              <p className="text-sm text-neutral-600 mt-1">{actionDescription}</p>
             </div>
             <div className="flex flex-wrap gap-3 items-center">
-              <div className="text-sm text-neutral-500">{playersLoading ? 'Memuat peserta...' : `${players.length} pemain terdaftar`}</div>
+              <div className="text-sm text-neutral-500">
+                {supportsQuickRegistration
+                  ? checkingRegistration
+                    ? 'Memuat status pendaftaran...'
+                    : registered
+                      ? `Status: ${workspaceContext.registration?.registration_status || 'draft'}`
+                      : `${tournament.participants} slot terdaftar`
+                  : playersLoading
+                    ? 'Memuat peserta...'
+                    : `${players.length} pemain terdaftar`}
+              </div>
               <button
                 onClick={handleJoinTournament}
-                disabled={joining || registered}
-                className={`px-5 py-3 rounded-full font-bold text-sm transition ${registered ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed' : 'bg-[#E11D2E] text-white hover:bg-[#C81D1D]'}`}
+                disabled={joining || checkingRegistration || (supportsQuickRegistration && registered && !isTeamTournament)}
+                className={`px-5 py-3 rounded-full font-bold text-sm transition ${(registered && (!supportsQuickRegistration || !isTeamTournament)) ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed' : 'bg-[#E11D2E] text-white hover:bg-[#C81D1D]'}`}
               >
-                {registered ? 'Terdaftar' : joining ? 'Sedang mendaftar...' : 'Gabung Turnamen'}
+                {actionButtonLabel}
               </button>
             </div>
           </div>
@@ -1502,6 +1848,8 @@ const AUTH_MODAL_MODES = {
   recovery: 'recovery',
 };
 
+const AUTH_REQUEST_TIMEOUT_MS = 15000;
+
 function getAuthRedirectUrl(mode) {
   if (typeof window === 'undefined') return undefined;
 
@@ -1515,11 +1863,33 @@ function getAuthModeFromUrl() {
   return new URLSearchParams(window.location.search).get('auth_mode') || null;
 }
 
+function getAuthUrlParams() {
+  if (typeof window === 'undefined') return new URLSearchParams();
+
+  const params = new URLSearchParams(window.location.search);
+  const hash = window.location.hash?.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const hashParams = new URLSearchParams(hash || '');
+
+  hashParams.forEach((value, key) => {
+    if (!params.has(key)) params.set(key, value);
+  });
+
+  return params;
+}
+
+function getAuthErrorFromUrl() {
+  const params = getAuthUrlParams();
+  return params.get('error_description') || params.get('error') || '';
+}
+
 function clearAuthUrlArtifacts() {
   if (typeof window === 'undefined') return;
 
   const url = new URL(window.location.href);
   url.searchParams.delete('auth_mode');
+  url.searchParams.delete('error');
+  url.searchParams.delete('error_code');
+  url.searchParams.delete('error_description');
   url.hash = '';
   window.history.replaceState({}, '', `${url.pathname}${url.search}`);
 }
@@ -1529,10 +1899,16 @@ function mapAuthErrorMessage(error) {
   const message = rawMessage.toLowerCase();
 
   if (!rawMessage) return 'Terjadi kesalahan. Silakan coba lagi.';
+  if (message.includes('timeout')) return 'Permintaan auth timeout. Periksa koneksi internet atau konfigurasi Supabase, lalu coba lagi.';
+  if (message.includes('supabase belum')) return rawMessage;
+  if (message.includes('invalid api key')) return 'Konfigurasi Supabase production belum valid. Periksa VITE_SUPABASE_ANON_KEY di Vercel lalu redeploy.';
   if (message.includes('rate limit')) return 'Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.';
   if (message.includes('invalid login credentials')) return 'Email atau password salah. Silakan cek kembali.';
   if (message.includes('email not confirmed')) return 'Email belum dikonfirmasi. Cek inbox email Anda terlebih dahulu.';
+  if (message.includes('provider is not enabled')) return 'Login Google belum aktif di Supabase. Aktifkan Google provider di Supabase Auth.';
+  if (message.includes('redirect') || message.includes('not allowed')) return 'Redirect auth belum valid. Pastikan domain production sudah didaftarkan di Supabase.';
   if (message.includes('password should be at least')) return 'Password minimal 6 karakter.';
+  if (message.includes('auth session missing') || message.includes('session not found')) return 'Sesi reset password tidak ditemukan. Minta link reset password baru lalu buka dari email terbaru.';
   if (message.includes('unable to validate email address')) return 'Format email tidak valid.';
   if (message.includes('user already registered')) return 'Email ini sudah terdaftar. Silakan login atau gunakan lupa password.';
   if (message.includes('oauth')) return 'Login Google belum berhasil. Periksa konfigurasi OAuth dan redirect URL.';
@@ -1540,7 +1916,124 @@ function mapAuthErrorMessage(error) {
   return rawMessage;
 }
 
-const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
+async function getSupabaseAuthClient() {
+  if (!SUPABASE_CONFIGURED || !supabase?.auth) {
+    throw new Error(SUPABASE_ERROR || 'Supabase belum dikonfigurasi. Login belum bisa digunakan.');
+  }
+
+  return supabase;
+}
+
+async function withAuthTimeout(promise, label = 'Auth request', timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
+  let timerId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      reject(new Error(`${label} timeout setelah ${Math.round(timeoutMs / 1000)} detik.`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timerId);
+  }
+}
+
+function isTimeoutError(error) {
+  return String(error?.message || '').toLowerCase().includes('timeout');
+}
+
+async function signInWithPasswordFallback({ email, password }) {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.access_token || !payload?.refresh_token) {
+    throw new Error(payload?.error_description || payload?.msg || 'Login gagal. Silakan coba lagi.');
+  }
+
+  const sessionResult = await withAuthTimeout(
+    supabase.auth.setSession({
+      access_token: payload.access_token,
+      refresh_token: payload.refresh_token,
+    }),
+    'Set auth session'
+  );
+
+  if (sessionResult?.error) throw sessionResult.error;
+
+  const userResult = await withAuthTimeout(supabase.auth.getUser(), 'Fetch auth user');
+  if (userResult?.error) throw userResult.error;
+
+  return { user: userResult?.data?.user || sessionResult?.data?.user || null };
+}
+
+function mapAuthUser(user) {
+  if (!user) return null;
+
+  const normalizedRoles = normalizeRoles(Array.isArray(user.roles) ? user.roles : []);
+  const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+
+  return {
+    name: user.user_metadata?.name || user.name || user.email?.split('@')[0] || 'User',
+    email: user.email || user.registrant_email || '',
+    id: user.id,
+    roles: normalizedRoles,
+    roleBadges: getUserRoleBadges(normalizedRoles, user.roleProfiles || []),
+    activeContext: user.activeContext || null,
+    permissions,
+    access: user.access || deriveConsoleAccess(normalizedRoles, permissions),
+  };
+}
+
+async function enrichAuthUser(user) {
+  const mappedUser = mapAuthUser(user);
+  if (!mappedUser?.id) return null;
+
+  try {
+    const storedActiveContext = getStoredActiveWorkspaceContext(mappedUser.id);
+    const roleProfiles = await fetchCurrentUserRoleProfiles();
+    const roles = normalizeRoles((roleProfiles || []).map((profile) => profile.role));
+    const effectiveRoles = roles.length > 0 ? roles : await fetchCurrentUserRoles();
+    const permissions = await fetchCurrentUserPermissions();
+    const activeContext = await fetchCurrentUserActiveContext();
+    const effectiveActiveContext = activeContext || storedActiveContext || null;
+
+    if (effectiveActiveContext) {
+      setStoredActiveWorkspaceContext(mappedUser.id, effectiveActiveContext);
+    }
+
+    return {
+      ...mappedUser,
+      roles: effectiveRoles,
+      roleProfiles,
+      roleBadges: getUserRoleBadges(effectiveRoles, roleProfiles),
+      activeContext: effectiveActiveContext,
+      permissions,
+      access: deriveConsoleAccess(effectiveRoles, permissions),
+    };
+  } catch (err) {
+    console.error('Failed to enrich auth user:', err);
+    const storedActiveContext = getStoredActiveWorkspaceContext(mappedUser.id);
+    return {
+      ...mappedUser,
+      roles: [],
+      roleBadges: [],
+      activeContext: storedActiveContext,
+      permissions: [],
+      access: deriveConsoleAccess([], []),
+    };
+  }
+}
+
+const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => {
   const [mode, setMode] = useState(initMode || AUTH_MODAL_MODES.login);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1557,6 +2050,12 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
     setError('');
     setSuccessMessage('');
   }, [initMode]);
+
+  useEffect(() => {
+    if (!open || !initialError) return;
+    setError(mapAuthErrorMessage({ message: initialError }));
+    setSuccessMessage('');
+  }, [open, initialError]);
 
   if (!open) return null;
 
@@ -1577,8 +2076,8 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
     setSuccessMessage('');
 
     try {
-      const { supabase } = await import('./src/config/supabase.js');
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      const supabase = await getSupabaseAuthClient();
+      const { error: oauthError } = await withAuthTimeout(supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: getAuthRedirectUrl(),
@@ -1587,7 +2086,7 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
             prompt: 'select_account',
           },
         },
-      });
+      }), 'Google OAuth');
 
       if (oauthError) throw oauthError;
     } catch (err) {
@@ -1604,14 +2103,16 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
     setLoading(true);
 
     try {
-      const { supabase } = await import('./src/config/supabase.js');
+      const supabase = await getSupabaseAuthClient();
+      const normalizedEmail = email.trim();
+      const normalizedName = name.trim();
 
       if (mode === AUTH_MODAL_MODES.forgotPassword) {
-        if (!email) throw new Error('Email tidak boleh kosong');
+        if (!normalizedEmail) throw new Error('Email tidak boleh kosong');
 
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error: resetError } = await withAuthTimeout(supabase.auth.resetPasswordForEmail(normalizedEmail, {
           redirectTo: getAuthRedirectUrl(AUTH_MODAL_MODES.recovery),
-        });
+        }), 'Reset password');
 
         if (resetError) throw resetError;
 
@@ -1625,57 +2126,74 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
         if (password.length < 6) throw new Error('Password minimal 6 karakter.');
         if (password !== confirmPassword) throw new Error('Konfirmasi password belum cocok.');
 
-        const { error: updateError } = await supabase.auth.updateUser({ password });
+        const { data: updateData, error: updateError } = await withAuthTimeout(supabase.auth.updateUser({ password }), 'Update password');
         if (updateError) throw updateError;
 
+        if (updateData?.user) {
+          onAuth(mapAuthUser(updateData.user));
+        } else {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user) onAuth(mapAuthUser(userData.user));
+        }
+
         clearAuthUrlArtifacts();
-        setSuccessMessage('Password berhasil diperbarui. Silakan lanjut gunakan akun Anda.');
+        setSuccessMessage('Password berhasil diperbarui.');
         setPassword('');
         setConfirmPassword('');
         setTimeout(() => {
-          switchMode(AUTH_MODAL_MODES.login);
           onClose();
         }, 1200);
         setLoading(false);
         return;
       }
 
-      if (!email || !password) throw new Error('Email dan password tidak boleh kosong');
+      if (!normalizedEmail || !password) throw new Error('Email dan password tidak boleh kosong');
 
       if (mode === AUTH_MODAL_MODES.register) {
-        if (!name) throw new Error('Nama tidak boleh kosong');
+        if (!normalizedName) throw new Error('Nama tidak boleh kosong');
 
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email,
+        const { data, error: signUpError } = await withAuthTimeout(supabase.auth.signUp({
+          email: normalizedEmail,
           password,
           options: {
-            data: { name },
+            data: { name: normalizedName },
             emailRedirectTo: getAuthRedirectUrl(),
           },
-        });
+        }), 'Register');
 
         if (signUpError) throw signUpError;
         if (!data.user) throw new Error('Registrasi gagal. Silakan coba lagi.');
 
-        setSuccessMessage('Registrasi berhasil. Cek email Anda untuk verifikasi sebelum login.');
         switchMode(AUTH_MODAL_MODES.login);
-        setEmail(email);
+        setEmail(normalizedEmail);
+        setSuccessMessage('Registrasi berhasil. Cek email Anda untuk verifikasi sebelum login.');
         setLoading(false);
         return;
       } else {
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        let data;
+        let signInError = null;
+
+        try {
+          const signInResult = await withAuthTimeout(supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password,
+          }), 'Login');
+          data = signInResult?.data;
+          signInError = signInResult?.error || null;
+        } catch (signInTimeoutError) {
+          if (!isTimeoutError(signInTimeoutError)) throw signInTimeoutError;
+
+          const fallbackResult = await withAuthTimeout(
+            signInWithPasswordFallback({ email: normalizedEmail, password }),
+            'Login fallback'
+          );
+          data = fallbackResult;
+        }
 
         if (signInError) throw signInError;
         if (!data.user) throw new Error('Login gagal. Silakan coba lagi.');
 
-        onAuth({
-          name: data.user.user_metadata?.name || email.split('@')[0],
-          email: data.user.email,
-          id: data.user.id,
-        });
+        onAuth(mapAuthUser(data.user));
 
         clearAuthUrlArtifacts();
         onClose();
@@ -1741,7 +2259,7 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
                 <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
                 <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
               </svg>
-              {loading ? 'Memproses...' : 'Lanjut dengan Google'}
+              {loading ? 'Memproses...' : isRegisterMode ? 'Daftar dengan Google' : 'Lanjut dengan Google'}
             </button>
           )}
 
@@ -1762,14 +2280,15 @@ const LoginModal = ({ open, mode: initMode, onClose, onAuth }) => {
                 placeholder="Nama lengkap"
               />
             )}
-            <input
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              type="email"
-              disabled={isRecoveryMode}
-              className="w-full mb-3 px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
-              placeholder="Email"
-            />
+            {!isRecoveryMode && (
+              <input
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                type="email"
+                className="w-full mb-3 px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                placeholder="Email"
+              />
+            )}
 
             {!isForgotMode && (
               <div className="relative mb-4">
@@ -2816,12 +3335,47 @@ const CoachDashboard = ({ onBack, auth }) => {
             </div>
           </div>
         )}
+
+        <Suspense fallback={null}>
+          <QuickRegistrationModal
+            isOpen={showQuickRegistration}
+            tournament={tournament}
+            auth={auth}
+            onClose={() => setShowQuickRegistration(false)}
+            onSuccess={(data) => {
+              setWorkspaceContext({
+                registration: data?.registration || null,
+                team: data?.team || null,
+              });
+              setRegistered(Boolean(data?.registration));
+              setShowQuickRegistration(false);
+              refetchTournamentPlayers();
+              if (data?.team) {
+                setShowTeamWorkspace(true);
+              }
+            }}
+          />
+          <TeamWorkspaceModal
+            isOpen={showTeamWorkspace}
+            registration={workspaceContext.registration}
+            team={workspaceContext.team}
+            tournament={tournament}
+            auth={auth}
+            onClose={() => setShowTeamWorkspace(false)}
+          />
+        </Suspense>
       </div>
     </div>
   );
 };
 
-const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack }) => {
+const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack, onNav }) => {
+  const consoleItems = auth ? [
+    auth?.access?.platform && { key: 'platform-console', title: 'Platform Console', sub: 'Newsroom, moderasi, analytics, verifikasi', icon: BarChart3 },
+    auth?.access?.workspace && { key: 'workspace-console', title: 'Workspace Console', sub: 'Turnamen, komunitas, venue, sponsor, training', icon: Building2 },
+    auth?.access?.official && { key: 'official-center', title: 'Official Center', sub: 'Jadwal tugas, match center, laporan, statistik', icon: ShieldCheck },
+  ].filter(Boolean) : [];
+
   return (
     <div className="bg-white min-h-screen">
       <button onClick={onBack} className="max-w-7xl mx-auto px-5 lg:px-8 pt-6 flex items-center gap-2 text-sm font-bold text-neutral-700 hover:text-[#E11D2E]">
@@ -2838,6 +3392,15 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Profil Gamer</div>
                 <div className="font-display text-3xl text-neutral-900">{auth?.name || 'Pengguna'}</div>
                 <div className="text-sm text-neutral-500">{auth?.email || 'Belum login'}</div>
+                {auth?.roleBadges?.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {auth.roleBadges.map((badge) => (
+                      <span key={badge} className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-neutral-100 text-neutral-700 border border-neutral-200">
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -2911,6 +3474,36 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
             </div>
           </div>
         </div>
+
+        {auth && consoleItems.length > 0 && (
+          <div className="rounded-3xl border border-neutral-200 bg-white p-8">
+            <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Mode Operasional</div>
+                <h2 className="font-display text-2xl text-neutral-900">Pusat Kerja Internal</h2>
+              </div>
+              <div className="text-sm text-neutral-500">Masuk ke console yang sedang Anda kerjakan.</div>
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
+              {consoleItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => onNav(item.key)}
+                    className="rounded-3xl border border-neutral-200 bg-neutral-50 p-5 text-left hover:border-neutral-900 transition"
+                  >
+                    <div className="w-11 h-11 rounded-2xl bg-neutral-900 text-white flex items-center justify-center mb-4">
+                      <Icon size={18} />
+                    </div>
+                    <div className="font-display text-xl text-neutral-900 mb-2">{item.title}</div>
+                    <p className="text-sm text-neutral-500 leading-relaxed">{item.sub}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2921,6 +3514,7 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
   const [step, setStep] = useState(1);
   const [method, setMethod] = useState(null);
   const [countdown, setCountdown] = useState(900);
+  const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -2961,6 +3555,16 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 
   const total = (payload?.amount || 0) + 5000;
   const vaNumber = '8896 ' + Math.floor(Math.random() * 9000 + 1000) + ' ' + Math.floor(Math.random() * 9000 + 1000);
+
+  const handleFinish = async () => {
+    if (completing) return;
+    setCompleting(true);
+    try {
+      await onSuccess?.({ method, total });
+    } finally {
+      setCompleting(false);
+    }
+  };
 
   return (
     <div className="bg-[#F4F4F4] min-h-[80vh]">
@@ -3124,8 +3728,13 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
                   </div>
                 </div>
 
-                <button onClick={onSuccess} className="px-6 py-3 rounded-full font-bold text-white text-sm" style={{ background: '#E11D2E' }}>
-                  Selesai
+                <button
+                  onClick={handleFinish}
+                  disabled={completing}
+                  className="px-6 py-3 rounded-full font-bold text-white text-sm disabled:opacity-60"
+                  style={{ background: '#E11D2E' }}
+                >
+                  {completing ? 'Menyimpan...' : 'Selesai'}
                 </button>
               </div>
             )}
@@ -3652,6 +4261,7 @@ const CoachProfile = ({ coach, onBack, onChat, onBook }) => {
 export default function Stadione() {
   const [page, setPage] = useState('home');
   const [tournamentDetail, setTournamentDetail] = useState(null);
+  const [matchContext, setMatchContext] = useState(null);
   const [bookingDetail, setBookingDetail] = useState(null);
   const [articleDetail, setArticleDetail] = useState(null);
   const [publishedTournament, setPublishedTournament] = useState(null);
@@ -3664,10 +4274,16 @@ export default function Stadione() {
   // Auth state
   const [auth, setAuth] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
+  const [authInitialError, setAuthInitialError] = useState('');
   const [authMode, setAuthMode] = useState(() => {
     const mode = getAuthModeFromUrl();
     return mode === AUTH_MODAL_MODES.recovery ? AUTH_MODAL_MODES.recovery : AUTH_MODAL_MODES.login;
   });
+
+  const handleAuth = useCallback(async (user) => {
+    const nextAuth = await enrichAuthUser(user);
+    setAuth(nextAuth);
+  }, []);
 
   // Restore session from Supabase on app mount
   useEffect(() => {
@@ -3675,43 +4291,50 @@ export default function Stadione() {
 
     const restoreSession = async () => {
       try {
-        const { supabase } = await import('./src/config/supabase.js');
-        if (getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery) {
+        const supabase = await getSupabaseAuthClient();
+
+        const urlAuthError = getAuthErrorFromUrl();
+        if (urlAuthError) {
+          setAuthMode(AUTH_MODAL_MODES.login);
+          setAuthInitialError(urlAuthError);
+          setShowAuth(true);
+          clearAuthUrlArtifacts();
+        } else if (getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery) {
           setAuthMode(AUTH_MODAL_MODES.recovery);
+          setAuthInitialError('');
           setShowAuth(true);
         }
 
-        const { data: { session }, error } = await supabase.auth.getSession();
-
-        if (!error && session?.user) {
-          setAuth({
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-            email: session.user.email,
-            id: session.user.id,
-          });
-        }
-
-        // Listen for auth changes
         const { data } = supabase.auth.onAuthStateChange(
           async (event, currentSession) => {
             if (event === 'PASSWORD_RECOVERY') {
               setAuthMode(AUTH_MODAL_MODES.recovery);
+              setAuthInitialError('');
               setShowAuth(true);
               return;
             }
 
             if (currentSession?.user) {
-              setAuth({
-                name: currentSession.user.user_metadata?.name || currentSession.user.email?.split('@')[0],
-                email: currentSession.user.email,
-                id: currentSession.user.id,
-              });
+              const nextAuth = await enrichAuthUser(currentSession.user);
+              setAuth(nextAuth);
+              if (event === 'SIGNED_IN' && getAuthModeFromUrl() !== AUTH_MODAL_MODES.recovery) {
+                clearAuthUrlArtifacts();
+                setShowAuth(false);
+                setAuthInitialError('');
+              }
             } else {
               setAuth(null);
             }
           }
         );
         subscription = data?.subscription;
+
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (!error && session?.user) {
+          const nextAuth = await enrichAuthUser(session.user);
+          setAuth(nextAuth);
+        }
       } catch (err) {
         console.error('Failed to restore session:', err);
       }
@@ -3731,8 +4354,9 @@ export default function Stadione() {
   const { coaches, loading: coachesLoading } = useCoaches();
   const { chats, loading: chatsLoading } = useChats();
   const { stats: gamificationStats, loading: gamificationLoading } = useUserGamification(auth?.id);
-  const { activities, loading: activitiesLoading } = useActivityHistory(auth?.id, 20);
+  const { activities, loading: activitiesLoading, refetch: refetchActivities } = useActivityHistory(auth?.id, 20);
   const { currentTier, nextTier, progressPercentage, pointsToNextTier } = useTierProgression(gamificationStats?.points || 0);
+  const access = auth?.access || deriveConsoleAccess([], []);
   
   // Fallback to hardcoded data if Supabase is not available
   const VENUES_DATA = venues.length > 0 ? venues : [];
@@ -3743,6 +4367,7 @@ export default function Stadione() {
 
   const goTo = (newPage, data = null, opts = {}) => {
     if (newPage === 'tournament-detail') setTournamentDetail(data);
+    if (['match-center', 'match-report', 'match-statistics'].includes(newPage)) setMatchContext(data);
     if (newPage === 'booking-detail') setBookingDetail(data);
     if (newPage === 'news-detail') setArticleDetail(data);
     if (newPage === 'tournament-published') setPublishedTournament(data);
@@ -3766,22 +4391,52 @@ export default function Stadione() {
     } else {
       setAuthMode(AUTH_MODAL_MODES.login);
     }
+    setAuthInitialError('');
     setShowAuth(true);
   };
 
-  const handleAuth = (user) => {
-    setAuth(user);
-  };
-
   const handleLogout = async () => {
+    const userId = auth?.id;
     try {
-      const { supabase } = await import('./src/config/supabase.js');
+      const supabase = await getSupabaseAuthClient();
       await supabase.auth.signOut();
     } catch (err) {
       console.error('Logout error:', err);
     }
+    clearStoredActiveWorkspaceContext(userId);
     setAuth(null);
     setPage('home');
+  };
+
+  const handleSwitchContext = async (scope) => {
+    if (!auth?.id || !scope) return;
+
+    const fallbackContext = {
+      context_scope: scope,
+      context_role: null,
+      context_entity_type: null,
+      context_entity_id: null,
+      context_label: scope === 'platform'
+        ? 'Platform Console'
+        : scope === 'workspace'
+          ? 'Workspace Console'
+          : scope === 'official'
+            ? 'Official Center'
+            : 'General',
+      metadata: {},
+      switched_at: new Date().toISOString(),
+    };
+
+    const nextContext = await switchCurrentUserActiveContext({
+      scope,
+      label: fallbackContext.context_label,
+      reason: 'menu_context_switch',
+      metadata: { source: 'header_menu' },
+    });
+
+    const resolvedContext = nextContext || fallbackContext;
+    setStoredActiveWorkspaceContext(auth.id, resolvedContext);
+    setAuth((prev) => (prev ? { ...prev, activeContext: resolvedContext } : prev));
   };
 
   const requireAuthThen = (cb) => {
@@ -3789,9 +4444,75 @@ export default function Stadione() {
     else openAuth('login');
   };
 
+  const renderLazyPage = (node, label) => (
+    <Suspense fallback={<LazyFallback label={label} />}>
+      {node}
+    </Suspense>
+  );
+
+  const renderAccessControlledPage = (allowed, node, label) => {
+    if (!allowed) {
+      return <AccessDeniedPage onBack={() => goTo('profile')} />;
+    }
+
+    return renderLazyPage(node, label);
+  };
+
+  const canAccessPage = (pageKey, options = {}) => {
+    const allowedByRolePermission = canAccessAdminPage(pageKey, auth?.roles || [], auth?.permissions || []);
+    if (!allowedByRolePermission) return false;
+
+    const activeScope = auth?.activeContext?.context_scope;
+    const pageRule = PAGE_ACCESS[pageKey];
+
+    if (activeScope && pageRule?.console && activeScope !== pageRule.console) {
+      return false;
+    }
+
+    if (['match-center', 'match-report', 'match-statistics'].includes(pageKey)) {
+      const selectedContext = options?.matchContext || matchContext;
+      const capabilities = getOfficialMatchCapabilities({
+        userRoles: auth?.roles || [],
+        assignmentRole: selectedContext?.assignmentRole,
+      });
+
+      if (pageKey === 'match-center') return capabilities.openMatchCenter;
+      if (pageKey === 'match-report') return capabilities.openMatchReport;
+      if (pageKey === 'match-statistics') return capabilities.openMatchStatistics;
+    }
+
+    return true;
+  };
+
   // Payment success → return to home or specified page
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async ({ method, total } = {}) => {
+    if (paymentPayload?.type === 'booking' && auth?.id) {
+      const result = await recordVenueBooking(auth.id, {
+        venueId: paymentPayload.venueId,
+        venueName: paymentPayload.itemName,
+        venueCity: paymentPayload.venueCity,
+        bookingDate: paymentPayload.bookingDate,
+        bookingTime: paymentPayload.bookingTime,
+        durationHours: paymentPayload.durationHours || 1,
+        sport: paymentPayload.sport,
+        status: 'confirmed',
+        paymentMethod: method?.name,
+        totalPaid: total,
+      });
+
+      if (result?.error) {
+        console.warn('Booking tersimpan ke fallback riwayat:', result.error);
+      }
+
+      await refetchActivities?.();
+      goTo('profile');
+      setPaymentPayload(null);
+      setReturnTo(null);
+      return;
+    }
+
     goTo(returnTo || 'home');
+    setPaymentPayload(null);
     setReturnTo(null);
   };
 
@@ -3801,6 +4522,12 @@ export default function Stadione() {
       goTo('payment', {
         type: 'booking',
         amount: venue.price,
+        venueId: venue.id,
+        venueCity: venue.city,
+        sport: venue.sport,
+        bookingDate: date,
+        bookingTime: slot,
+        durationHours: 1,
         itemName: venue.name,
         itemSub: `${date} · ${slot} · 1 jam`,
       }, { returnTo: 'booking' });
@@ -3829,6 +4556,7 @@ export default function Stadione() {
         onOpenAuth={openAuth}
         onLogout={handleLogout}
         onChat={() => requireAuthThen(() => goTo('chat'))}
+        onSwitchContext={handleSwitchContext}
         gamificationStats={gamificationStats}
         statsLoading={gamificationLoading}
       />
@@ -3868,7 +4596,7 @@ export default function Stadione() {
         )}
         {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} news={NEWS_DATA} />}
         {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} auth={auth} openAuth={openAuth} />}
-        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} />}
+        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} onNav={goTo} />}
         {page === 'training' && (
           <TrainingPage
             onCoachDashboard={() => auth ? goTo('coach-dashboard') : openAuth('login')}
@@ -3885,6 +4613,24 @@ export default function Stadione() {
           />
         )}
         {page === 'coach-dashboard' && <CoachDashboard onBack={() => goTo('home')} auth={auth} />}
+        {page === 'platform-console' && renderAccessControlledPage(canAccessPage('platform-console'), <PlatformDashboard auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat platform console...')}
+        {page === 'newsroom' && renderAccessControlledPage(canAccessPage('newsroom'), <NewsroomPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat newsroom...')}
+        {page === 'moderation' && renderAccessControlledPage(canAccessPage('moderation'), <ModerationPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat moderation queue...')}
+        {page === 'analytics' && renderAccessControlledPage(canAccessPage('analytics'), <AnalyticsPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat analytics...')}
+        {page === 'admin-verification-queue' && renderAccessControlledPage(canAccessPage('admin-verification-queue'), <VerificationQueuePage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat verification queue...')}
+        {page === 'workspace-console' && renderAccessControlledPage(canAccessPage('workspace-console'), <WorkspaceConsolePage auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat workspace console...')}
+        {page === 'community-manager' && renderAccessControlledPage(canAccessPage('community-manager'), <CommunityManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat community manager...')}
+        {page === 'sponsor-manager' && renderAccessControlledPage(canAccessPage('sponsor-manager'), <SponsorManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat sponsor manager...')}
+        {page === 'tournament-manager' && renderAccessControlledPage(canAccessPage('tournament-manager'), <TournamentManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat tournament manager...')}
+        {page === 'training-manager' && renderAccessControlledPage(canAccessPage('training-manager'), <TrainingManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat training manager...')}
+        {page === 'venue-manager' && renderAccessControlledPage(canAccessPage('venue-manager'), <VenueManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue manager...')}
+        {page === 'venue-registration' && <VenueRegistrationPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />}
+        {page === 'venue-workspace' && renderAccessControlledPage(canAccessPage('venue-workspace'), <VenueWorkspacePage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue workspace...')}
+        {page === 'official-center' && renderAccessControlledPage(canAccessPage('official-center'), <OfficialCenterPage auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat official center...')}
+        {page === 'official-schedule' && renderAccessControlledPage(canAccessPage('official-schedule'), <OfficialSchedulePage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} />, 'Memuat jadwal official...')}
+        {page === 'match-center' && renderAccessControlledPage(canAccessPage('match-center', { matchContext }), <MatchCenterPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match center...')}
+        {page === 'match-report' && renderAccessControlledPage(canAccessPage('match-report', { matchContext }), <MatchReportPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match report...')}
+        {page === 'match-statistics' && renderAccessControlledPage(canAccessPage('match-statistics', { matchContext }), <MatchStatisticsPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match statistics...')}
         {page === 'payment' && paymentPayload && (
           <PaymentPage
             payload={paymentPayload}
@@ -3906,7 +4652,11 @@ export default function Stadione() {
       <LoginModal
         open={showAuth}
         mode={authMode}
-        onClose={() => setShowAuth(false)}
+        initialError={authInitialError}
+        onClose={() => {
+          setShowAuth(false);
+          setAuthInitialError('');
+        }}
         onAuth={handleAuth}
       />
     </div>

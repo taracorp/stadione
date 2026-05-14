@@ -17,6 +17,11 @@ Di Vercel Project -> Settings -> Environment Variables, pastikan variabel beriku
 - `VITE_SUPABASE_URL` = URL project Supabase
 - `VITE_SUPABASE_ANON_KEY` = anon public key Supabase
 
+Penting:
+- Isi value tanpa tanda kutip (`"` atau `'`).
+- Pastikan key tidak terpotong, tidak ada spasi, dan tidak ada newline.
+- Setelah mengubah env var di Vercel, wajib redeploy production deployment.
+
 Opsional kompatibilitas tambahan (karena app juga membaca prefix lain):
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
@@ -48,6 +53,7 @@ Buka Supabase -> Authentication -> Providers -> Google:
 2. Buka URL production
 3. Uji minimum berikut:
    - Login Google
+   - Daftar Google dari tab Daftar
    - Signup email/password (wajib verifikasi email)
    - Forgot password -> buka link reset -> set password baru
 
@@ -59,7 +65,8 @@ Buka Supabase -> Authentication -> Providers -> Google:
 4. Google provider aktif di Supabase
 5. Redirect URL Supabase sudah didaftarkan di Google OAuth app
 6. Link reset password mengarah kembali ke domain production
-7. Coba mode incognito untuk menghindari cache/session lama
+7. Setelah callback Google/reset password, app tidak menyisakan error/hash auth di URL
+8. Coba mode incognito untuk menghindari cache/session lama
 
 ## Troubleshooting
 
@@ -71,6 +78,18 @@ Penyebab:
 Solusi:
 - Verifikasi env var di Vercel dan lakukan redeploy.
 
+### Login menampilkan "Invalid API key"
+
+Penyebab:
+- `VITE_SUPABASE_ANON_KEY` di Vercel salah, terpotong, atau dipaste dengan tanda kutip/newline.
+- Production deployment belum diredeploy setelah env var diperbaiki.
+
+Solusi:
+- Copy ulang anon public key dari Supabase Project Settings -> API.
+- Paste ke Vercel sebagai raw value tanpa tanda kutip.
+- Redeploy production.
+- App juga punya fallback anon key untuk project Stadione, tetapi env Vercel tetap harus dibenahi agar deployment tidak bergantung pada fallback.
+
 ### Login Google gagal di production
 
 Penyebab umum:
@@ -79,14 +98,17 @@ Penyebab umum:
 
 Solusi:
 - Samakan redirect URI antara Supabase dan Google Cloud OAuth config.
+- Uji dari tab Masuk dan tab Daftar karena keduanya memakai OAuth Google yang sama.
 
 ### Reset password tidak kembali ke app
 
 Penyebab:
 - Domain redirect belum terdaftar di Supabase URL Configuration.
+- Link reset lama sudah pernah dipakai atau expired.
 
 Solusi:
 - Tambah domain production dan lokal di Additional Redirect URLs.
+- Kirim ulang link reset dan selalu buka link terbaru dari email.
 
 ## Referensi
 

@@ -83,6 +83,127 @@ export const quizTemplates = {
   ]
 };
 
+function shuffleArray(items) {
+  const cloned = [...items];
+  for (let i = cloned.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cloned[i], cloned[j]] = [cloned[j], cloned[i]];
+  }
+  return cloned;
+}
+
+function buildQuestion(question, correct, distractors, explanation) {
+  const options = shuffleArray([correct, ...distractors]).slice(0, 4);
+  const correctIndex = options.findIndex((option) => option === correct);
+  return {
+    id: `q_${Math.random().toString(36).slice(2, 10)}`,
+    question,
+    options,
+    correctIndex,
+    explanation,
+  };
+}
+
+function parseScore(content) {
+  const scoreMatch = content.match(/(\d{1,2})\s*[-:]\s*(\d{1,2})/);
+  if (!scoreMatch) return null;
+  return `${scoreMatch[1]}-${scoreMatch[2]}`;
+}
+
+function parseVenue(content) {
+  const venueMatch = content.match(/(Stadion\s+[A-Z][A-Za-z\s-]{3,40}|GOR\s+[A-Z][A-Za-z\s-]{3,40})/);
+  if (!venueMatch) return null;
+  return venueMatch[1].trim();
+}
+
+function parsePercentages(content) {
+  const matches = [...content.matchAll(/(\d{1,3})%/g)].map((entry) => Number(entry[1]));
+  return matches.filter((value) => value >= 10 && value <= 100);
+}
+
+function parseLargeNumbers(content) {
+  const matches = [...content.matchAll(/\b(\d{2,4})\b/g)].map((entry) => Number(entry[1]));
+  return matches.filter((value) => value >= 10 && value <= 5000);
+}
+
+export function generateTriviaQuestionsFromContent(article, paragraphs = [], maxQuestions = 3) {
+  const safeParagraphs = Array.isArray(paragraphs) ? paragraphs : [];
+  const mergedContent = safeParagraphs.filter(Boolean).join(' ');
+  const questions = [];
+
+  const score = parseScore(mergedContent);
+  if (score) {
+    const [home, away] = score.split('-').map(Number);
+    questions.push(buildQuestion(
+      'Berapa skor akhir pertandingan pada artikel ini?',
+      score,
+      [`${home + 1}-${away}`, `${home}-${away + 1}`, `${Math.max(home - 1, 0)}-${away}`],
+      `Skor akhir yang disebutkan pada artikel adalah ${score}.`
+    ));
+  }
+
+  const venue = parseVenue(mergedContent);
+  if (venue) {
+    questions.push(buildQuestion(
+      'Di venue mana pertandingan utama pada artikel ini berlangsung?',
+      venue,
+      ['Stadion Utama Jakarta', 'GOR Internasional', 'Stadion Nasional'],
+      `Artikel menyebutkan venue pertandingan di ${venue}.`
+    ));
+  }
+
+  const percentages = parsePercentages(mergedContent);
+  if (percentages.length > 0) {
+    const possession = percentages[0];
+    questions.push(buildQuestion(
+      'Berapa persentase statistik dominan yang disebut dalam artikel?',
+      `${possession}%`,
+      [`${Math.max(0, possession - 6)}%`, `${Math.min(100, possession + 7)}%`, `${Math.max(0, possession - 12)}%`],
+      `Angka persentase utama yang muncul di artikel adalah ${possession}%.`
+    ));
+  }
+
+  const largeNumbers = parseLargeNumbers(mergedContent);
+  const statNumber = largeNumbers.find((value) => value >= 10 && value <= 150);
+  if (statNumber) {
+    questions.push(buildQuestion(
+      'Berapa angka statistik kunci (non-persentase) yang disebut di artikel?',
+      String(statNumber),
+      [String(statNumber + 2), String(Math.max(1, statNumber - 3)), String(statNumber + 5)],
+      `Artikel mencantumkan angka statistik ${statNumber}.`
+    ));
+  }
+
+  const filtered = questions.filter((item, index, array) => {
+    return array.findIndex((entry) => entry.question === item.question) === index;
+  });
+
+  const desiredCount = Math.min(Math.max(maxQuestions, 3), 3);
+  const result = shuffleArray(filtered).slice(0, desiredCount);
+  if (result.length >= 3) return result;
+
+  return [
+    buildQuestion(
+      'Apa fokus utama pembahasan dalam artikel ini?',
+      'Pertandingan dan performa tim pada laga yang dibahas',
+      ['Harga tiket dan promosi tribun', 'Transfer pemain lintas liga', 'Jadwal latihan mingguan komunitas'],
+      'Isi artikel menyoroti jalannya laga serta performa tim.'
+    ),
+    buildQuestion(
+      'Bagian mana yang paling ditekankan dari isi artikel?',
+      'Momen penting pertandingan dan data statistiknya',
+      ['Perubahan logo klub musim ini', 'Diskon merchandise resmi', 'Renovasi fasilitas parkir stadion'],
+      'Artikel menekankan momen pertandingan beserta statistik pendukung.'
+    ),
+    buildQuestion(
+      'Nilai utama apa yang paling terasa dari narasi artikel?',
+      'Kerja kolektif dan konsistensi performa di lapangan',
+      ['Ekspansi bisnis klub ke luar negeri', 'Pergantian warna jersey kandang', 'Rencana tur pramusim internasional'],
+      'Narasi artikel menekankan kekompakan tim dan konsistensi permainan.'
+    ),
+  ].slice(0, desiredCount);
+}
+
 /**
  * Create or fetch quiz for an article
  * If quiz doesn't exist, creates one based on article category/sport

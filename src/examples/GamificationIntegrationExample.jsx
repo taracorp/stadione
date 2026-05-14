@@ -235,7 +235,7 @@ const ArticleDetailWithGamification = ({ articleId, userId, article }) => {
       {progress?.read_completed && (
         <div className="mt-8 p-4 bg-green-50 border border-green-200 rounded-lg">
           <p className="text-sm text-green-900">
-            ✓ Artikel selesai dibaca! {!progress?.quiz_attempted && 'Trivia quiz sedang menunggu jawaban Anda.'}
+            ✓ Trivia sudah diselesaikan! {!progress?.quiz_attempted && 'Trivia quiz sedang menunggu jawaban Anda.'}
           </p>
         </div>
       )}

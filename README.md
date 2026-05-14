@@ -47,7 +47,7 @@ Lihat dokumentasi lengkap di [SUPABASE_SETUP.md](./SUPABASE_SETUP.md)
 Ringkas:
 1. Ambil URL dan anon key dari Supabase dashboard
 2. Set di `.env.local`
-3. Import `supabase-schema.sql` ke Supabase SQL editor
+3. Import `supabase-schema.sql`, lalu `supabase-tournament-rls.sql`, lalu `supabase-community.sql` ke Supabase SQL editor
 4. Run aplikasi
 
 ### Development
@@ -91,6 +91,8 @@ stadione/
 ├── tailwind.config.js
 ├── postcss.config.js
 ├── supabase-schema.sql          # Database schema & seed
+├── supabase-tournament-rls.sql  # Roles, permissions, verification workflow
+├── supabase-community.sql       # Community feed, chat, academy trial schema
 └── SUPABASE_SETUP.md            # Setup guide
 ```
 

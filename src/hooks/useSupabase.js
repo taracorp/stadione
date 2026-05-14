@@ -38,6 +38,7 @@ export function useTournaments() {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const load = async () => {
@@ -52,9 +53,11 @@ export function useTournaments() {
       }
     };
     load();
-  }, []);
+  }, [refreshKey]);
 
-  return { tournaments, loading, error };
+  const refetch = () => setRefreshKey((k) => k + 1);
+
+  return { tournaments, loading, error, refetch };
 }
 
 export function useTournamentDetail(tournamentId) {

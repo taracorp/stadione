@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase.js';
 import { getSubstitutionPresetForSport } from './substitutionRuleEngine.js';
+import { normalizeRoles } from '../utils/roles.js';
 
 const isSupabaseReady = () => Boolean(supabase);
 const handleEmptyConsistency = (fallback = []) => fallback;
@@ -45,8 +46,9 @@ const FALLBACK_PERMISSION_BY_ROLE = {
 
 function derivePermissionsFromRoles(roles = []) {
   const derived = new Set();
+  const normalizedRoles = normalizeRoles(roles);
 
-  (roles || []).forEach((role) => {
+  (normalizedRoles || []).forEach((role) => {
     const permissionList = FALLBACK_PERMISSION_BY_ROLE[role];
     if (!permissionList) return;
     permissionList.forEach((permission) => derived.add(permission));
@@ -76,6 +78,22 @@ function generateUniqueTransferAmount(baseFee) {
   if (!fee) return 0;
   const suffix = Math.floor(Math.random() * 90) + 11;
   return fee + suffix;
+}
+
+async function getNextVenueId() {
+  if (!isSupabaseReady()) return null;
+
+  const { data, error } = await supabase
+    .from('venues')
+    .select('id')
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const currentMaxId = Number(data?.id || 0);
+  return currentMaxId + 1;
 }
 
 function isMissingSubstitutionRulesColumnError(error) {
@@ -1466,9 +1484,117 @@ export async function fetchVerificationQueue() {
   }
 }
 
-export async function fetchCurrentUserRoles() {
+export async function submitVenueRegistrationRequest(payload) {
   if (!isSupabaseReady()) {
-    console.warn('Supabase client not configured: fetchCurrentUserRoles returning fallback empty array.');
+    console.warn('Supabase client not configured: submitVenueRegistrationRequest skipped.');
+    return null;
+  }
+
+  const ownerUserId = payload?.ownerUserId;
+  if (!ownerUserId) return null;
+
+  try {
+    const nextVenueId = await getNextVenueId();
+    if (!nextVenueId) return null;
+
+    const venueInput = {
+      id: nextVenueId,
+      name: payload.name,
+      city: payload.city,
+      province: payload.province,
+      address: payload.address,
+      contact_number: payload.contactNumber,
+      maps_url: payload.mapsUrl,
+      description: payload.description || null,
+      sport: payload.sport || 'Futsal',
+      owner_user_id: ownerUserId,
+      verification_status: 'pending',
+      is_active: false,
+    };
+
+    const { data: existingVenue, error: existingVenueError } = await supabase
+      .from('venues')
+      .select('id')
+      .eq('owner_user_id', ownerUserId)
+      .maybeSingle();
+
+    if (existingVenueError) throw existingVenueError;
+
+    let venueId = existingVenue?.id;
+
+    if (venueId) {
+      const { error: updateVenueError } = await supabase
+        .from('venues')
+        .update(venueInput)
+        .eq('id', venueId);
+
+      if (updateVenueError) throw updateVenueError;
+    } else {
+      const { data: createdVenue, error: createVenueError } = await supabase
+        .from('venues')
+        .insert([venueInput])
+        .select('id')
+        .single();
+
+      if (createVenueError) throw createVenueError;
+      venueId = createdVenue?.id;
+    }
+
+    if (!venueId) return null;
+
+    const { data, error } = await supabase
+      .from('venue_verification')
+      .insert([{
+        venue_id: venueId,
+        submitted_by: ownerUserId,
+        verification_type: payload.verificationType || 'individual',
+        ktp_url: payload.ktpUrl || null,
+        selfie_url: payload.selfieUrl || null,
+        nib_url: payload.nibUrl || null,
+        npwp_url: payload.npwpUrl || null,
+        legalitas_url: payload.legalitasUrl || null,
+        notes: payload.notes || null,
+        status: 'pending',
+      }])
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    return { venueId, verification: data };
+  } catch (err) {
+    console.error('Error submitting venue registration request:', err.message);
+    return null;
+  }
+}
+
+export async function fetchVenueVerificationRequestsByUser(userId) {
+  if (!isSupabaseReady() || !userId) {
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('venue_verification')
+      .select('*, venues(id, name, city, verification_status, is_active)')
+      .eq('submitted_by', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching venue verification requests:', err.message);
+    return [];
+  }
+}
+
+export async function fetchCurrentUserRoles() {
+  const profiles = await fetchCurrentUserRoleProfiles();
+  return normalizeRoles((profiles || []).map((profile) => profile.role).filter(Boolean));
+}
+
+export async function fetchCurrentUserRoleProfiles() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchCurrentUserRoleProfiles returning fallback empty array.');
     return [];
   }
 
@@ -1485,10 +1611,94 @@ export async function fetchCurrentUserRoles() {
       .eq('user_id', userId);
 
     if (error) throw error;
-    return (data || []).map((row) => row.role).filter(Boolean);
+
+    const normalizedProfiles = (data || []).reduce((acc, row) => {
+      const normalizedRole = normalizeRoles([row?.role])[0];
+      if (!normalizedRole) return acc;
+
+      const roleMeta = Array.isArray(row?.app_roles)
+        ? row.app_roles[0]
+        : row?.app_roles;
+
+      const existing = acc.find((entry) => entry.role === normalizedRole);
+      if (existing) return acc;
+
+      acc.push({
+        role: normalizedRole,
+        displayName: String(roleMeta?.display_name || '').trim(),
+        parentRole: String(roleMeta?.parent_role || '').trim(),
+        hierarchyLevel: roleMeta?.hierarchy_level ?? null,
+        scopeType: String(roleMeta?.scope_type || '').trim(),
+      });
+      return acc;
+    }, []);
+
+    return normalizedProfiles;
   } catch (err) {
-    console.error('Error fetching current user roles:', err.message);
+    console.error('Error fetching current user role profiles:', err.message);
     return [];
+  }
+}
+
+export async function fetchCurrentUserActiveContext() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchCurrentUserActiveContext returning null.');
+    return null;
+  }
+
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+
+    const userId = authData?.user?.id;
+    if (!userId) return null;
+
+    const { data, error } = await supabase
+      .from('user_active_workspace_context')
+      .select('context_scope, context_role, context_entity_type, context_entity_id, context_label, metadata, switched_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  } catch (err) {
+    console.error('Error fetching current user active context:', err.message);
+    return null;
+  }
+}
+
+export async function switchCurrentUserActiveContext(payload = {}) {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: switchCurrentUserActiveContext skipped.');
+    return null;
+  }
+
+  try {
+    const {
+      scope,
+      role = null,
+      entityType = null,
+      entityId = null,
+      label = null,
+      reason = null,
+      metadata = {},
+    } = payload;
+
+    const { error } = await supabase.rpc('set_active_workspace_context', {
+      p_scope: scope,
+      p_role: role,
+      p_entity_type: entityType,
+      p_entity_id: entityId,
+      p_label: label,
+      p_reason: reason,
+      p_metadata: metadata,
+    });
+
+    if (error) throw error;
+    return await fetchCurrentUserActiveContext();
+  } catch (err) {
+    console.error('Error switching active workspace context:', err.message);
+    return null;
   }
 }
 
@@ -1597,6 +1807,198 @@ export async function reviewTournamentVerificationRequest(payload) {
     return true;
   } catch (err) {
     console.error('Error reviewing tournament verification request:', err.message);
+    return false;
+  }
+}
+
+export async function fetchVenueVerificationQueue() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchVenueVerificationQueue returning fallback empty array.');
+    return [];
+  }
+
+  try {
+    const allowed = await hasAnyCurrentUserPermission([PERMISSIONS.OPERATOR_VERIFY]);
+    if (!allowed) {
+      console.warn('Permission denied: fetchVenueVerificationQueue requires operator verification permission.');
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('venue_verification')
+      .select('*, venues(id, name, city, verification_status, is_active, owner_user_id)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching venue verification queue:', err.message);
+    return [];
+  }
+}
+
+export async function reviewVenueVerificationRequest(payload) {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: reviewVenueVerificationRequest skipped.');
+    return false;
+  }
+
+  const decision = payload.decision === 'approved' ? 'approved' : 'rejected';
+
+  try {
+    const allowed = await hasAnyCurrentUserPermission([PERMISSIONS.OPERATOR_VERIFY]);
+    if (!allowed) {
+      console.warn('Permission denied: reviewVenueVerificationRequest requires operator verification permission.');
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    const { error: requestError } = await supabase
+      .from('venue_verification')
+      .update({
+        status: decision,
+        notes: payload.adminNotes || null,
+        reviewed_by: payload.reviewerId || null,
+        reviewed_at: now,
+      })
+      .eq('id', payload.requestId);
+
+    if (requestError) throw requestError;
+
+    const { error: venueError } = await supabase
+      .from('venues')
+      .update(decision === 'approved'
+        ? { verification_status: 'verified', is_active: true }
+        : { verification_status: 'rejected', is_active: false })
+      .eq('id', payload.venueId);
+
+    if (venueError) throw venueError;
+
+    try {
+      await supabase.rpc('log_admin_action', {
+        p_action: `venue_verification.${decision}`,
+        p_target_type: 'venue_verification_request',
+        p_target_id: String(payload.requestId),
+        p_details: {
+          venue_id: payload.venueId,
+          decision,
+        }
+      });
+    } catch (auditError) {
+      console.warn('Audit log write skipped for venue verification review:', auditError.message);
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error reviewing venue verification request:', err.message);
+    return false;
+  }
+}
+
+export async function fetchOfficialProfile(userId) {
+  if (!isSupabaseReady() || !userId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('official_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  } catch (err) {
+    console.error('Error fetching official profile:', err.message);
+    return null;
+  }
+}
+
+export async function fetchOfficialAssignments({ userId, status = 'all', throwOnError = false } = {}) {
+  if (!isSupabaseReady() || !userId) return [];
+
+  try {
+    let query = supabase
+      .from('match_assignments')
+      .select('id,tournament_id,match_entry_id,display_name,role,status,venue,notes,assigned_at,updated_at')
+      .eq('user_id', userId)
+      .order('assigned_at', { ascending: false });
+
+    if (status && status !== 'all') {
+      query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const assignments = data || [];
+    if (assignments.length === 0) return [];
+
+    const tournamentIds = [...new Set(assignments.map((item) => item.tournament_id).filter(Boolean))];
+
+    let tournamentMap = {};
+    if (tournamentIds.length > 0) {
+      const { data: tournaments, error: tournamentError } = await supabase
+        .from('tournaments')
+        .select('id,name,sport')
+        .in('id', tournamentIds);
+
+      if (tournamentError) throw tournamentError;
+      tournamentMap = (tournaments || []).reduce((acc, item) => {
+        acc[item.id] = item;
+        return acc;
+      }, {});
+    }
+
+    return assignments.map((item) => ({
+      ...item,
+      tournament_name: tournamentMap[item.tournament_id]?.name || 'Turnamen',
+      tournament_sport: tournamentMap[item.tournament_id]?.sport || '',
+    }));
+  } catch (err) {
+    console.error('Error fetching official assignments:', err.message);
+    if (throwOnError) throw err;
+    return [];
+  }
+}
+
+export async function fetchOfficialAssignmentDetail({ assignmentId, userId } = {}) {
+  if (!isSupabaseReady() || !assignmentId || !userId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('match_assignments')
+      .select('*')
+      .eq('id', assignmentId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  } catch (err) {
+    console.error('Error fetching official assignment detail:', err.message);
+    return null;
+  }
+}
+
+export async function updateOfficialAssignmentStatus({ assignmentId, userId, status, throwOnError = false } = {}) {
+  if (!isSupabaseReady() || !assignmentId || !userId || !status) return false;
+
+  const allowedStatuses = ['assigned', 'confirmed', 'completed', 'cancelled', 'declined'];
+  if (!allowedStatuses.includes(status)) return false;
+
+  try {
+    const { error } = await supabase
+      .from('match_assignments')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', assignmentId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Error updating official assignment status:', err.message);
+    if (throwOnError) throw err;
     return false;
   }
 }

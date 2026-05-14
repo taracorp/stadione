@@ -1,6 +1,6 @@
 // Gamification UI Components
 import React, { useState, useEffect } from 'react';
-import { Coins, Trophy, Flame, Award, Target, TrendingUp, Star, Zap, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import { Coins, Trophy, Flame, Award, Target, TrendingUp, Star, Zap, Lock, CheckCircle, AlertCircle, Calendar, MessageCircle } from 'lucide-react';
 
 // ============ COIN & POINTS DISPLAY (for Header) ============
 export const UserGamificationBadge = ({ stats, loading }) => {
@@ -97,28 +97,34 @@ export const ActivityCard = ({ activity }) => {
     checkin: <CheckCircle size={18} className="text-green-600" />,
     review: <Award size={18} className="text-indigo-600" />,
     referral: <TrendingUp size={18} className="text-emerald-600" />,
+    venue_booking: <Calendar size={18} className="text-blue-600" />,
+    article_comment: <MessageCircle size={18} className="text-rose-600" />,
     transaction: <Coins size={18} className="text-amber-600" />
   };
 
   const activityLabels = {
     login: 'Masuk ke Stadione',
-    article_read: 'Membaca Artikel',
+    article_read: 'Trivia Diselesaikan',
     trivia_correct: 'Jawab Trivia Benar',
     share: 'Bagikan Konten',
     event_join: 'Daftar Event',
     checkin: 'Check-in Lapangan',
     review: 'Tulis Review',
     referral: 'Referral Berhasil',
+    venue_booking: 'Booking Lapangan',
+    article_comment: 'Komentar Artikel',
     transaction: 'Transaksi'
   };
 
-  const date = new Date(activity.created_at);
+  const date = new Date(activity.created_at || activity.activity_date || Date.now());
   const timeStr = date.toLocaleDateString('id-ID', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
   });
+  const points = Number(activity.points_earned || 0);
+  const label = activity.activity_title || activityLabels[activity.activity_type] || activity.activity_type;
 
   return (
     <div className="flex items-start gap-3 p-4 bg-neutral-50 rounded-lg border border-neutral-200">
@@ -127,14 +133,17 @@ export const ActivityCard = ({ activity }) => {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-neutral-900">
-          {activityLabels[activity.activity_type] || activity.activity_type}
+          {label}
         </p>
+        {activity.activity_description && (
+          <p className="text-xs text-neutral-500 mt-0.5 line-clamp-2">{activity.activity_description}</p>
+        )}
         <p className="text-xs text-neutral-500 mt-0.5">{timeStr}</p>
       </div>
       <div className="flex-shrink-0 text-right">
-        <span className={`text-sm font-bold ${activity.points_earned > 0 ? 'text-blue-600' : 'text-amber-600'}`}>
-          {activity.points_earned > 0 ? `+${activity.points_earned}` : `+${activity.points_earned}`} {activity.activity_type === 'transaction' ? 'Coin' : 'Poin'}
-        </span>
+        {points > 0 && (
+          <span className="text-sm font-bold text-blue-600">+{points} Poin</span>
+        )}
       </div>
     </div>
   );
