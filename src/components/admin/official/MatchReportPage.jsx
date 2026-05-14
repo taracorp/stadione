@@ -143,17 +143,19 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
     setLoading(true);
     try {
       if (isVenueTournamentSource) {
-        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueReportData, error: venueReportError }] = await Promise.all([
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueReportData, error: venueReportError }, { data: venueEventData, error: venueEventError }] = await Promise.all([
           supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
           supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id,winner_team_id').eq('id', venueMatchId).maybeSingle(),
           supabase.from('venue_tournament_teams').select('id,team_name').eq('tournament_id', venueTournamentId),
           supabase.from('venue_match_reports').select('*').eq('venue_match_id', venueMatchId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+          supabase.from('venue_match_events').select('id,event_type,player_name,team,minute,description,created_at').eq('venue_match_id', venueMatchId).order('created_at', { ascending: true }),
         ]);
 
         if (venueTournamentError) throw venueTournamentError;
         if (venueMatchError) throw venueMatchError;
         if (venueTeamsError) throw venueTeamsError;
         if (venueReportError) throw venueReportError;
+        if (venueEventError) throw venueEventError;
 
         let courtName = '';
         if (venueMatchData?.court_id) {
@@ -189,7 +191,7 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
           home_team_id: venueMatchData.home_team_id,
           away_team_id: venueMatchData.away_team_id,
         } : null);
-        setEvents([]);
+        setEvents(venueEventData || []);
         setPlayers([]);
         setLineups([]);
         setExistingReport(venueReportData || null);
@@ -413,7 +415,7 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
         <>
       {isVenueTournamentSource && (
         <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Laporan source venue tournament sudah aktif. Timeline event official lama belum tersambung, jadi laporan memakai skor akhir, attendance, venue, dan narasi resmi match venue.
+          Laporan source venue tournament sudah aktif. Timeline event venue kini menjadi referensi laporan bersama skor akhir, attendance, venue, dan narasi resmi match venue.
         </div>
       )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -492,7 +494,7 @@ export default function MatchReportPage({ auth, onBack, onNav, matchContext }) {
           {loading ? (
             <div className="space-y-3">{[...Array(4)].map((_, index) => <div key={index} className="h-20 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
           ) : events.length === 0 ? (
-            <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Timeline venue match belum tersambung' : 'Belum ada event'} description={isVenueTournamentSource ? 'Source venue tournament memakai laporan resmi + skor akhir. Event timeline official lama belum tersedia untuk source ini.' : 'Event pertandingan akan tampil di sini sebagai referensi.'} />
+            <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Belum ada event venue match' : 'Belum ada event'} description={isVenueTournamentSource ? 'Tambahkan event live dari Match Center venue agar referensi laporan tampil di sini.' : 'Event pertandingan akan tampil di sini sebagai referensi.'} />
           ) : (
             <div className="space-y-2 max-h-[640px] overflow-auto pr-1">
               {events.map((event) => (

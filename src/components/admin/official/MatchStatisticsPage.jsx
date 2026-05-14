@@ -40,17 +40,19 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
     setLoading(true);
     try {
       if (isVenueTournamentSource) {
-        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueReportData, error: venueReportError }] = await Promise.all([
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueReportData, error: venueReportError }, { data: venueEventData, error: venueEventError }] = await Promise.all([
           supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
           supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id').eq('id', venueMatchId).maybeSingle(),
           supabase.from('venue_tournament_teams').select('id,team_name').eq('tournament_id', venueTournamentId),
           supabase.from('venue_match_reports').select('*').eq('venue_match_id', venueMatchId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+          supabase.from('venue_match_events').select('id,event_type,player_name,team,minute,description,created_at').eq('venue_match_id', venueMatchId).order('created_at', { ascending: true }),
         ]);
 
         if (venueTournamentError) throw venueTournamentError;
         if (venueMatchError) throw venueMatchError;
         if (venueTeamsError) throw venueTeamsError;
         if (venueReportError) throw venueReportError;
+        if (venueEventError) throw venueEventError;
 
         let courtName = '';
         if (venueMatchData?.court_id) {
@@ -83,7 +85,7 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
         } : null);
         setReport(venueReportData || null);
         setStats([]);
-        setEvents([]);
+        setEvents(venueEventData || []);
         setPlayers([]);
         setLineups([]);
         setLoading(false);
@@ -134,13 +136,16 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
   const enrichedStats = useMemo(() => {
     if (isVenueTournamentSource) {
       const [homeGoals = 0, awayGoals = 0] = String(schedule?.score || '0-0').split('-').map((value) => Number(value || 0));
+      const yellowCards = events.filter((event) => event.event_type === 'yellow_card').length;
+      const redCards = events.filter((event) => event.event_type === 'red_card').length;
+      const assists = events.filter((event) => event.event_type === 'assist').length;
       return [
         {
           player_label: schedule?.home || 'Home',
           goals: homeGoals,
-          assists: 0,
-          yellow_cards: 0,
-          red_cards: 0,
+          assists,
+          yellow_cards: yellowCards,
+          red_cards: redCards,
           minutes_played: 90,
           rating: report?.status === 'submitted' ? 'final' : 'draft',
         },
@@ -262,7 +267,7 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
         <>
       {isVenueTournamentSource && (
         <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Statistik source venue tournament sudah memakai skor match + laporan resmi venue. Statistik pemain detail akan menyusul setelah engine roster dan event lintas source disatukan.
+          Statistik source venue tournament sudah memakai skor match, timeline event venue, dan laporan resmi venue. Statistik pemain detail akan menyusul setelah engine roster lintas source disatukan.
         </div>
       )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -351,7 +356,7 @@ export default function MatchStatisticsPage({ auth, onBack, onNav, matchContext 
             </div>
 
             {events.length === 0 ? (
-              <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Timeline event belum tersedia' : 'Tidak ada event'} description={isVenueTournamentSource ? 'Source venue tournament saat ini menampilkan statistik dari skor dan laporan resmi, bukan timeline event official lama.' : undefined} />
+              <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Timeline event venue belum tersedia' : 'Tidak ada event'} description={isVenueTournamentSource ? 'Tambahkan event live dari Match Center venue untuk melihat timeline di sini.' : undefined} />
             ) : (
               <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
                 {events.map((event) => (

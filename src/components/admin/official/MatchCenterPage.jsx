@@ -38,7 +38,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   const venueMatchId = matchContext?.venueMatchId || matchContext?.venue_match_id || matchEntryId || null;
   const isVenueTournamentSource = sourceType === 'venue_tournament';
   const supportsLineupEngine = !isVenueTournamentSource;
-  const supportsEventEngine = !isVenueTournamentSource;
+  const supportsEventEngine = true;
   const supportsAdvancedReports = true;
   const hasMatchContext = isVenueTournamentSource
     ? Boolean(venueTournamentId && venueMatchId)
@@ -52,7 +52,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   const [players, setPlayers] = useState([]);
   const [lineups, setLineups] = useState([]);
   const [lineupDraft, setLineupDraft] = useState({});
-  const [eventForm, setEventForm] = useState({ eventType: 'goal', playerId: '', minute: '', team: '', description: '' });
+  const [eventForm, setEventForm] = useState({ eventType: 'goal', playerId: '', playerName: '', minute: '', team: '', description: '' });
   const [message, setMessage] = useState(null);
   const capabilities = useMemo(() => getOfficialMatchCapabilities({
     userRoles: auth?.roles || [],
@@ -68,15 +68,17 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
     setLoading(true);
     try {
       if (isVenueTournamentSource) {
-        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }] = await Promise.all([
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueEventData, error: venueEventError }] = await Promise.all([
           supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
           supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id').eq('id', venueMatchId).maybeSingle(),
           supabase.from('venue_tournament_teams').select('id,team_name,status').eq('tournament_id', venueTournamentId),
+          supabase.from('venue_match_events').select('id,event_type,player_name,team,minute,description,created_at').eq('venue_match_id', venueMatchId).order('created_at', { ascending: true }),
         ]);
 
         if (venueTournamentError) throw venueTournamentError;
         if (venueMatchError) throw venueMatchError;
         if (venueTeamsError) throw venueTeamsError;
+        if (venueEventError) throw venueEventError;
 
         let resolvedCourtName = matchContext?.courtName || matchContext?.court_name || '';
         if (!resolvedCourtName && venueMatchData?.court_id) {
@@ -113,12 +115,12 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
           status: venueMatchData.status,
           venue: [resolvedCourtName, venueMatchData.round_name].filter(Boolean).join(' · '),
         } : null);
-        setEvents([]);
+        setEvents(venueEventData || []);
         setPlayers([]);
         setLineups([]);
         setLineupDraft({});
-        setEventForm({ eventType: 'goal', playerId: '', minute: '', team: teamMap[venueMatchData?.home_team_id]?.team_name || '', description: '' });
-        setMessage({ type: 'success', text: 'Match Center venue tournament aktif. Metadata pertandingan sudah tersinkron, sementara lineup/event detail masih read-only sampai engine lintas source selesai.' });
+        setEventForm({ eventType: 'goal', playerId: '', playerName: '', minute: '', team: teamMap[venueMatchData?.home_team_id]?.team_name || '', description: '' });
+        setMessage({ type: 'success', text: 'Match Center venue tournament aktif. Metadata pertandingan dan live event venue sudah tersinkron. Lineup resmi masih menunggu engine lintas source.' });
         setLoading(false);
         return;
       }
@@ -431,7 +433,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
         description: eventForm.description || null,
         recorded_by: auth.id,
       });
-      setEventForm({ eventType: 'goal', playerId: '', minute: '', team: schedule?.home || '', description: '' });
+      setEventForm({ eventType: 'goal', playerId: '', playerName: '', minute: '', team: schedule?.home || '', description: '' });
       setMessage({ type: 'success', text: 'Event pertandingan tersimpan.' });
       await load();
     } catch (err) {
@@ -443,12 +445,39 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   }
 
   async function removeEvent(eventId) {
-    if (!supportsEventEngine) {
-      setMessage({ type: 'error', text: 'Feed event venue tournament masih read-only.' });
-      return;
-    }
     if (!capabilities.recordEvents) return;
     try {
+      if (isVenueTournamentSource) {
+        await supabase.from('venue_match_events').delete().eq('id', eventId);
+
+        const { data: remainingEvents, error: remainingEventsError } = await supabase
+          .from('venue_match_events')
+          .select('event_type,team')
+          .eq('venue_match_id', venueMatchId);
+        if (remainingEventsError) throw remainingEventsError;
+
+        const homeTeam = schedule?.home || 'Home';
+        const awayTeam = schedule?.away || 'Away';
+        const nextSummary = (remainingEvents || []).reduce((acc, event) => {
+          if (event?.event_type === 'goal' && event?.team) {
+            acc[event.team] = (acc[event.team] || 0) + 1;
+          }
+          return acc;
+        }, { [homeTeam]: 0, [awayTeam]: 0 });
+
+        await supabase
+          .from('venue_tournament_matches')
+          .update({
+            home_score: Number(nextSummary[homeTeam] || 0),
+            away_score: Number(nextSummary[awayTeam] || 0),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', venueMatchId);
+
+        await load();
+        return;
+      }
+
       await supabase.from('match_events').delete().eq('id', eventId);
       await load();
     } catch (err) {
@@ -456,7 +485,67 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
     }
   }
 
-  const canOpenReport = !isVenueTournamentSource && Boolean(tournamentId && matchEntryId);
+  async function addVenueEvent() {
+    if (!auth?.id || !capabilities.recordEvents) return;
+
+    const teamLabel = String(eventForm.team || '').trim();
+    const playerLabel = String(eventForm.playerName || '').trim();
+    const minuteValue = eventForm.minute ? Number(eventForm.minute) : null;
+    if (!teamLabel) {
+      setMessage({ type: 'error', text: 'Tim event venue wajib diisi.' });
+      return;
+    }
+    if (!playerLabel && !['attendance', 'lineup_approval'].includes(eventForm.eventType)) {
+      setMessage({ type: 'error', text: 'Nama pemain atau label event wajib diisi.' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await supabase.from('venue_match_events').insert({
+        venue_tournament_id: venueTournamentId,
+        venue_match_id: venueMatchId,
+        event_type: eventForm.eventType,
+        team: teamLabel,
+        player_name: playerLabel || null,
+        minute: minuteValue,
+        description: eventForm.description || null,
+        recorded_by: auth.id,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (eventForm.eventType === 'goal') {
+        const homeTeam = schedule?.home || 'Home';
+        const awayTeam = schedule?.away || 'Away';
+        const nextSummary = events.concat([{ event_type: 'goal', team: teamLabel }]).reduce((acc, event) => {
+          if (event?.event_type === 'goal' && event?.team) {
+            acc[event.team] = (acc[event.team] || 0) + 1;
+          }
+          return acc;
+        }, { [homeTeam]: 0, [awayTeam]: 0 });
+
+        await supabase
+          .from('venue_tournament_matches')
+          .update({
+            home_score: Number(nextSummary[homeTeam] || 0),
+            away_score: Number(nextSummary[awayTeam] || 0),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', venueMatchId);
+      }
+
+      setEventForm({ eventType: 'goal', playerId: '', playerName: '', minute: '', team: schedule?.home || '', description: '' });
+      setMessage({ type: 'success', text: 'Event venue match tersimpan.' });
+      await load();
+    } catch (err) {
+      console.error('Add venue event error:', err);
+      setMessage({ type: 'error', text: 'Gagal menyimpan event venue match.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const canOpenReport = hasMatchContext;
 
   if (!capabilities.openMatchCenter) {
     return (
@@ -522,7 +611,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
 
       {isVenueTournamentSource && (
         <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Match Center ini sudah membaca konteks venue tournament secara native. Laporan resmi dan statistik sudah source-aware, sementara lineup dan event live masih dibatasi sampai engine lintas source selesai disatukan.
+          Match Center ini sudah membaca konteks venue tournament secara native. Live event, laporan resmi, dan statistik sudah source-aware. Lineup resmi masih menunggu engine lintas source selesai disatukan.
         </div>
       )}
 
@@ -629,7 +718,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
             <ClipboardList size={16} className="text-blue-600" />
             <div>
               <div className="text-xs uppercase tracking-[0.2em] font-black text-neutral-400">Lineup</div>
-              <div className="font-display text-2xl text-neutral-900">Approve starting eleven</div>
+                <div className="font-display text-2xl text-neutral-900">Approve starting eleven</div>
             </div>
             <div className="ml-auto">
               <ActionButton onClick={saveLineup} loading={saving} disabled={!capabilities.manageLineup || !supportsLineupEngine}>
@@ -683,12 +772,18 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
               </select>
             </Field>
 
-            <Field label="Player">
-              <select className={selectCls} value={eventForm.playerId} onChange={(e) => setEventForm((prev) => ({ ...prev, playerId: e.target.value }))}>
-                <option value="">Pilih player</option>
-                {players.map((player) => <option key={player.id} value={player.id}>{getPlayerLabel(player)}</option>)}
-              </select>
-            </Field>
+            {isVenueTournamentSource ? (
+              <Field label="Pemain / Label Event">
+                <input className={inputCls} value={eventForm.playerName} onChange={(e) => setEventForm((prev) => ({ ...prev, playerName: e.target.value }))} placeholder="cth: Raka / Official Crew" />
+              </Field>
+            ) : (
+              <Field label="Player">
+                <select className={selectCls} value={eventForm.playerId} onChange={(e) => setEventForm((prev) => ({ ...prev, playerId: e.target.value }))}>
+                  <option value="">Pilih player</option>
+                  {players.map((player) => <option key={player.id} value={player.id}>{getPlayerLabel(player)}</option>)}
+                </select>
+              </Field>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Menit">
@@ -704,7 +799,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
             </Field>
 
             <div className="flex flex-wrap gap-3 justify-end pt-1">
-              <ActionButton onClick={addEvent} loading={saving} disabled={!eventForm.playerId || !capabilities.recordEvents || !supportsEventEngine}>
+              <ActionButton onClick={isVenueTournamentSource ? addVenueEvent : addEvent} loading={saving} disabled={isVenueTournamentSource ? (!capabilities.recordEvents || !eventForm.team || (!eventForm.playerName && !['attendance', 'lineup_approval'].includes(eventForm.eventType))) : (!eventForm.playerId || !capabilities.recordEvents || !supportsEventEngine)}>
                 <Save size={14} /> Simpan Event
               </ActionButton>
               <ActionButton variant="outline" onClick={() => onNav('match-report', matchContext)} disabled={!canOpenReport || !capabilities.openMatchReport || !supportsAdvancedReports}>
@@ -730,7 +825,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
         {loading ? (
           <div className="space-y-3">{[...Array(4)].map((_, index) => <div key={index} className="h-20 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
         ) : events.length === 0 ? (
-          <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Feed venue tournament belum tersambung' : 'Belum ada event'} description={isVenueTournamentSource ? 'Timeline event untuk source venue tournament akan muncul di sini setelah engine event lintas source selesai.' : 'Input event pertandingan akan muncul di sini.'} />
+          <EmptyState icon={Activity} title={isVenueTournamentSource ? 'Belum ada event venue match' : 'Belum ada event'} description={isVenueTournamentSource ? 'Input event live venue match akan muncul di sini sebagai timeline official.' : 'Input event pertandingan akan muncul di sini.'} />
         ) : (
           <div className="space-y-2">
             {events.map((event) => (
