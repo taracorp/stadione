@@ -30,6 +30,66 @@ function isMissingSubstitutionRulesColumnError(error) {
     && (message.includes('schema cache') || message.includes('column') || message.includes('does not exist'));
 }
 
+function buildVenueRoster(teams = []) {
+  const roster = [];
+
+  teams.forEach((team) => {
+    const teamId = team?.id;
+    const teamName = team?.team_name || 'Team';
+    const rawPlayers = Array.isArray(team?.players) ? team.players : [];
+
+    if (rawPlayers.length > 0) {
+      rawPlayers.forEach((raw, index) => {
+        const resolvedName = typeof raw === 'string'
+          ? String(raw).trim()
+          : String(raw?.name || raw?.player_name || raw?.full_name || raw?.nickname || '').trim();
+        if (!resolvedName) return;
+
+        const normalized = normalizeName(resolvedName).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        const playerKey = `${teamId}:${normalized || index}`;
+        const playerNumber = typeof raw === 'object'
+          ? (raw?.number ?? raw?.player_number ?? raw?.jersey_number ?? raw?.jerseyNo ?? null)
+          : null;
+        const position = typeof raw === 'object'
+          ? String(raw?.position || raw?.role || 'Player')
+          : 'Player';
+
+        roster.push({
+          id: playerKey,
+          player_key: playerKey,
+          team_id: teamId,
+          team_name: teamName,
+          player_name: resolvedName,
+          jersey_name: resolvedName,
+          player_number: playerNumber === null || playerNumber === undefined ? null : String(playerNumber),
+          position,
+          status: 'active',
+        });
+      });
+      return;
+    }
+
+    const captainName = String(team?.captain_name || '').trim();
+    if (captainName) {
+      const normalized = normalizeName(captainName).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const playerKey = `${teamId}:${normalized || 'captain'}`;
+      roster.push({
+        id: playerKey,
+        player_key: playerKey,
+        team_id: teamId,
+        team_name: teamName,
+        player_name: captainName,
+        jersey_name: captainName,
+        player_number: null,
+        position: 'Captain',
+        status: 'active',
+      });
+    }
+  });
+
+  return roster;
+}
+
 export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   const sourceType = matchContext?.sourceType || matchContext?.source_type || (matchContext?.venueMatchId || matchContext?.venue_match_id ? 'venue_tournament' : 'tournament');
   const matchEntryId = matchContext?.matchEntryId || matchContext?.match_entry_id || matchContext?.match_id || matchContext?.entryId || null;
@@ -37,7 +97,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   const venueTournamentId = matchContext?.venueTournamentId || matchContext?.venue_tournament_id || null;
   const venueMatchId = matchContext?.venueMatchId || matchContext?.venue_match_id || matchEntryId || null;
   const isVenueTournamentSource = sourceType === 'venue_tournament';
-  const supportsLineupEngine = !isVenueTournamentSource;
+  const supportsLineupEngine = true;
   const supportsEventEngine = true;
   const supportsAdvancedReports = true;
   const hasMatchContext = isVenueTournamentSource
@@ -68,17 +128,19 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
     setLoading(true);
     try {
       if (isVenueTournamentSource) {
-        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueEventData, error: venueEventError }] = await Promise.all([
+        const [{ data: venueTournamentData, error: venueTournamentError }, { data: venueMatchData, error: venueMatchError }, { data: venueTeams, error: venueTeamsError }, { data: venueEventData, error: venueEventError }, { data: venueLineupData, error: venueLineupError }] = await Promise.all([
           supabase.from('venue_tournaments').select('id,name,sport_type,format,status').eq('id', venueTournamentId).maybeSingle(),
           supabase.from('venue_tournament_matches').select('id,round_name,scheduled_date,scheduled_time,home_score,away_score,status,court_id,home_team_id,away_team_id').eq('id', venueMatchId).maybeSingle(),
-          supabase.from('venue_tournament_teams').select('id,team_name,status').eq('tournament_id', venueTournamentId),
+          supabase.from('venue_tournament_teams').select('id,team_name,captain_name,players,status').eq('tournament_id', venueTournamentId),
           supabase.from('venue_match_events').select('id,event_type,player_name,team,minute,description,created_at').eq('venue_match_id', venueMatchId).order('created_at', { ascending: true }),
+          supabase.from('venue_match_lineups').select('id,venue_match_id,team_id,player_key,player_name,starting_eleven').eq('venue_match_id', venueMatchId),
         ]);
 
         if (venueTournamentError) throw venueTournamentError;
         if (venueMatchError) throw venueMatchError;
         if (venueTeamsError) throw venueTeamsError;
         if (venueEventError) throw venueEventError;
+        if (venueLineupError) throw venueLineupError;
 
         let resolvedCourtName = matchContext?.courtName || matchContext?.court_name || '';
         if (!resolvedCourtName && venueMatchData?.court_id) {
@@ -95,6 +157,18 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
           acc[item.id] = item;
           return acc;
         }, {});
+        const venueRoster = buildVenueRoster(venueTeams || []);
+        const venueLineups = (venueLineupData || []).map((entry) => ({
+          ...entry,
+          player_id: entry.player_key,
+        }));
+        const lineupMap = {};
+        venueLineups.forEach((entry) => {
+          lineupMap[String(entry.player_key)] = Boolean(entry.starting_eleven);
+        });
+        venueRoster.forEach((player) => {
+          if (lineupMap[String(player.id)] === undefined) lineupMap[String(player.id)] = false;
+        });
 
         setTournament(venueTournamentData ? {
           id: venueTournamentData.id,
@@ -116,11 +190,11 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
           venue: [resolvedCourtName, venueMatchData.round_name].filter(Boolean).join(' · '),
         } : null);
         setEvents(venueEventData || []);
-        setPlayers([]);
-        setLineups([]);
-        setLineupDraft({});
+        setPlayers(venueRoster);
+        setLineups(venueLineups);
+        setLineupDraft(lineupMap);
         setEventForm({ eventType: 'goal', playerId: '', playerName: '', minute: '', team: teamMap[venueMatchData?.home_team_id]?.team_name || '', description: '' });
-        setMessage({ type: 'success', text: 'Match Center venue tournament aktif. Metadata pertandingan dan live event venue sudah tersinkron. Lineup resmi masih menunggu engine lintas source.' });
+        setMessage({ type: 'success', text: 'Match Center venue tournament aktif. Metadata, lineup, dan live event venue sudah tersinkron.' });
         setLoading(false);
         return;
       }
@@ -234,6 +308,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
   };
 
   const substitutionRecommendation = useMemo(() => {
+    if (isVenueTournamentSource) return null;
     if (!players.length) return null;
 
     const maxMinute = events.reduce((acc, item) => {
@@ -336,16 +411,39 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
       out: subOutCandidates[0] || null,
       in: subInCandidates[0] || null,
     };
-  }, [eventForm.team, events, lineups, players, schedule?.away, schedule?.home, substitutionRules, substitutionState]);
+  }, [eventForm.team, events, isVenueTournamentSource, lineups, players, schedule?.away, schedule?.home, substitutionRules, substitutionState]);
 
   async function saveLineup() {
-    if (!supportsLineupEngine) {
-      setMessage({ type: 'error', text: 'Lineup venue tournament belum memakai engine lineup official lama.' });
+    if (!auth?.id || !capabilities.manageLineup) return;
+    if (!players.length) {
+      setMessage({ type: 'error', text: 'Roster pemain belum tersedia untuk disimpan sebagai lineup.' });
       return;
     }
-    if (!auth?.id || !capabilities.manageLineup) return;
     setSaving(true);
     try {
+      if (isVenueTournamentSource) {
+        await supabase.from('venue_match_lineups').delete().eq('venue_match_id', venueMatchId);
+
+        const payloadRows = players.map((player) => ({
+          venue_tournament_id: venueTournamentId,
+          venue_match_id: venueMatchId,
+          team_id: player.team_id || null,
+          player_key: String(player.player_key || player.id),
+          player_name: getPlayerLabel(player),
+          starting_eleven: Boolean(lineupDraft[String(player.id)]),
+          recorded_by: auth.id,
+          updated_at: new Date().toISOString(),
+        }));
+
+        if (payloadRows.length > 0) {
+          await supabase.from('venue_match_lineups').insert(payloadRows);
+        }
+
+        setMessage({ type: 'success', text: 'Lineup venue match berhasil disimpan.' });
+        await load();
+        return;
+      }
+
       const ops = players.map(async (player) => {
         const existing = lineups.find((entry) => String(entry.player_id) === String(player.id));
         const payload = {
@@ -611,7 +709,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
 
       {isVenueTournamentSource && (
         <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Match Center ini sudah membaca konteks venue tournament secara native. Live event, laporan resmi, dan statistik sudah source-aware. Lineup resmi masih menunggu engine lintas source selesai disatukan.
+          Match Center ini sudah membaca konteks venue tournament secara native. Lineup, live event, laporan resmi, dan statistik sekarang sudah source-aware.
         </div>
       )}
 
@@ -728,7 +826,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
           </div>
 
           {players.length === 0 ? (
-            <EmptyState icon={Users} title={isVenueTournamentSource ? 'Lineup venue tournament belum tersambung' : 'Belum ada player tournament'} description={isVenueTournamentSource ? 'Source venue tournament sudah terbuka, tetapi roster player belum masuk ke engine lineup official.' : 'Tambahkan player melalui turnamen atau roster.'} />
+            <EmptyState icon={Users} title={isVenueTournamentSource ? 'Roster venue belum tersedia' : 'Belum ada player tournament'} description={isVenueTournamentSource ? 'Lengkapi data pemain di tim venue tournament agar official bisa menyimpan starting eleven.' : 'Tambahkan player melalui turnamen atau roster.'} />
           ) : (
             <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
               {players.map((player) => {
@@ -747,7 +845,7 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
                         <div className="font-semibold text-neutral-900 truncate">{label}</div>
                         {player.player_number && <span className="text-[10px] font-black uppercase tracking-[0.14em] px-2 py-0.5 rounded-full bg-white border border-neutral-200 text-neutral-600">#{player.player_number}</span>}
                       </div>
-                      <div className="text-xs text-neutral-500 mt-0.5">{player.position || 'Player'} · {player.status || 'active'}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">{player.position || 'Player'} · {player.team_name || player.status || 'active'}</div>
                     </div>
                   </label>
                 );
@@ -774,7 +872,14 @@ export default function MatchCenterPage({ auth, onBack, onNav, matchContext }) {
 
             {isVenueTournamentSource ? (
               <Field label="Pemain / Label Event">
-                <input className={inputCls} value={eventForm.playerName} onChange={(e) => setEventForm((prev) => ({ ...prev, playerName: e.target.value }))} placeholder="cth: Raka / Official Crew" />
+                <>
+                  <input className={inputCls} list="venue-player-options" value={eventForm.playerName} onChange={(e) => setEventForm((prev) => ({ ...prev, playerName: e.target.value }))} placeholder="cth: Raka / Official Crew" />
+                  <datalist id="venue-player-options">
+                    {players.map((player) => (
+                      <option key={player.id} value={getPlayerLabel(player)} />
+                    ))}
+                  </datalist>
+                </>
               </Field>
             ) : (
               <Field label="Player">

@@ -102,16 +102,20 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Source-aware Match Center context for venue tournament assignment
 - [x] **[DONE]** Source-aware Match Report for venue tournament assignment
 - [x] **[DONE]** Source-aware Match Statistics for venue tournament assignment
+- [x] **[DONE]** Unified live event engine for venue tournament source (`venue_match_events`)
+- [x] **[DONE]** Unified lineup engine for venue tournament source (`venue_match_lineups`)
 - [x] **[DONE]** Reservation sync status badge in schedule list
 - [x] **[DONE]** Explicit match-to-booking relation (`reservation_booking_id`)
 - [x] **[DONE]** Supabase migration deploy for tournament-reservation link
 - [x] **[DONE]** Supabase migration deploy for official assignment venue-tournament link
 - [x] **[DONE]** Supabase migration deploy for venue official match reporting storage
+- [x] **[DONE]** Supabase migration deploy for venue official match lineup storage
 - [x] **[DONE]** QA smoke SQL for tournament-reservation sync
 - [x] **[DONE]** QA smoke SQL for official venue assignment sync
+- [x] **[DONE]** QA smoke SQL for venue report submit completion
+- [x] **[DONE]** QA smoke SQL for venue lineup sync
 
 ### Pending ⏳
-- [ ] **[PENDING]** Unified lineup/event live engine for venue tournament source
 - [ ] **[PENDING]** End-to-end UI smoke using real scheduled tournament data
 
 ## ⏳ Phase 7: Customer & Staff Management — PENDING
@@ -148,6 +152,17 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [ ] **[PENDING]** AI occupancy recommendations
 - [ ] **[PENDING]** Dynamic pricing engine
 - [ ] **[PENDING]** Weather alerts (outdoor venues)
+
+## ⏳ Phase 11: Payment Gateway Integration (DOKU) — PENDING
+
+- [ ] **[PENDING]** DOKU payment channel configuration (Sandbox/Production)
+- [ ] **[PENDING]** Payment initiation flow from booking/POS to DOKU checkout
+- [ ] **[PENDING]** Webhook/callback handler for payment status update
+- [ ] **[PENDING]** Booking + invoice auto-update on payment success/failure/expire
+- [ ] **[PENDING]** Payment reconciliation log (gateway reference, amount, status timeline)
+- [ ] **[PENDING]** Idempotency guard for duplicate callback events
+- [ ] **[PENDING]** Refund/cancel sync workflow with DOKU transaction state
+- [ ] **[PENDING]** End-to-end QA smoke SQL + staging checklist for DOKU integration
 
 ---
 
@@ -234,6 +249,7 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 
 **Planned Access (Phase 4+):**
 - ⏳ Payment method selection
+- ⏳ DOKU checkout payment flow
 - ⏳ POS system
 - ⏳ Shift opening/closing
 - ⏳ Invoice printing
