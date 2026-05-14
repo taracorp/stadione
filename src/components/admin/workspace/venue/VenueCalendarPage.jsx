@@ -5,6 +5,8 @@ import { supabase } from '../../../../config/supabase.js';
 
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'checked-in'];
 const VIEW_LABELS = { day: 'Harian', week: 'Mingguan', month: 'Bulanan' };
+const PRIORITY_SLOT_START = '17:00';
+const PRIORITY_SLOT_END = '20:00';
 
 function toDateKey(date) {
   return new Date(date).toISOString().slice(0, 10);
@@ -55,6 +57,10 @@ function formatTime(timeValue) {
 
 function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && aEnd > bStart;
+}
+
+function isPriorityWindow(startTime, endTime) {
+  return String(startTime) < PRIORITY_SLOT_END && String(endTime) > PRIORITY_SLOT_START;
 }
 
 export default function VenueCalendarPage({ venue }) {
@@ -317,6 +323,7 @@ export default function VenueCalendarPage({ venue }) {
   function BookingCard({ booking, compact = false }) {
     const discount = discountInfo[booking.id];
     const tone = booking.status === 'expired' ? 'border-red-200 bg-red-50' : discount ? 'border-green-200 bg-green-50' : 'border-neutral-200 bg-white';
+    const priorityBooking = isPriorityWindow(booking.start_time, booking.end_time);
 
     return (
       <div
@@ -332,6 +339,7 @@ export default function VenueCalendarPage({ venue }) {
             <div className="flex items-center gap-2">
               <p className="font-semibold text-neutral-900 truncate">{booking.customer_name}</p>
               {discount && <span className="text-[10px] font-bold bg-green-200 text-green-900 px-1.5 py-0.5 rounded-full">🎁 {discount.discount_percent}%</span>}
+              {priorityBooking && <span className="text-[10px] font-bold bg-blue-200 text-blue-900 px-1.5 py-0.5 rounded-full">Priority</span>}
             </div>
             <p className="text-neutral-500 mt-0.5">{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</p>
           </div>
@@ -385,6 +393,7 @@ export default function VenueCalendarPage({ venue }) {
         <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">Kalender</p>
         <h1 className="font-display text-3xl lg:text-4xl text-neutral-900">Kalender Booking Venue</h1>
         <p className="text-neutral-500 text-sm mt-1">Weekly, monthly, drag-and-drop rebooking, dan cleanup expired booking otomatis.</p>
+        <p className="text-xs text-blue-700 mt-2">Slot prioritas member: {PRIORITY_SLOT_START}-{PRIORITY_SLOT_END}</p>
       </div>
 
       <div className="rounded-3xl border border-neutral-200 bg-white p-4 space-y-4">

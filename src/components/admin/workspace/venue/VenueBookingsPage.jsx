@@ -2,8 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, CalendarDays, CheckCircle2, Clock3, Edit3, Plus, Search } from 'lucide-react';
 import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatusBadge, inputCls, selectCls, textareaCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
+import { useMembership } from '../../../../hooks/useMembership.js';
 
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'checked-in'];
+const PRIORITY_SLOT_START = '17:00';
+const PRIORITY_SLOT_END = '20:00';
 
 const BOOKING_EMPTY = {
   branch_id: '',
@@ -27,6 +30,7 @@ export default function VenueBookingsPage({ auth, venue }) {
 }
 
 function VenueBookingsWorkspace({ auth, venue }) {
+  const { getMembershipByPhone, getBonusHoursByPhone, applyDiscountToBooking, useBonusHour } = useMembership();
   const [bookings, setBookings] = useState([]);
   const [branches, setBranches] = useState([]);
   const [courts, setCourts] = useState([]);
@@ -42,6 +46,11 @@ function VenueBookingsWorkspace({ auth, venue }) {
   const [refundTarget, setRefundTarget] = useState(null);
   const [refundReason, setRefundReason] = useState('');
   const [refunding, setRefunding] = useState(false);
+  const [customerMembership, setCustomerMembership] = useState(null);
+  const [membershipLoading, setMembershipLoading] = useState(false);
+  const [availableBonusHours, setAvailableBonusHours] = useState([]);
+  const [selectedBonusHourId, setSelectedBonusHourId] = useState(null);
+  const [bonusHoursToUse, setBonusHoursToUse] = useState(0);
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState(null);
   const [discountInfo, setDiscountInfo] = useState({});
@@ -135,6 +144,49 @@ function VenueBookingsWorkspace({ auth, venue }) {
     return Math.round(hourlyRate * computedDurationHours);
   }, [selectedCourt?.price_per_hour, computedDurationHours]);
 
+  const membershipDiscount = useMemo(() => {
+    const discountPercent = Number(customerMembership?.discount_percent || 0);
+    const discountAmount = Math.round((computedTotalPrice * discountPercent) / 100);
+    const finalPrice = Math.max(0, computedTotalPrice - discountAmount);
+    return {
+      discountPercent,
+      discountAmount,
+      finalPrice,
+      hasPriorityBooking: Boolean(customerMembership?.has_priority_booking),
+    };
+  }, [computedTotalPrice, customerMembership?.discount_percent, customerMembership?.has_priority_booking]);
+
+  const selectedBonusHour = useMemo(
+    () => availableBonusHours.find((bonusHour) => bonusHour.bonus_hour_id === selectedBonusHourId) || null,
+    [availableBonusHours, selectedBonusHourId],
+  );
+
+  const maxBonusHoursUsable = useMemo(() => {
+    if (!selectedBonusHour) return 0;
+    return Math.max(0, Math.min(Number(selectedBonusHour.hours_remaining || 0), Number(computedDurationHours || 0)));
+  }, [selectedBonusHour, computedDurationHours]);
+
+  const bonusDeduction = useMemo(() => {
+    if (!selectedBonusHour || !bonusHoursToUse) return 0;
+    const hourlyRate = Number(selectedCourt?.price_per_hour || 0);
+    return Math.min(hourlyRate * Number(bonusHoursToUse || 0), membershipDiscount.finalPrice);
+  }, [selectedBonusHour, bonusHoursToUse, selectedCourt?.price_per_hour, membershipDiscount.finalPrice]);
+
+  const finalPayablePrice = useMemo(
+    () => Math.max(0, membershipDiscount.finalPrice - bonusDeduction),
+    [membershipDiscount.finalPrice, bonusDeduction],
+  );
+
+  const isPrioritySlot = useMemo(() => {
+    if (!form.start_time || !form.end_time) return false;
+    return form.start_time < PRIORITY_SLOT_END && form.end_time > PRIORITY_SLOT_START;
+  }, [form.start_time, form.end_time]);
+
+  const prioritySlotBlocked = useMemo(
+    () => isPrioritySlot && !membershipDiscount.hasPriorityBooking,
+    [isPrioritySlot, membershipDiscount.hasPriorityBooking],
+  );
+
   const conflictBooking = useMemo(() => {
     if (!form.booking_date || !form.court_id || !computedDurationHours) return null;
 
@@ -183,6 +235,65 @@ function VenueBookingsWorkspace({ auth, venue }) {
     }) || null;
   }, [bookings, editingSlot, slotForm.booking_date, slotForm.court_id, slotForm.start_time, slotForm.end_time, slotDurationHours]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function lookupMembership() {
+      if (!venue?.id || !form.customer_phone.trim()) {
+        if (!cancelled) {
+          setCustomerMembership(null);
+          setAvailableBonusHours([]);
+          setSelectedBonusHourId(null);
+          setBonusHoursToUse(0);
+        }
+        return;
+      }
+
+      setMembershipLoading(true);
+      try {
+        const membership = await getMembershipByPhone(form.customer_phone.trim(), venue.id);
+        if (cancelled) return;
+
+        setCustomerMembership(membership || null);
+
+        if (membership) {
+          const bonusHours = await getBonusHoursByPhone(form.customer_phone.trim(), venue.id);
+          if (cancelled) return;
+          setAvailableBonusHours(bonusHours || []);
+        } else {
+          setAvailableBonusHours([]);
+          setSelectedBonusHourId(null);
+          setBonusHoursToUse(0);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCustomerMembership(null);
+          setAvailableBonusHours([]);
+          setSelectedBonusHourId(null);
+          setBonusHoursToUse(0);
+        }
+      } finally {
+        if (!cancelled) setMembershipLoading(false);
+      }
+    }
+
+    lookupMembership();
+    return () => { cancelled = true; };
+  }, [form.customer_phone, venue?.id, getMembershipByPhone, getBonusHoursByPhone]);
+
+  useEffect(() => {
+    if (!selectedBonusHourId) return;
+    if (!selectedBonusHour) {
+      setSelectedBonusHourId(null);
+      setBonusHoursToUse(0);
+      return;
+    }
+    const clamped = Math.min(Number(bonusHoursToUse || 0), maxBonusHoursUsable);
+    if (clamped !== Number(bonusHoursToUse || 0)) {
+      setBonusHoursToUse(clamped);
+    }
+  }, [selectedBonusHourId, selectedBonusHour, maxBonusHoursUsable, bonusHoursToUse]);
+
   function openSlotEditor(booking) {
     setEditingSlot(booking);
     setSlotForm({
@@ -215,11 +326,33 @@ function VenueBookingsWorkspace({ auth, venue }) {
       return;
     }
 
+    if (prioritySlotBlocked) {
+      const message = `Slot ${PRIORITY_SLOT_START}-${PRIORITY_SLOT_END} hanya untuk member prioritas.`;
+      setFormError(message);
+      showToast('error', message);
+      return;
+    }
+
+    if (selectedBonusHourId && Number(bonusHoursToUse || 0) <= 0) {
+      const message = 'Jumlah bonus hour harus lebih dari 0.';
+      setFormError(message);
+      showToast('error', message);
+      return;
+    }
+
+    if (selectedBonusHourId && form.payment_status !== 'paid') {
+      const message = 'Bonus hour hanya bisa diredeem untuk booking dengan status pembayaran Paid.';
+      setFormError(message);
+      showToast('error', message);
+      return;
+    }
+
     setSaving(true);
     try {
       const normalizedStatus = form.payment_status === 'paid' && form.status === 'pending' ? 'confirmed' : form.status;
+      const bookingPrice = selectedBonusHourId ? finalPayablePrice : membershipDiscount.finalPrice;
 
-      await supabase.from('venue_bookings').insert({
+      const { data: insertedBooking, error: insertError } = await supabase.from('venue_bookings').insert({
         venue_id: venue.id,
         branch_id: form.branch_id,
         court_id: form.court_id,
@@ -230,17 +363,33 @@ function VenueBookingsWorkspace({ auth, venue }) {
         start_time: form.start_time,
         end_time: form.end_time,
         duration_hours: computedDurationHours,
-        total_price: computedTotalPrice,
+        total_price: bookingPrice,
         payment_method: form.payment_method,
         payment_status: form.payment_status,
         status: normalizedStatus,
-        notes: form.notes.trim() || null,
+        notes: [form.notes.trim(), selectedBonusHourId ? `Bonus hour redeemed: ${bonusHoursToUse} jam` : null].filter(Boolean).join(' | ') || null,
         created_by: auth?.id || null,
-      });
+      }).select('id').single();
+
+      if (insertError) throw insertError;
+
+      if (membershipDiscount.discountPercent > 0 && customerMembership?.membership_id && insertedBooking?.id) {
+        await applyDiscountToBooking(insertedBooking.id, venue.id, computedTotalPrice, {
+          membership_id: customerMembership.membership_id,
+          tier_name: customerMembership.tier_name,
+          discount_percent: membershipDiscount.discountPercent,
+        });
+      }
+
+      if (selectedBonusHourId && insertedBooking?.id) {
+        await useBonusHour(selectedBonusHourId, insertedBooking.id, Number(bonusHoursToUse || 0));
+      }
 
       setFormError('');
       showToast('success', 'Booking berhasil disimpan.');
       setForm((current) => ({ ...BOOKING_EMPTY, branch_id: current.branch_id || branches[0]?.id || '', court_id: current.court_id || courts[0]?.id || '' }));
+      setSelectedBonusHourId(null);
+      setBonusHoursToUse(0);
       await load();
     } catch (error) {
       const rawMessage = error?.message || 'Gagal menyimpan booking.';
@@ -465,6 +614,95 @@ function VenueBookingsWorkspace({ auth, venue }) {
               </select>
             </Field>
           </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Membership & Benefit</div>
+              {membershipLoading ? (
+                <span className="text-xs text-neutral-500">Mengecek membership...</span>
+              ) : customerMembership ? (
+                <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">{customerMembership.tier_name || 'Member'}</span>
+              ) : (
+                <span className="text-xs text-neutral-500">Non-member</span>
+              )}
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl border border-neutral-200 bg-white p-3">
+                <div className="text-neutral-500 text-xs uppercase tracking-wide mb-1">Diskon</div>
+                <div className="font-semibold text-neutral-900">
+                  {membershipDiscount.discountPercent > 0
+                    ? `${membershipDiscount.discountPercent}% (Hemat Rp ${membershipDiscount.discountAmount.toLocaleString('id-ID')})`
+                    : 'Tidak ada diskon'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-neutral-200 bg-white p-3">
+                <div className="text-neutral-500 text-xs uppercase tracking-wide mb-1">Slot Prioritas {PRIORITY_SLOT_START}-{PRIORITY_SLOT_END}</div>
+                <div className={`font-semibold ${membershipDiscount.hasPriorityBooking ? 'text-emerald-700' : 'text-neutral-900'}`}>
+                  {membershipDiscount.hasPriorityBooking ? 'Diizinkan' : 'Member prioritas saja'}
+                </div>
+              </div>
+            </div>
+
+            {isPrioritySlot && !membershipDiscount.hasPriorityBooking ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                Waktu yang dipilih masuk slot prioritas member ({PRIORITY_SLOT_START}-{PRIORITY_SLOT_END}).
+              </div>
+            ) : null}
+
+            {availableBonusHours.length > 0 ? (
+              <div className="space-y-2">
+                <Field label="Bonus Hour Redemption">
+                  <select
+                    className={selectCls}
+                    value={selectedBonusHourId || ''}
+                    onChange={(event) => {
+                      const value = event.target.value || null;
+                      setSelectedBonusHourId(value);
+                      if (!value) {
+                        setBonusHoursToUse(0);
+                        return;
+                      }
+                      const selected = availableBonusHours.find((bonusHour) => bonusHour.bonus_hour_id === value);
+                      const maxHours = Math.min(Number(selected?.hours_remaining || 0), Number(computedDurationHours || 0));
+                      setBonusHoursToUse(maxHours > 0 ? Math.min(1, maxHours) : 0);
+                    }}
+                  >
+                    <option value="">Tidak pakai bonus hour</option>
+                    {availableBonusHours.map((bonusHour) => (
+                      <option key={bonusHour.bonus_hour_id} value={bonusHour.bonus_hour_id}>
+                        {bonusHour.hours_remaining} jam tersisa · Exp {new Date(bonusHour.expiration_date).toLocaleDateString('id-ID')}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {selectedBonusHourId ? (
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <Field label="Jam Dipakai">
+                      <input
+                        className={inputCls}
+                        type="number"
+                        min="0"
+                        max={maxBonusHoursUsable}
+                        step="0.5"
+                        value={bonusHoursToUse}
+                        onChange={(event) => setBonusHoursToUse(Math.max(0, Number(event.target.value || 0)))}
+                      />
+                    </Field>
+                    <Field label="Potongan Bonus">
+                      <input className={inputCls} type="number" value={Math.round(bonusDeduction)} readOnly />
+                    </Field>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="rounded-xl border border-neutral-200 bg-white p-3 flex items-center justify-between">
+              <div className="text-xs text-neutral-500 uppercase tracking-wide">Total Setelah Benefit</div>
+              <div className="font-semibold text-neutral-900">Rp {Math.round(finalPayablePrice).toLocaleString('id-ID')}</div>
+            </div>
+          </div>
+
           <Field label="Notes"><textarea className={textareaCls} rows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
         </div>
 
