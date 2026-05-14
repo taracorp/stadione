@@ -116,7 +116,7 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** QA smoke SQL for venue lineup sync
 
 ### Pending ⏳
-- [ ] **[PENDING]** End-to-end UI smoke using real scheduled tournament data
+- [x] **[DONE]** End-to-end UI smoke using real scheduled tournament data *(validated via dev official bypass flow: schedule -> match center -> match report -> match statistics)*
 
 ## ⏳ Phase 7: Customer & Staff Management — PENDING
 

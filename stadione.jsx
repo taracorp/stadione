@@ -4258,6 +4258,28 @@ const CoachProfile = ({ coach, onBack, onChat, onBook }) => {
 };
 
 // ============ APP ============
+const DEV_E2E_OFFICIAL_AUTH = Object.freeze({
+  id: 'd1258956-c94b-4ecf-b866-6d355dd3d73e',
+  email: 'qa.official@stadione.dev',
+  name: 'QA Official',
+  roles: ['match_official'],
+  permissions: [
+    'official.schedule.read',
+    'official.match_center.open',
+    'official.match_report.open',
+    'official.match_statistics.open',
+  ],
+  activeContext: {
+    context_scope: 'official',
+    context_role: 'match_official',
+    context_entity_type: null,
+    context_entity_id: null,
+    context_label: 'Official Center',
+    metadata: { source: 'dev_e2e_bypass' },
+    switched_at: new Date().toISOString(),
+  },
+});
+
 export default function Stadione() {
   const [page, setPage] = useState('home');
   const [tournamentDetail, setTournamentDetail] = useState(null);
@@ -4279,6 +4301,17 @@ export default function Stadione() {
     const mode = getAuthModeFromUrl();
     return mode === AUTH_MODAL_MODES.recovery ? AUTH_MODAL_MODES.recovery : AUTH_MODAL_MODES.login;
   });
+  const devOfficialBypass = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (!import.meta.env.DEV) return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('e2e_official') === '1';
+  }, []);
+  const devOfficialBypassPage = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    return params.get('e2e_page') || '';
+  }, []);
 
   const handleAuth = useCallback(async (user) => {
     const nextAuth = await enrichAuthUser(user);
@@ -4323,7 +4356,11 @@ export default function Stadione() {
                 setAuthInitialError('');
               }
             } else {
-              setAuth(null);
+              if (devOfficialBypass) {
+                setAuth(DEV_E2E_OFFICIAL_AUTH);
+              } else {
+                setAuth(null);
+              }
             }
           }
         );
@@ -4334,6 +4371,16 @@ export default function Stadione() {
         if (!error && session?.user) {
           const nextAuth = await enrichAuthUser(session.user);
           setAuth(nextAuth);
+        } else if (devOfficialBypass) {
+          setAuth(DEV_E2E_OFFICIAL_AUTH);
+          setShowAuth(false);
+          setAuthInitialError('');
+
+          if (devOfficialBypassPage === 'schedule') {
+            setPage('official-schedule');
+          } else if (devOfficialBypassPage === 'center') {
+            setPage('official-center');
+          }
         }
       } catch (err) {
         console.error('Failed to restore session:', err);
@@ -4345,7 +4392,7 @@ export default function Stadione() {
     return () => {
       subscription?.unsubscribe();
     };
-  }, []);
+  }, [devOfficialBypass, devOfficialBypassPage]);
 
   // Fetch data from Supabase
   const { venues, loading: venuesLoading } = useVenues();
