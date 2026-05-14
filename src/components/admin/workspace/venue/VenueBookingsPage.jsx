@@ -39,6 +39,9 @@ function VenueBookingsWorkspace({ auth, venue }) {
   const [editingSlot, setEditingSlot] = useState(null);
   const [savingSlot, setSavingSlot] = useState(false);
   const [slotForm, setSlotForm] = useState({ booking_date: '', start_time: '', end_time: '', court_id: '' });
+  const [refundTarget, setRefundTarget] = useState(null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refunding, setRefunding] = useState(false);
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState(null);
   const [discountInfo, setDiscountInfo] = useState({});
@@ -263,6 +266,52 @@ function VenueBookingsWorkspace({ auth, venue }) {
         ? 'Update ditolak: slot bentrok dengan booking lain.'
         : rawMessage;
       showToast('error', mappedMessage);
+    }
+  }
+
+  async function processRefund() {
+    if (!refundTarget) return;
+
+    setRefunding(true);
+    try {
+      const { data: latestPayment, error: paymentFetchErr } = await supabase
+        .from('venue_payments')
+        .select('id')
+        .eq('booking_id', refundTarget.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (paymentFetchErr) throw paymentFetchErr;
+
+      if (latestPayment?.id) {
+        const { error: refundPaymentErr } = await supabase
+          .from('venue_payments')
+          .update({ status: 'refunded', notes: refundReason.trim() || 'Refund processed from booking management' })
+          .eq('id', latestPayment.id);
+        if (refundPaymentErr) throw refundPaymentErr;
+      }
+
+      await supabase
+        .from('venue_invoices')
+        .update({ status: 'voided', notes: refundReason.trim() || 'Invoice voided after refund' })
+        .eq('booking_id', refundTarget.id);
+
+      await supabase
+        .from('venue_bookings')
+        .update({ status: 'cancelled', payment_status: 'refunded', notes: refundReason.trim() || null })
+        .eq('id', refundTarget.id);
+
+      showToast('success', 'Refund berhasil diproses.');
+      setRefundTarget(null);
+      setRefundReason('');
+      setSelected(null);
+      await load();
+    } catch (error) {
+      const rawMessage = error?.message || 'Gagal memproses refund.';
+      showToast('error', rawMessage);
+    } finally {
+      setRefunding(false);
     }
   }
 
@@ -526,10 +575,45 @@ function VenueBookingsWorkspace({ auth, venue }) {
                 <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { status: 'completed', payment_status: 'paid' })}>Complete + Paid</ActionButton>
                 <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { payment_status: 'paid', status: selected.status === 'pending' ? 'confirmed' : selected.status })}>Mark Paid</ActionButton>
                 <ActionButton variant="danger" onClick={() => updateBooking(selected.id, { status: 'cancelled' })}>Cancel</ActionButton>
+                {(selected.payment_status === 'paid' || selected.payment_status === 'partial') && selected.payment_status !== 'refunded' && (
+                  <ActionButton variant="danger" onClick={() => { setRefundTarget(selected); setRefundReason(''); setSelected(null); }}>Refund</ActionButton>
+                )}
               </div>
             </div>
           );
         })()}
+      </Modal>
+
+      <Modal open={!!refundTarget} onClose={() => setRefundTarget(null)} title="Refund Booking" width="max-w-xl">
+        {refundTarget ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+              <div className="font-semibold text-neutral-900">{refundTarget.customer_name}</div>
+              <div className="text-sm text-neutral-500">
+                {refundTarget.booking_date} · {refundTarget.start_time} - {refundTarget.end_time} · Rp {Number(refundTarget.total_price || 0).toLocaleString('id-ID')}
+              </div>
+            </div>
+
+            <Field label="Alasan Refund">
+              <textarea
+                className={textareaCls}
+                rows={3}
+                value={refundReason}
+                onChange={(event) => setRefundReason(event.target.value)}
+                placeholder="Contoh: Customer membatalkan pesanan / gangguan lapangan"
+              />
+            </Field>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Refund akan menandai payment sebagai refunded, invoice sebagai voided, dan booking sebagai cancelled.
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <ActionButton variant="outline" onClick={() => setRefundTarget(null)}>Batal</ActionButton>
+              <ActionButton variant="danger" onClick={processRefund} loading={refunding}>Proses Refund</ActionButton>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       <Modal open={!!editingSlot} onClose={closeSlotEditor} title="Reschedule Slot" width="max-w-xl">

@@ -41,8 +41,10 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   const [showWalkInForm, setShowWalkInForm] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showClosingReportModal, setShowClosingReportModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [lastReceipt, setLastReceipt] = useState(null);
   
   // Walk-in form state
   const [walkInForm, setWalkInForm] = useState({
@@ -447,7 +449,19 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
       if (bonusDeduction > 0) savingsParts.push(`Bonus Hours: Rp ${bonusDeduction.toLocaleString('id-ID')}`);
       const savingsMsg = savingsParts.length > 0 ? ` (${savingsParts.join(', ')})` : '';
 
+      setLastReceipt({
+        invoiceNumber,
+        booking: bookingData,
+        selectedCourt: courts.find(c => c.id === walkInForm.courtId) || null,
+        paymentMethod: paymentMethod === 'split' ? 'split' : (amount === 0 ? 'cash' : paymentMethod),
+        finalPrice,
+        bonusDeduction,
+        membershipDiscount,
+        createdAt: new Date().toISOString(),
+      });
+
       setShowPaymentModal(false);
+      setShowReceiptModal(true);
       setBookingData(null);
       setMembershipDiscount(null);
       setCustomerMembership(null);
@@ -461,6 +475,53 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
       console.error('Error processing payment:', err);
       setToast({ type: 'error', message: 'Gagal memproses pembayaran: ' + err.message });
     }
+  };
+
+  const printThermalReceipt = (receipt = lastReceipt) => {
+    if (!receipt) return;
+
+    const lines = [
+      'STADIONE',
+      '------------------------------',
+      `Invoice: ${receipt.invoiceNumber}`,
+      `Customer: ${receipt.booking?.customer_name || '-'}`,
+      `Court: ${receipt.selectedCourt?.name || '-'}`,
+      `Durasi: ${receipt.booking?.duration_hours || 0} jam`,
+      `Metode: ${receipt.paymentMethod}`,
+      '------------------------------',
+      `Total: Rp ${Number(receipt.booking?.total_price || 0).toLocaleString('id-ID')}`,
+      receipt.membershipDiscount?.discount_percent > 0 ? `Diskon Member: -Rp ${Number(receipt.membershipDiscount?.discount_amount || 0).toLocaleString('id-ID')}` : null,
+      receipt.bonusDeduction > 0 ? `Bonus Hours: -Rp ${Number(receipt.bonusDeduction || 0).toLocaleString('id-ID')}` : null,
+      `Dibayar: Rp ${Number(receipt.finalPrice || 0).toLocaleString('id-ID')}`,
+      '------------------------------',
+      new Date(receipt.createdAt || Date.now()).toLocaleString('id-ID'),
+    ].filter(Boolean);
+
+    const popup = window.open('', '_blank', 'width=420,height=720');
+    if (!popup) {
+      setToast({ type: 'error', message: 'Popup print diblokir browser' });
+      return;
+    }
+
+    popup.document.write(`
+      <html>
+        <head>
+          <title>${receipt.invoiceNumber}</title>
+          <style>
+            @page { size: 80mm auto; margin: 0; }
+            body { font-family: monospace; margin: 0; padding: 12px; width: 80mm; }
+            pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.35; margin: 0; }
+          </style>
+        </head>
+        <body>
+          <pre>${lines.join('\n')}</pre>
+          <script>
+            window.onload = () => { window.print(); setTimeout(() => window.close(), 300); };
+          </script>
+        </body>
+      </html>
+    `);
+    popup.document.close();
   };
 
   const computedTotalPrice = useMemo(() => {
@@ -522,10 +583,11 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
             + Walk-In Booking
           </button>
           <button
-            disabled
-            className="bg-gray-300 text-gray-500 py-3 rounded-lg font-semibold cursor-not-allowed"
+            onClick={() => lastReceipt ? setShowReceiptModal(true) : setToast({ type: 'error', message: 'Belum ada invoice terakhir untuk dicetak' })}
+            className="bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-semibold transition disabled:opacity-50"
+            disabled={!lastReceipt}
           >
-            📄 Lihat Invoice
+            🖨️ Cetak Invoice Thermal
           </button>
         </div>
       )}
@@ -839,6 +901,53 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold transition"
               >
                 Proses Pembayaran
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Thermal Receipt Modal */}
+      <Modal
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+        title="Invoice Thermal"
+      >
+        {lastReceipt && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-dashed border-gray-300 bg-white p-4 font-mono text-sm">
+              <div className="text-center font-bold mb-2">STADIONE</div>
+              <div className="text-center text-xs mb-3">INVOICE THERMAL</div>
+              <div className="space-y-1">
+                <div>Invoice: {lastReceipt.invoiceNumber}</div>
+                <div>Customer: {lastReceipt.booking?.customer_name || '-'}</div>
+                <div>Court: {lastReceipt.selectedCourt?.name || '-'}</div>
+                <div>Durasi: {lastReceipt.booking?.duration_hours || 0} jam</div>
+                <div>Metode: {lastReceipt.paymentMethod}</div>
+                <div className="border-t border-dashed border-gray-300 pt-2 mt-2">Total: Rp {Number(lastReceipt.booking?.total_price || 0).toLocaleString('id-ID')}</div>
+                {lastReceipt.membershipDiscount?.discount_percent > 0 && (
+                  <div>Diskon: -Rp {Number(lastReceipt.membershipDiscount.discount_amount || 0).toLocaleString('id-ID')}</div>
+                )}
+                {lastReceipt.bonusDeduction > 0 && (
+                  <div>Bonus Hours: -Rp {Number(lastReceipt.bonusDeduction || 0).toLocaleString('id-ID')}</div>
+                )}
+                <div className="border-t border-dashed border-gray-300 pt-2 mt-2 font-bold">Dibayar: Rp {Number(lastReceipt.finalPrice || 0).toLocaleString('id-ID')}</div>
+                <div className="text-[10px] text-center pt-2">{new Date(lastReceipt.createdAt || Date.now()).toLocaleString('id-ID')}</div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => printThermalReceipt(lastReceipt)}
+                className="flex-1 bg-black hover:bg-gray-800 text-white py-2 rounded-lg font-semibold transition"
+              >
+                Print Thermal
+              </button>
+              <button
+                onClick={() => setShowReceiptModal(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-black py-2 rounded-lg font-semibold transition"
+              >
+                Tutup
               </button>
             </div>
           </div>
