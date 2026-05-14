@@ -69,12 +69,23 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [ ] **[PENDING]** Invoice printing system (thermal printer)
 - [ ] **[PENDING]** Refund management workflow UI
 
-## ⏳ Phase 5: Membership System — PENDING
+## ⏳ Phase 5: Membership System — IN PROGRESS
 
-- [ ] **[PENDING]** Membership tiers (Bronze/Silver/Gold/Platinum)
-- [ ] **[PENDING]** Discount & priority booking benefits
-- [ ] **[PENDING]** Reward points system
-- [ ] **[PENDING]** Bonus hour allocation
+**Database Infrastructure** ✅ [DEPLOYED]
+- [x] **[DONE]** Membership tiers config (Bronze/Silver/Gold/Platinum)
+- [x] **[DONE]** Customer memberships table with status tracking
+- [x] **[DONE]** Reward points transaction log with auto-balance updates
+- [x] **[DONE]** Bonus hours allocation & expiration management
+- [x] **[DONE]** Membership discount logging
+- [x] **[DONE]** Helper functions: get_customer_active_membership(), calculate_membership_discount()
+- [x] **[DONE]** RLS policies for all tables
+- [x] **[DONE]** Triggers for auto-balance calculation
+
+**Next Steps** ⏳
+- [ ] **[PENDING]** Membership management page (Owner/Manager: create tiers, set pricing)
+- [ ] **[PENDING]** Customer membership enrollment UI (sign up flow)
+- [ ] **[PENDING]** Integrate discounts into booking creation
+- [ ] **[PENDING]** Reward points dashboard (customer view)
 
 ## ⏳ Phase 6: Tournament & Reservation — PENDING
 
