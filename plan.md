@@ -61,12 +61,13 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Database schema (shifts, payments, invoices, refunds)
 - [x] **[DONE]** Auto invoice generation with sequential numbering
 - [x] **[DONE]** Shift totals calculation (cash/QRIS/transfer breakdown)
+- [x] **[DONE]** Deploy supabase-pos-schema.sql to Supabase ✨ NEW
+- [x] **[DONE]** Create POS smoke test (qa-pos-workflow-smoke.sql) ✨ NEW
 
 ### Pending ⏳
-- [ ] **[PENDING]** Invoice printing system (thermal printer integration)
-- [ ] **[PENDING]** Refund management workflow
-- [ ] **[PENDING]** Deploy supabase-pos-schema.sql to Supabase
-- [ ] **[PENDING]** End-to-end smoke tests for POS flow
+- [ ] **[PENDING]** End-to-end testing in Vercel staging
+- [ ] **[PENDING]** Invoice printing system (thermal printer)
+- [ ] **[PENDING]** Refund management workflow UI
 
 ## ⏳ Phase 5: Membership System — PENDING
 
