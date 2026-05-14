@@ -25,6 +25,50 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function getScheduleEndTime(startTime, durationMinutes = 120) {
+  if (!startTime) return '';
+  const [hour, minute] = String(startTime).split(':').map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return '';
+  const total = (hour * 60) + minute + Number(durationMinutes || 120);
+  const endHour = Math.floor((total % (24 * 60)) / 60);
+  const endMinute = total % 60;
+  return `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+}
+
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && aEnd > bStart;
+}
+
+function matchReservationMarker(matchId) {
+  return `[TOURNAMENT_MATCH:${matchId}]`;
+}
+
+function getSyncBadgeConfig(match, reservationMap) {
+  const hasSchedule = Boolean(match.scheduled_date && match.scheduled_time && match.court_id);
+  if (!hasSchedule) {
+    return { label: 'Belum dijadwalkan', className: 'bg-neutral-100 text-neutral-600' };
+  }
+
+  if (!match.reservation_booking_id) {
+    return { label: 'Sync pending', className: 'bg-amber-100 text-amber-700' };
+  }
+
+  const reservation = reservationMap[match.reservation_booking_id];
+  if (!reservation) {
+    return { label: 'Sync failed', className: 'bg-red-100 text-red-700' };
+  }
+
+  if (reservation.status === 'completed') {
+    return { label: 'Court released', className: 'bg-neutral-200 text-neutral-700' };
+  }
+
+  if (reservation.status === 'cancelled') {
+    return { label: 'Sync failed', className: 'bg-red-100 text-red-700' };
+  }
+
+  return { label: 'Court blocked', className: 'bg-emerald-100 text-emerald-700' };
+}
+
 // ── Bracket generation ────────────────────────────────────────────────────────
 
 function generateSingleEliminationBracket(teams) {
@@ -243,6 +287,7 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
   const [tournament, setTournament] = useState(initialTournament);
   const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [reservationMap, setReservationMap] = useState({});
   const [courts, setCourts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('teams');
@@ -257,7 +302,7 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
   const [scoreSaving, setScoreSaving] = useState(false);
 
   const [schedulingMatch, setSchedulingMatch] = useState(null);
-  const [scheduleForm, setScheduleForm] = useState({ scheduled_date: '', scheduled_time: '', court_id: '' });
+  const [scheduleForm, setScheduleForm] = useState({ scheduled_date: '', scheduled_time: '', duration_minutes: 120, court_id: '' });
   const [scheduleSaving, setScheduleSaving] = useState(false);
 
   const showToast = (type, message) => { setToast({ type, message }); setTimeout(() => setToast(null), 3500); };
@@ -268,10 +313,27 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
       const [teamsRes, matchesRes, courtsRes] = await Promise.all([
         supabase.from('venue_tournament_teams').select('*').eq('tournament_id', tournament.id).order('seed').order('registered_at'),
         supabase.from('venue_tournament_matches').select('*').eq('tournament_id', tournament.id).order('round_number').order('match_number'),
-        supabase.from('venue_courts').select('id, name').eq('venue_id', venueId).order('name'),
+        supabase.from('venue_courts').select('id, name, branch_id').eq('venue_id', venueId).order('name'),
       ]);
+      const nextMatches = matchesRes.data || [];
+      const reservationIds = [...new Set(nextMatches.map(m => m.reservation_booking_id).filter(Boolean))];
+      let nextReservationMap = {};
+
+      if (reservationIds.length > 0) {
+        const { data: reservationRows, error: reservationErr } = await supabase
+          .from('venue_bookings')
+          .select('id, status, booking_date, start_time, end_time, court_id')
+          .in('id', reservationIds);
+        if (reservationErr) throw reservationErr;
+        nextReservationMap = (reservationRows || []).reduce((acc, row) => {
+          acc[row.id] = row;
+          return acc;
+        }, {});
+      }
+
       setTeams(teamsRes.data || []);
-      setMatches(matchesRes.data || []);
+      setMatches(nextMatches);
+      setReservationMap(nextReservationMap);
       setCourts(courtsRes.data || []);
     } catch (err) { console.error('Error loading detail:', err.message); }
     finally { setLoading(false); }
@@ -353,6 +415,23 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
     try {
       const winnerId = hs > as_ ? scoringMatch.home_team_id : as_ > hs ? scoringMatch.away_team_id : null;
       await supabase.from('venue_tournament_matches').update({ home_score: hs, away_score: as_, winner_team_id: winnerId, status: 'completed' }).eq('id', scoringMatch.id);
+
+      // Release reserved court slot by marking linked reservation completed.
+      if (scoringMatch.reservation_booking_id) {
+        await supabase
+          .from('venue_bookings')
+          .update({ status: 'completed' })
+          .eq('id', scoringMatch.reservation_booking_id);
+      } else {
+        const marker = matchReservationMarker(scoringMatch.id);
+        await supabase
+          .from('venue_bookings')
+          .update({ status: 'completed' })
+          .eq('venue_id', venueId)
+          .eq('booking_type', 'tournament')
+          .ilike('notes', `%${marker}%`);
+      }
+
       if (tournament.format === 'single_elimination' && winnerId && scoringMatch.next_match_id) {
         const nextMatch = matches.find(m => m.id === scoringMatch.next_match_id);
         if (nextMatch) {
@@ -369,13 +448,118 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
 
   async function handleSaveSchedule() {
     if (!schedulingMatch) return;
+
+    if (!scheduleForm.scheduled_date || !scheduleForm.scheduled_time || !scheduleForm.court_id) {
+      showToast('error', 'Tanggal, jam, dan lapangan wajib diisi');
+      return;
+    }
+
+    const startTime = scheduleForm.scheduled_time;
+    const endTime = getScheduleEndTime(startTime, scheduleForm.duration_minutes);
+    if (!endTime || endTime <= startTime) {
+      showToast('error', 'Durasi jadwal tidak valid');
+      return;
+    }
+
     setScheduleSaving(true);
     try {
+      const marker = matchReservationMarker(schedulingMatch.id);
+      const home = teamMap[schedulingMatch.home_team_id];
+      const away = teamMap[schedulingMatch.away_team_id];
+      const court = courts.find(c => c.id === scheduleForm.court_id);
+
+      let existingReservation = null;
+      if (schedulingMatch.reservation_booking_id) {
+        const { data: linkedReservation, error: linkedReservationErr } = await supabase
+          .from('venue_bookings')
+          .select('id')
+          .eq('id', schedulingMatch.reservation_booking_id)
+          .maybeSingle();
+        if (linkedReservationErr) throw linkedReservationErr;
+        existingReservation = linkedReservation;
+      }
+
+      if (!existingReservation) {
+        const { data: markerReservation, error: markerReservationErr } = await supabase
+          .from('venue_bookings')
+          .select('id')
+          .eq('venue_id', venueId)
+          .eq('booking_type', 'tournament')
+          .ilike('notes', `%${marker}%`)
+          .limit(1)
+          .maybeSingle();
+        if (markerReservationErr) throw markerReservationErr;
+        existingReservation = markerReservation;
+      }
+
+      const { data: courtBookings, error: conflictErr } = await supabase
+        .from('venue_bookings')
+        .select('id, customer_name, start_time, end_time, status')
+        .eq('venue_id', venueId)
+        .eq('booking_date', scheduleForm.scheduled_date)
+        .eq('court_id', scheduleForm.court_id)
+        .in('status', ['pending', 'confirmed', 'checked-in']);
+
+      if (conflictErr) throw conflictErr;
+
+      const conflicting = (courtBookings || []).find(b => {
+        if (existingReservation?.id && b.id === existingReservation.id) return false;
+        return overlaps(startTime, endTime, b.start_time, b.end_time);
+      });
+
+      if (conflicting) {
+        showToast('error', `Jadwal bentrok dengan booking ${conflicting.customer_name} (${String(conflicting.start_time).slice(0, 5)}-${String(conflicting.end_time).slice(0, 5)})`);
+        setScheduleSaving(false);
+        return;
+      }
+
+      const reservationPayload = {
+        venue_id: venueId,
+        branch_id: court?.branch_id || null,
+        court_id: scheduleForm.court_id,
+        booking_type: 'tournament',
+        customer_name: `${home?.team_name || 'TBD'} vs ${away?.team_name || 'TBD'}`,
+        customer_phone: null,
+        booking_date: scheduleForm.scheduled_date,
+        start_time: startTime,
+        end_time: endTime,
+        duration_hours: Number((Number(scheduleForm.duration_minutes || 120) / 60).toFixed(2)),
+        total_price: 0,
+        payment_method: 'pending',
+        payment_status: 'unpaid',
+        status: 'confirmed',
+        notes: `${marker} Tournament: ${tournament.name} · ${schedulingMatch.round_name}`,
+        created_by: auth?.id || null,
+      };
+
+      let linkedReservationId = existingReservation?.id || null;
+
+      if (existingReservation?.id) {
+        const { data: updatedReservation, error: updateReservationErr } = await supabase
+          .from('venue_bookings')
+          .update(reservationPayload)
+          .eq('id', existingReservation.id)
+          .select('id')
+          .single();
+        if (updateReservationErr) throw updateReservationErr;
+        linkedReservationId = updatedReservation?.id || linkedReservationId;
+      } else {
+        const { data: insertedReservation, error: insertReservationErr } = await supabase
+          .from('venue_bookings')
+          .insert(reservationPayload)
+          .select('id')
+          .single();
+        if (insertReservationErr) throw insertReservationErr;
+        linkedReservationId = insertedReservation?.id || null;
+      }
+
       await supabase.from('venue_tournament_matches').update({
         scheduled_date: scheduleForm.scheduled_date || null,
         scheduled_time: scheduleForm.scheduled_time || null,
         court_id: scheduleForm.court_id || null,
+        reservation_booking_id: linkedReservationId,
       }).eq('id', schedulingMatch.id);
+
       setSchedulingMatch(null); showToast('success', 'Jadwal disimpan'); load();
     } catch (err) { showToast('error', err.message); }
     finally { setScheduleSaving(false); }
@@ -530,7 +714,7 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
                               <>
                                 <button type="button" onClick={() => { setScoringMatch(m); setScoreForm({ home_score: m.home_score ?? '', away_score: m.away_score ?? '' }); }} className="text-xs text-blue-600 hover:underline">Input Skor</button>
                                 <span className="text-neutral-300">·</span>
-                                <button type="button" onClick={() => { setSchedulingMatch(m); setScheduleForm({ scheduled_date: m.scheduled_date || '', scheduled_time: m.scheduled_time?.slice(0,5) || '', court_id: m.court_id || '' }); }} className="text-xs text-neutral-500 hover:underline">Jadwal</button>
+                                <button type="button" onClick={() => { setSchedulingMatch(m); setScheduleForm({ scheduled_date: m.scheduled_date || '', scheduled_time: m.scheduled_time?.slice(0,5) || '', duration_minutes: 120, court_id: m.court_id || '' }); }} className="text-xs text-neutral-500 hover:underline">Jadwal</button>
                               </>
                             ) : null}
                           </div>
@@ -557,6 +741,7 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
                 const home = teamMap[m.home_team_id];
                 const away = teamMap[m.away_team_id];
                 const court = courts.find(c => c.id === m.court_id);
+                const sync = getSyncBadgeConfig(m, reservationMap);
                 return (
                   <div key={m.id} className="rounded-2xl border border-neutral-200 bg-white p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
@@ -567,8 +752,11 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
                         {m.scheduled_time && ` ${m.scheduled_time.slice(0,5)}`}
                         {court && ` · ${court.name}`}
                       </div>
+                      <div className="mt-1">
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${sync.className}`}>{sync.label}</span>
+                      </div>
                     </div>
-                    <button type="button" onClick={() => { setSchedulingMatch(m); setScheduleForm({ scheduled_date: m.scheduled_date || '', scheduled_time: m.scheduled_time?.slice(0,5) || '', court_id: m.court_id || '' }); }}
+                    <button type="button" onClick={() => { setSchedulingMatch(m); setScheduleForm({ scheduled_date: m.scheduled_date || '', scheduled_time: m.scheduled_time?.slice(0,5) || '', duration_minutes: 120, court_id: m.court_id || '' }); }}
                       className="w-8 h-8 rounded-xl border border-neutral-200 flex items-center justify-center hover:border-neutral-900">
                       <Edit3 size={13} />
                     </button>
@@ -666,12 +854,19 @@ function TournamentDetail({ tournament: initialTournament, venueId, auth, onBack
               <Field label="Tanggal"><input className={inputCls} type="date" value={scheduleForm.scheduled_date} onChange={e => setScheduleForm(f => ({ ...f, scheduled_date: e.target.value }))} /></Field>
               <Field label="Jam"><input className={inputCls} type="time" value={scheduleForm.scheduled_time} onChange={e => setScheduleForm(f => ({ ...f, scheduled_time: e.target.value }))} /></Field>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Durasi (menit)"><input className={inputCls} type="number" min="30" step="30" value={scheduleForm.duration_minutes} onChange={e => setScheduleForm(f => ({ ...f, duration_minutes: e.target.value }))} /></Field>
+              <Field label="Selesai"><input className={inputCls} value={getScheduleEndTime(scheduleForm.scheduled_time, scheduleForm.duration_minutes)} readOnly /></Field>
+            </div>
             <Field label="Lapangan">
               <select className={selectCls} value={scheduleForm.court_id} onChange={e => setScheduleForm(f => ({ ...f, court_id: e.target.value }))}>
                 <option value="">— Pilih Lapangan —</option>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </Field>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              Menyimpan jadwal ini akan otomatis memblokir lapangan di reservation (`booking_type: tournament`).
+            </div>
             <div className="flex gap-3 pt-2">
               <ActionButton variant="outline" onClick={() => setSchedulingMatch(null)}>Batal</ActionButton>
               <ActionButton onClick={handleSaveSchedule} loading={scheduleSaving}>Simpan Jadwal</ActionButton>
