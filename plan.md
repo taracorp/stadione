@@ -77,20 +77,25 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Reward points transaction log with auto-balance updates
 - [x] **[DONE]** Bonus hours allocation & expiration management
 - [x] **[DONE]** Membership discount logging
-- [x] **[DONE]** Helper functions: get_customer_active_membership(), calculate_membership_discount()
-- [x] **[DONE]** RLS policies for all tables
+- [x] **[DONE]** Helper functions & RLS policies
 - [x] **[DONE]** Triggers for auto-balance calculation
 
-**UI Components** ✅ [IN PROGRESS]
+**UI Components** ✅ [COMPLETE]
 - [x] **[DONE]** MembershipManagementPage (Owner/Manager: create/edit tiers)
 - [x] **[DONE]** MembershipEnrollmentPage (Customer: signup flow with payment)
 - [x] **[DONE]** MembershipProfilePage (Customer: view tier, points, bonus hours)
 - [x] **[DONE]** useMembership hook (discount calc, points earning, bonus hours)
 
+**POS Integration** ✅ [COMPLETE]
+- [x] **[DONE]** Integrate discount calculation into VenuePOSPage
+- [x] **[DONE]** Auto-earn reward points on booking completion
+- [x] **[DONE]** Display discount info in payment modal
+- [x] **[DONE]** Log all discounts for audit trail
+
 **Next Steps** ⏳
-- [ ] **[PENDING]** Integrate discount calculation into VenuePOSPage
-- [ ] **[PENDING]** Integrate discount into booking calendar
-- [ ] **[PENDING]** Auto-earn reward points on booking completion
+- [ ] **[PENDING]** Integrate discount into booking calendar page
+- [ ] **[PENDING]** Priority booking slot reservation (member-only hours)
+- [ ] **[PENDING]** Bonus hour redemption workflow
 
 ## ⏳ Phase 6: Tournament & Reservation — PENDING
 

@@ -41,6 +41,7 @@ function VenueBookingsWorkspace({ auth, venue }) {
   const [slotForm, setSlotForm] = useState({ booking_date: '', start_time: '', end_time: '', court_id: '' });
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState(null);
+  const [discountInfo, setDiscountInfo] = useState({});
 
   function showToast(type, message) {
     setToast({ type, message });
@@ -63,9 +64,24 @@ function VenueBookingsWorkspace({ auth, venue }) {
         supabase.from('venue_courts').select('*').eq('venue_id', venue.id).order('created_at', { ascending: false }),
       ]);
 
-      setBookings(bookingResult.data || []);
+      const bookingData = bookingResult.data || [];
+      setBookings(bookingData);
       setBranches(branchResult.data || []);
       setCourts(courtResult.data || []);
+
+      // Load discount info for all bookings
+      if (bookingData.length > 0) {
+        const { data: discountData } = await supabase
+          .from('membership_discount_log')
+          .select('*')
+          .in('booking_id', bookingData.map(b => b.id));
+        
+        const discountMap = {};
+        (discountData || []).forEach(discount => {
+          discountMap[discount.booking_id] = discount;
+        });
+        setDiscountInfo(discountMap);
+      }
 
       if (!form.branch_id && branchResult.data?.[0]?.id) {
         setForm((current) => ({ ...current, branch_id: branchResult.data[0].id, court_id: courtResult.data?.[0]?.id || '' }));
@@ -428,57 +444,92 @@ function VenueBookingsWorkspace({ auth, venue }) {
               [...Array(3)].map((_, index) => <div key={index} className="h-24 rounded-2xl bg-neutral-100 animate-pulse" />)
             ) : filteredBookings.length === 0 ? (
               <EmptyState icon={BookOpen} title="Belum ada booking" description="Buat booking pertama di form sebelah kiri." />
-            ) : filteredBookings.map((booking) => (
-              <div key={booking.id} className="w-full rounded-2xl border border-neutral-200 p-4 text-left hover:border-neutral-900 transition">
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <button type="button" onClick={() => setSelected(booking)} className="text-left">
-                    <div className="font-semibold text-neutral-900">{booking.customer_name}</div>
-                    <div className="text-sm text-neutral-500">{booking.booking_date} · {booking.start_time} - {booking.end_time}</div>
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={booking.status} />
-                    <button
-                      type="button"
-                      onClick={() => openSlotEditor(booking)}
-                      className="w-9 h-9 rounded-xl border border-neutral-200 flex items-center justify-center hover:border-neutral-900"
-                      title="Edit Slot"
-                    >
-                      <Edit3 size={14} />
+            ) : filteredBookings.map((booking) => {
+              const discount = discountInfo[booking.id];
+              return (
+                <div key={booking.id} className={`w-full rounded-2xl border p-4 text-left hover:border-neutral-900 transition ${discount ? 'border-green-200 bg-green-50' : 'border-neutral-200'}`}>
+                  <div className="flex items-start justify-between gap-4 mb-2">
+                    <button type="button" onClick={() => setSelected(booking)} className="text-left flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-neutral-900">{booking.customer_name}</span>
+                        {discount && (
+                          <span className="text-xs font-semibold bg-green-200 text-green-900 px-2 py-1 rounded">
+                            🎁 {discount.discount_percent}% OFF
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-neutral-500">{booking.booking_date} · {booking.start_time} - {booking.end_time}</div>
                     </button>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={booking.status} />
+                      <button
+                        type="button"
+                        onClick={() => openSlotEditor(booking)}
+                        className="w-9 h-9 rounded-xl border border-neutral-200 flex items-center justify-center hover:border-neutral-900"
+                        title="Edit Slot"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-sm text-neutral-500">
+                    {booking.booking_type} · {booking.payment_method} · Rp {Number(booking.total_price || 0).toLocaleString('id-ID')}
+                    {discount && (
+                      <span className="ml-2 text-green-600 font-semibold">
+                        (Diskon: Rp {discount.discount_amount?.toLocaleString('id-ID')})
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="text-sm text-neutral-500">{booking.booking_type} · {booking.payment_method} · Rp {Number(booking.total_price || 0).toLocaleString('id-ID')}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
 
       <Modal open={!!selected} onClose={() => setSelected(null)} title="Detail Booking" width="max-w-2xl">
-        {selected && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 flex items-center justify-between gap-4">
-              <div>
-                <div className="font-semibold text-neutral-900">{selected.customer_name}</div>
-                <div className="text-sm text-neutral-500">{selected.booking_date} · {selected.start_time} - {selected.end_time}</div>
+        {selected && (() => {
+          const discount = discountInfo[selected.id];
+          return (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="font-semibold text-neutral-900">{selected.customer_name}</div>
+                  <div className="text-sm text-neutral-500">{selected.booking_date} · {selected.start_time} - {selected.end_time}</div>
+                </div>
+                <StatusBadge status={selected.status} />
               </div>
-              <StatusBadge status={selected.status} />
+
+              {discount && (
+                <div className="rounded-2xl border-2 border-green-200 bg-green-50 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-green-900">🎁 Membership Discount Applied</span>
+                    <span className="text-sm font-semibold bg-green-200 px-2 py-1 rounded">{discount.tier_name}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>Original: Rp {Number(discount.original_price || 0).toLocaleString('id-ID')}</div>
+                    <div className="text-green-600 font-semibold">Discount: Rp {Number(discount.discount_amount || 0).toLocaleString('id-ID')}</div>
+                    <div className="col-span-2 font-bold text-green-700">Final: Rp {Number(discount.final_price || 0).toLocaleString('id-ID')}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Payment</div><div className="font-semibold text-neutral-900">{selected.payment_method} · {selected.payment_status}</div></div>
+                <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Total</div><div className="font-semibold text-neutral-900">Rp {Number(selected.total_price || 0).toLocaleString('id-ID')}</div></div>
+                <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Type</div><div className="font-semibold text-neutral-900">{selected.booking_type}</div></div>
+                <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Phone</div><div className="font-semibold text-neutral-900">{selected.customer_phone || '-'}</div></div>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <ActionButton variant="outline" onClick={() => { openSlotEditor(selected); setSelected(null); }}>Edit Slot</ActionButton>
+                <ActionButton onClick={() => updateBooking(selected.id, { status: 'checked-in' })}>Check-In</ActionButton>
+                <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { status: 'completed', payment_status: 'paid' })}>Complete + Paid</ActionButton>
+                <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { payment_status: 'paid', status: selected.status === 'pending' ? 'confirmed' : selected.status })}>Mark Paid</ActionButton>
+                <ActionButton variant="danger" onClick={() => updateBooking(selected.id, { status: 'cancelled' })}>Cancel</ActionButton>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Payment</div><div className="font-semibold text-neutral-900">{selected.payment_method} · {selected.payment_status}</div></div>
-              <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Total</div><div className="font-semibold text-neutral-900">Rp {Number(selected.total_price || 0).toLocaleString('id-ID')}</div></div>
-              <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Type</div><div className="font-semibold text-neutral-900">{selected.booking_type}</div></div>
-              <div className="rounded-2xl border border-neutral-200 p-4"><div className="text-neutral-400 text-xs uppercase mb-1">Phone</div><div className="font-semibold text-neutral-900">{selected.customer_phone || '-'}</div></div>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <ActionButton variant="outline" onClick={() => { openSlotEditor(selected); setSelected(null); }}>Edit Slot</ActionButton>
-              <ActionButton onClick={() => updateBooking(selected.id, { status: 'checked-in' })}>Check-In</ActionButton>
-              <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { status: 'completed', payment_status: 'paid' })}>Complete + Paid</ActionButton>
-              <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { payment_status: 'paid', status: selected.status === 'pending' ? 'confirmed' : selected.status })}>Mark Paid</ActionButton>
-              <ActionButton variant="danger" onClick={() => updateBooking(selected.id, { status: 'cancelled' })}>Cancel</ActionButton>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
 
       <Modal open={!!editingSlot} onClose={closeSlotEditor} title="Reschedule Slot" width="max-w-xl">

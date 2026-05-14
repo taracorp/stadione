@@ -15,6 +15,7 @@ export default function VenueCalendarPage({ venue }) {
   const [editForm, setEditForm] = useState({ booking_date: '', start_time: '', end_time: '', court_id: '' });
   const [savingSlot, setSavingSlot] = useState(false);
   const [toast, setToast] = useState(null);
+  const [discountInfo, setDiscountInfo] = useState({});
 
   function showToast(type, message) {
     setToast({ type, message });
@@ -31,13 +32,21 @@ export default function VenueCalendarPage({ venue }) {
 
     setLoading(true);
     try {
-      const [bookingResult, courtResult] = await Promise.all([
+      const [bookingResult, courtResult, discountResult] = await Promise.all([
         supabase.from('venue_bookings').select('*').eq('venue_id', venue.id).eq('booking_date', selectedDate).order('start_time', { ascending: true }),
         supabase.from('venue_courts').select('*').eq('venue_id', venue.id).order('name', { ascending: true }),
+        supabase.from('membership_discount_log').select('*').in('booking_id', bookingResult?.data?.map(b => b.id) || []),
       ]);
 
       setBookings(bookingResult.data || []);
       setCourts(courtResult.data || []);
+      
+      // Create discount map by booking_id
+      const discountMap = {};
+      (discountResult.data || []).forEach(discount => {
+        discountMap[discount.booking_id] = discount;
+      });
+      setDiscountInfo(discountMap);
     } catch (error) {
       console.error('VenueCalendarPage load error:', error.message);
     } finally {
@@ -189,21 +198,43 @@ export default function VenueCalendarPage({ venue }) {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {courtBookings.map((booking) => (
-                    <div key={booking.id} className="rounded-2xl border border-neutral-200 p-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-neutral-900">{booking.customer_name}</p>
-                        <p className="text-sm text-neutral-500">{booking.start_time} - {booking.end_time} · {booking.booking_type}</p>
+                  {courtBookings.map((booking) => {
+                    const discount = discountInfo[booking.id];
+                    return (
+                      <div key={booking.id} className={`rounded-2xl border p-4 flex items-center justify-between gap-3 ${discount ? 'border-green-200 bg-green-50' : 'border-neutral-200'}`}>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-neutral-900">{booking.customer_name}</p>
+                            {discount && (
+                              <span className="text-xs font-semibold bg-green-200 text-green-900 px-2 py-1 rounded">
+                                🎁 {discount.discount_percent}% OFF
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-neutral-500">
+                            {booking.start_time} - {booking.end_time} · {booking.booking_type}
+                            {discount && (
+                              <span className="ml-2 text-green-600 font-semibold">
+                                (Rp {discount.discount_amount?.toLocaleString('id-ID')} saved)
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={booking.status} />
+                          <button
+                            type="button"
+                            onClick={() => openEditSlot(booking)}
+                            className="w-9 h-9 rounded-xl border border-neutral-200 flex items-center justify-center hover:border-neutral-900"
+                            title="Edit Slot"
+                          >
+                            <Edit3 size={14} />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={booking.status} />
-                        <button
-                          type="button"
-                          onClick={() => openEditSlot(booking)}
-                          className="w-9 h-9 rounded-xl border border-neutral-200 flex items-center justify-center hover:border-neutral-900"
-                          title="Edit Slot"
-                        >
-                          <Edit3 size={14} />
+                    );
+                  })}
+                </div>
                         </button>
                       </div>
                     </div>
