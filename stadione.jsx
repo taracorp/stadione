@@ -1848,7 +1848,45 @@ const AUTH_MODAL_MODES = {
   recovery: 'recovery',
 };
 
-const AUTH_REQUEST_TIMEOUT_MS = 30000; // Increased from 15s to 30s to handle slow networks
+// Optimized timeout for faster feedback (was 30s, now 15s + 20s fallback)
+const AUTH_REQUEST_TIMEOUT_MS = 15000; // Primary login: 15s for responsive UX
+const AUTH_FALLBACK_TIMEOUT_MS = 20000; // Fallback: 20s if primary fails
+const AUTH_OAUTH_TIMEOUT_MS = 30000; // OAuth: 30s (external services slower)
+
+// ============ INPUT VALIDATION ============
+function validateEmail(email) {
+  const normalized = email.trim();
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!normalized) return { valid: false, error: 'Email tidak boleh kosong' };
+  if (!regex.test(normalized)) return { valid: false, error: 'Format email tidak valid' };
+  if (normalized.length > 254) return { valid: false, error: 'Email terlalu panjang' };
+  return { valid: true, value: normalized };
+}
+
+function validatePassword(password) {
+  if (!password) return { valid: false, error: 'Password tidak boleh kosong' };
+  if (password.length < 6) return { valid: false, error: 'Password minimal 6 karakter' };
+  if (password.length > 128) return { valid: false, error: 'Password terlalu panjang' };
+  return { valid: true, value: password };
+}
+
+function validateName(name) {
+  const normalized = name.trim();
+  if (!normalized) return { valid: false, error: 'Nama tidak boleh kosong' };
+  if (normalized.length < 2) return { valid: false, error: 'Nama minimal 2 karakter' };
+  if (normalized.length > 100) return { valid: false, error: 'Nama terlalu panjang' };
+  return { valid: true, value: normalized };
+}
+
+function getPasswordStrength(password) {
+  let strength = 0;
+  if (password.length >= 8) strength++;
+  if (password.length >= 12) strength++;
+  if (/[A-Z]/.test(password)) strength++;
+  if (/[0-9]/.test(password)) strength++;
+  if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) strength++;
+  return { score: strength, max: 5 };
+}
 
 function getAuthRedirectUrl(mode) {
   if (typeof window === 'undefined') return undefined;
@@ -1861,6 +1899,17 @@ function getAuthRedirectUrl(mode) {
 function getAuthModeFromUrl() {
   if (typeof window === 'undefined') return null;
   return new URLSearchParams(window.location.search).get('auth_mode') || null;
+}
+
+function hasRecoveryParamsInUrl() {
+  const params = getAuthUrlParams();
+  const type = String(params.get('type') || '').toLowerCase();
+
+  return (
+    type === 'recovery' ||
+    params.has('recovery_token') ||
+    params.has('access_token')
+  );
 }
 
 function getAuthUrlParams() {
@@ -1890,6 +1939,13 @@ function clearAuthUrlArtifacts() {
   url.searchParams.delete('error');
   url.searchParams.delete('error_code');
   url.searchParams.delete('error_description');
+  url.searchParams.delete('type');
+  url.searchParams.delete('access_token');
+  url.searchParams.delete('refresh_token');
+  url.searchParams.delete('expires_at');
+  url.searchParams.delete('expires_in');
+  url.searchParams.delete('token_type');
+  url.searchParams.delete('recovery_token');
   url.hash = '';
   window.history.replaceState({}, '', `${url.pathname}${url.search}`);
 }
@@ -1899,21 +1955,53 @@ function mapAuthErrorMessage(error) {
   const message = rawMessage.toLowerCase();
 
   if (!rawMessage) return 'Terjadi kesalahan. Silakan coba lagi.';
-  if (message.includes('timeout')) return 'Permintaan auth timeout. Periksa koneksi internet atau konfigurasi Supabase, lalu coba lagi.';
+  
+  // Timeout & Network
+  if (message.includes('timeout')) return 'Koneksi lambat. Cek internet Anda dan coba lagi.';
+  if (message.includes('network') || message.includes('connection') || message.includes('failed to fetch')) 
+    return 'Masalah jaringan. Periksa koneksi internet Anda.';
+  if (message.includes('cors') || message.includes('cross-origin')) 
+    return 'Masalah server. Hubungi admin untuk setup CORS.';
+  
+  // Configuration
   if (message.includes('supabase belum')) return rawMessage;
-  if (message.includes('invalid api key')) return 'Konfigurasi Supabase production belum valid. Periksa VITE_SUPABASE_ANON_KEY di Vercel lalu redeploy.';
-  if (message.includes('rate limit')) return 'Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.';
-  if (message.includes('invalid login credentials')) return 'Email atau password salah. Silakan cek kembali.';
-  if (message.includes('email not confirmed')) return 'Email belum dikonfirmasi. Cek inbox email Anda terlebih dahulu.';
-  if (message.includes('provider is not enabled')) return 'Login Google belum aktif di Supabase. Aktifkan Google provider di Supabase Auth.';
-  if (message.includes('redirect') || message.includes('not allowed')) return 'Redirect auth belum valid. Pastikan domain production sudah didaftarkan di Supabase.';
-  if (message.includes('password should be at least')) return 'Password minimal 6 karakter.';
-  if (message.includes('auth session missing') || message.includes('session not found')) return 'Sesi reset password tidak ditemukan. Minta link reset password baru lalu buka dari email terbaru.';
-  if (message.includes('unable to validate email address')) return 'Format email tidak valid.';
-  if (message.includes('user already registered')) return 'Email ini sudah terdaftar. Silakan login atau gunakan lupa password.';
-  if (message.includes('oauth')) return 'Login Google belum berhasil. Periksa konfigurasi OAuth dan redirect URL.';
-
-  return rawMessage;
+  if (message.includes('invalid api key')) return 'Konfigurasi Supabase production tidak valid. Hubungi admin.';
+  if (message.includes('provider is not enabled') || message.includes('google_oauth')) 
+    return 'Login Google belum aktif. Hubungi admin.';
+  if (message.includes('redirect') || message.includes('not allowed')) 
+    return 'Domain tidak terdaftar di Supabase. Hubungi admin.';
+  
+  // Rate limiting
+  if (message.includes('rate limit') || message.includes('too many')) 
+    return 'Terlalu banyak percobaan. Tunggu 5 menit dan coba lagi.';
+  
+  // Login/Password
+  if (message.includes('invalid login credentials') || message.includes('invalid email or password')) 
+    return 'Email atau password tidak cocok.';
+  if (message.includes('invalid password') || message.includes('weak password'))
+    return 'Password tidak memenuhi kriteria keamanan.';
+  if (message.includes('password should be at least')) 
+    return 'Password minimal 6 karakter.';
+  
+  // Email
+  if (message.includes('email not confirmed') || message.includes('email_not_verified') || message.includes('email verification'))
+    return 'Email belum diverifikasi. Cek email Anda.';
+  if (message.includes('unable to validate email address') || message.includes('invalid_email'))
+    return 'Format email tidak valid.';
+  if (message.includes('user already registered')) 
+    return 'Email sudah terdaftar. Silakan login.';
+  
+  // Session
+  if (message.includes('auth session missing') || message.includes('session not found') || message.includes('no session'))
+    return 'Sesi berakhir. Minta link reset password baru.';
+  if (message.includes('invalid session'))
+    return 'Sesi tidak valid. Silakan login ulang.';
+  
+  // OAuth
+  if (message.includes('oauth') || message.includes('google')) 
+    return 'Login Google gagal. Coba login dengan email.';
+  
+  return rawMessage || 'Terjadi kesalahan. Silakan coba lagi.';
 }
 
 async function getSupabaseAuthClient() {
@@ -2081,16 +2169,20 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
     try {
       const supabase = await getSupabaseAuthClient();
-      const { error: oauthError } = await withAuthTimeout(supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: getAuthRedirectUrl(),
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'select_account',
+      const { error: oauthError } = await withAuthTimeout(
+        supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: getAuthRedirectUrl(),
+            queryParams: {
+              access_type: 'offline',
+              prompt: 'select_account',
+            },
           },
-        },
-      }), 'Google OAuth');
+        }),
+        'Login Google',
+        AUTH_OAUTH_TIMEOUT_MS
+      );
 
       if (oauthError) throw oauthError;
     } catch (err) {
@@ -2108,29 +2200,41 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
     try {
       const supabase = await getSupabaseAuthClient();
-      const normalizedEmail = email.trim();
-      const normalizedName = name.trim();
 
+      // Forgot Password Mode
       if (mode === AUTH_MODAL_MODES.forgotPassword) {
-        if (!normalizedEmail) throw new Error('Email tidak boleh kosong');
+        const emailValidation = validateEmail(email);
+        if (!emailValidation.valid) throw new Error(emailValidation.error);
 
-        const { error: resetError } = await withAuthTimeout(supabase.auth.resetPasswordForEmail(normalizedEmail, {
-          redirectTo: getAuthRedirectUrl(AUTH_MODAL_MODES.recovery),
-        }), 'Reset password');
+        const { error: resetError } = await withAuthTimeout(
+          supabase.auth.resetPasswordForEmail(emailValidation.value, {
+            redirectTo: getAuthRedirectUrl(AUTH_MODAL_MODES.recovery),
+          }),
+          'Reset password',
+          AUTH_REQUEST_TIMEOUT_MS
+        );
 
         if (resetError) throw resetError;
 
         setSuccessMessage('Link reset password sudah dikirim. Cek inbox email Anda.');
+        setEmail('');
         setLoading(false);
         return;
       }
 
+      // Recovery Mode (Update Password)
       if (mode === AUTH_MODAL_MODES.recovery) {
-        if (!password) throw new Error('Password baru tidak boleh kosong');
-        if (password.length < 6) throw new Error('Password minimal 6 karakter.');
-        if (password !== confirmPassword) throw new Error('Konfirmasi password belum cocok.');
+        const passwordValidation = validatePassword(password);
+        if (!passwordValidation.valid) throw new Error(passwordValidation.error);
+        
+        if (password !== confirmPassword) throw new Error('Password dan konfirmasi tidak cocok.');
 
-        const { data: updateData, error: updateError } = await withAuthTimeout(supabase.auth.updateUser({ password }), 'Update password');
+        const { data: updateData, error: updateError } = await withAuthTimeout(
+          supabase.auth.updateUser({ password: passwordValidation.value }),
+          'Update password',
+          AUTH_REQUEST_TIMEOUT_MS
+        );
+        
         if (updateError) throw updateError;
 
         if (updateData?.user) {
@@ -2146,74 +2250,92 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
         setConfirmPassword('');
         setTimeout(() => {
           onClose();
-        }, 1200);
+        }, 1000);
         setLoading(false);
         return;
       }
 
-      if (!normalizedEmail || !password) throw new Error('Email dan password tidak boleh kosong');
+      // Validate inputs
+      const emailValidation = validateEmail(email);
+      if (!emailValidation.valid) throw new Error(emailValidation.error);
 
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.valid) throw new Error(passwordValidation.error);
+
+      // Register Mode
       if (mode === AUTH_MODAL_MODES.register) {
-        if (!normalizedName) throw new Error('Nama tidak boleh kosong');
+        const nameValidation = validateName(name);
+        if (!nameValidation.valid) throw new Error(nameValidation.error);
 
-        const { data, error: signUpError } = await withAuthTimeout(supabase.auth.signUp({
-          email: normalizedEmail,
-          password,
-          options: {
-            data: { name: normalizedName },
-            emailRedirectTo: getAuthRedirectUrl(),
-          },
-        }), 'Register');
+        const { data, error: signUpError } = await withAuthTimeout(
+          supabase.auth.signUp({
+            email: emailValidation.value,
+            password: passwordValidation.value,
+            options: {
+              data: { name: nameValidation.value },
+              emailRedirectTo: getAuthRedirectUrl(),
+            },
+          }),
+          'Register',
+          AUTH_REQUEST_TIMEOUT_MS
+        );
 
         if (signUpError) throw signUpError;
         if (!data.user) throw new Error('Registrasi gagal. Silakan coba lagi.');
 
         switchMode(AUTH_MODAL_MODES.login);
-        setEmail(normalizedEmail);
-        setSuccessMessage('Registrasi berhasil. Cek email Anda untuk verifikasi sebelum login.');
+        setEmail(emailValidation.value);
+        setName('');
+        setPassword('');
+        setSuccessMessage('Registrasi berhasil! Cek email untuk verifikasi sebelum login.');
         setLoading(false);
         return;
-      } else {
-        let data;
-        let signInError = null;
-        let attemptedFallback = false;
-
-        try {
-          console.log('Attempting Supabase signInWithPassword...');
-          const signInResult = await withAuthTimeout(supabase.auth.signInWithPassword({
-            email: normalizedEmail,
-            password,
-          }), 'Login');
-          data = signInResult?.data;
-          signInError = signInResult?.error || null;
-        } catch (signInTimeoutError) {
-          if (!isTimeoutError(signInTimeoutError)) throw signInTimeoutError;
-
-          console.warn('Primary login timeout, attempting fallback API...');
-          attemptedFallback = true;
-          try {
-            const fallbackResult = await withAuthTimeout(
-              signInWithPasswordFallback({ email: normalizedEmail, password }),
-              'Login fallback',
-              20000 // Fallback timeout: 20s
-            );
-            data = fallbackResult;
-          } catch (fallbackError) {
-            if (isTimeoutError(fallbackError)) {
-              throw new Error('Koneksi internet lambat. Kedua metode login timeout. Silakan cek koneksi dan coba lagi.');
-            }
-            throw fallbackError;
-          }
-        }
-
-        if (signInError) throw signInError;
-        if (!data || !data.user) throw new Error('Login gagal. Email atau password salah.');
-
-        onAuth(mapAuthUser(data.user));
-
-        clearAuthUrlArtifacts();
-        onClose();
       }
+
+      // Login Mode
+      let data;
+      let signInError = null;
+
+      try {
+        console.log('Login: Trying Supabase signInWithPassword...');
+        const signInResult = await withAuthTimeout(
+          supabase.auth.signInWithPassword({
+            email: emailValidation.value,
+            password: passwordValidation.value,
+          }),
+          'Login',
+          AUTH_REQUEST_TIMEOUT_MS
+        );
+        data = signInResult?.data;
+        signInError = signInResult?.error || null;
+      } catch (signInTimeoutError) {
+        if (!isTimeoutError(signInTimeoutError)) throw signInTimeoutError;
+
+        console.warn('Login: Primary request timed out, trying fallback API...');
+        try {
+          const fallbackResult = await withAuthTimeout(
+            signInWithPasswordFallback({
+              email: emailValidation.value,
+              password: passwordValidation.value,
+            }),
+            'Login (fallback)',
+            AUTH_FALLBACK_TIMEOUT_MS
+          );
+          data = fallbackResult;
+        } catch (fallbackError) {
+          if (isTimeoutError(fallbackError)) {
+            throw new Error('Koneksi lambat. Cek internet dan coba lagi.');
+          }
+          throw fallbackError;
+        }
+      }
+
+      if (signInError) throw signInError;
+      if (!data || !data.user) throw new Error('Email atau password tidak cocok.');
+
+      onAuth(mapAuthUser(data.user));
+      clearAuthUrlArtifacts();
+      onClose();
     } catch (err) {
       console.error('Auth error:', err);
       setError(mapAuthErrorMessage(err));
@@ -2289,49 +2411,83 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
           <form onSubmit={handleSubmit}>
             {isRegisterMode && (
-              <input
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="w-full mb-3 px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
-                placeholder="Nama lengkap"
-              />
+              <div className="mb-3">
+                <input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm disabled:opacity-60"
+                  placeholder="Nama lengkap"
+                />
+              </div>
             )}
             {!isRecoveryMode && (
-              <input
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                type="email"
-                className="w-full mb-3 px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
-                placeholder="Email"
-              />
+              <div className="mb-3">
+                <input
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  type="email"
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm disabled:opacity-60"
+                  placeholder="Email"
+                />
+              </div>
             )}
 
             {!isForgotMode && (
-              <div className="relative mb-4">
-                <input
-                  type={showPw ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12"
-                  placeholder={isRecoveryMode ? 'Password baru' : 'Password'}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-500"
-                >
-                  <Eye size={16} />
-                </button>
+              <div className="mb-3">
+                <div className="relative">
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    disabled={loading}
+                    className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12 disabled:opacity-60"
+                    placeholder={isRecoveryMode ? 'Password baru' : 'Password'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw(!showPw)}
+                    disabled={loading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-500 disabled:opacity-60"
+                  >
+                    <Eye size={16} />
+                  </button>
+                </div>
+                {isRegisterMode && password && (
+                  <div className="mt-2 flex gap-1">
+                    {(() => {
+                      const strength = getPasswordStrength(password);
+                      const colors = ['bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-lime-400', 'bg-green-500'];
+                      return (
+                        <>
+                          {[...Array(5)].map((_, i) => (
+                            <div
+                              key={i}
+                              className={`h-1 flex-1 rounded-full ${i < strength.score ? colors[strength.score - 1] : 'bg-neutral-200'}`}
+                            />
+                          ))}
+                          <span className="text-xs text-neutral-500 ml-1 whitespace-nowrap">
+                            {strength.score <= 2 && 'Lemah'}
+                            {strength.score === 3 && 'Sedang'}
+                            {strength.score >= 4 && 'Kuat'}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             )}
 
             {isRecoveryMode && (
-              <div className="relative mb-4">
+              <div className="mb-3">
                 <input
                   type={showPw ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm pr-12"
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm disabled:opacity-60"
                   placeholder="Konfirmasi password baru"
                 />
               </div>
@@ -2339,7 +2495,12 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
             {isLoginMode && (
               <div className="text-right mb-4">
-                <button type="button" onClick={() => switchMode(AUTH_MODAL_MODES.forgotPassword)} className="text-xs text-neutral-500 font-semibold hover:text-neutral-900">
+                <button
+                  type="button"
+                  onClick={() => switchMode(AUTH_MODAL_MODES.forgotPassword)}
+                  disabled={loading}
+                  className="text-xs text-neutral-500 font-semibold hover:text-neutral-900 disabled:opacity-60"
+                >
                   Lupa password?
                 </button>
               </div>
@@ -2347,7 +2508,12 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
             {isForgotMode && (
               <div className="text-right mb-4">
-                <button type="button" onClick={() => switchMode(AUTH_MODAL_MODES.login)} className="text-xs text-neutral-500 font-semibold hover:text-neutral-900">
+                <button
+                  type="button"
+                  onClick={() => switchMode(AUTH_MODAL_MODES.login)}
+                  disabled={loading}
+                  className="text-xs text-neutral-500 font-semibold hover:text-neutral-900 disabled:opacity-60"
+                >
                   Kembali ke login
                 </button>
               </div>
@@ -4262,7 +4428,9 @@ export default function Stadione() {
   const [authInitialError, setAuthInitialError] = useState('');
   const [authMode, setAuthMode] = useState(() => {
     const mode = getAuthModeFromUrl();
-    return mode === AUTH_MODAL_MODES.recovery ? AUTH_MODAL_MODES.recovery : AUTH_MODAL_MODES.login;
+    return (mode === AUTH_MODAL_MODES.recovery || hasRecoveryParamsInUrl())
+      ? AUTH_MODAL_MODES.recovery
+      : AUTH_MODAL_MODES.login;
   });
   const devOfficialBypass = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -4295,7 +4463,7 @@ export default function Stadione() {
           setAuthInitialError(urlAuthError);
           setShowAuth(true);
           clearAuthUrlArtifacts();
-        } else if (getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery) {
+        } else if (getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery || hasRecoveryParamsInUrl()) {
           setAuthMode(AUTH_MODAL_MODES.recovery);
           setAuthInitialError('');
           setShowAuth(true);
@@ -4313,7 +4481,11 @@ export default function Stadione() {
             if (currentSession?.user) {
               const nextAuth = await enrichAuthUser(currentSession.user);
               setAuth(nextAuth);
-              if (event === 'SIGNED_IN' && getAuthModeFromUrl() !== AUTH_MODAL_MODES.recovery) {
+              const recoveryFlowActive =
+                getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery ||
+                hasRecoveryParamsInUrl();
+
+              if (event === 'SIGNED_IN' && !recoveryFlowActive) {
                 clearAuthUrlArtifacts();
                 setShowAuth(false);
                 setAuthInitialError('');

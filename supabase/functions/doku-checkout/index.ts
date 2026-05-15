@@ -38,20 +38,48 @@ function isMissingColumnError(error: any, column: string): boolean {
   return message.includes('column') && message.includes(column.toLowerCase()) && message.includes('does not exist');
 }
 
+function corsHeaders(origin: string | null = '*') {
+  return {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, x-supabase-api-version, content-type',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
+  };
+}
+
 async function handleRequest(req: Request): Promise<Response> {
+  const origin = req.headers.get('origin');
+
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders(origin),
+    });
+  }
+
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    return new Response(JSON.stringify({ error: 'Server configuration missing' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'Server configuration missing' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   let payload: Record<string, any> = {};
   try {
     payload = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON payload' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'Invalid JSON payload' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   const bookingId = payload.booking_id;
@@ -62,7 +90,10 @@ async function handleRequest(req: Request): Promise<Response> {
   const customerPhone = payload.customer_phone || null;
 
   if (!bookingId || !venueId || !amount) {
-    return new Response(JSON.stringify({ error: 'Missing required payload fields' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'Missing required payload fields' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -74,13 +105,19 @@ async function handleRequest(req: Request): Promise<Response> {
     .single();
 
   if (configError || !config) {
-    return new Response(JSON.stringify({ error: 'DOKU configuration not found for this venue' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'DOKU configuration not found for this venue' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   const orderId = `doku-${bookingId}-${Date.now()}`;
   const checkoutBaseUrl = String(config.checkout_base_url || '').trim();
   if (!checkoutBaseUrl) {
-    return new Response(JSON.stringify({ error: 'DOKU checkout base URL not configured' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: 'DOKU checkout base URL not configured' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   const checkoutUrl = buildUrl(checkoutBaseUrl, {
@@ -170,12 +207,15 @@ async function handleRequest(req: Request): Promise<Response> {
   const { data: transaction, error: insertError } = await insertWithSchemaFallback();
 
   if (insertError) {
-    return new Response(JSON.stringify({ error: insertError.message || 'Failed to create DOKU transaction' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: insertError.message || 'Failed to create DOKU transaction' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   }
 
   return new Response(JSON.stringify({ checkout_url: checkoutUrl, transaction }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
 }
 
