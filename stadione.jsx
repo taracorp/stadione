@@ -1906,10 +1906,14 @@ function getAuthRedirectUrl(mode) {
   if (typeof window === 'undefined') return undefined;
 
   const hostname = window.location.hostname;
-  const isVercelPreviewHost = hostname.endsWith('.vercel.app') && hostname !== 'stadione.vercel.app';
-  const baseOrigin = isVercelPreviewHost
-    ? 'https://stadione.vercel.app'
-    : window.location.origin;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  // Always redirect to production URL unless running locally.
+  // This ensures password reset / OAuth links in emails always work,
+  // even when the reset was requested from a Vercel preview URL.
+  const baseOrigin = isLocalhost
+    ? window.location.origin
+    : 'https://stadione.vercel.app';
 
   const url = new URL(baseOrigin);
   if (mode) url.searchParams.set('auth_mode', mode);
