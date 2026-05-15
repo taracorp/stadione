@@ -1110,8 +1110,8 @@ const BookingDetail = ({ venue, onBack, onPay }) => {
               <div className="flex justify-between"><span className="text-neutral-500">Tanggal</span><span className="font-bold">{dates[date].label}, {dates[date].date}</span></div>
               <div className="flex justify-between"><span className="text-neutral-500">Jam</span><span className="font-bold">{selected || '— pilih —'}</span></div>
               <div className="flex justify-between"><span className="text-neutral-500">Durasi</span><span className="font-bold">1 jam</span></div>
-              <div className="flex justify-between border-t border-neutral-200 pt-3"><span className="text-neutral-500">Service fee</span><span className="font-bold">{formatRupiah(15000)}</span></div>
-              <div className="flex justify-between"><span className="font-bold">Total</span><span className="font-display text-xl">{formatRupiah(venue.price + 15000)}</span></div>
+              <div className="flex justify-between border-t border-neutral-200 pt-3"><span className="text-neutral-500">Service fee</span><span className="font-bold">{formatRupiah(500)}</span></div>
+              <div className="flex justify-between"><span className="font-bold">Total</span><span className="font-display text-xl">{formatRupiah(venue.price + 500)}</span></div>
             </div>
 
             <button
@@ -3519,58 +3519,112 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
 
 // ============ PAYMENT ============
 const PaymentPage = ({ payload, onBack, onSuccess }) => {
-  const [step, setStep] = useState(1);
-  const [method, setMethod] = useState(null);
-  const [countdown, setCountdown] = useState(900);
-  const [completing, setCompleting] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoDiscount, setPromoDiscount] = useState(0);
+  const [promoError, setPromoError] = useState('');
+  const [dokuLoading, setDokuLoading] = useState(false);
+  const [dokuError, setDokuError] = useState('');
 
-  useEffect(() => {
-    if (step !== 2) return;
-    const t = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
-    return () => clearInterval(t);
-  }, [step]);
+  const serviceFee = payload?.type === 'booking' ? 500 : 5000;
+  const subtotal = (payload?.amount || 0) + serviceFee;
+  const finalTotal = Math.max(1, subtotal + promoDiscount);
 
-  const fmt = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+  const handleValidatePromo = async () => {
+    setPromoError('');
+    if (!promoCode.trim()) {
+      setPromoDiscount(0);
+      return;
+    }
 
-  const groups = [
-    {
-      title: 'QRIS', items: [
-        { id: 'qris', name: 'QRIS', desc: 'Scan dari semua e-wallet & m-banking', logo: 'QR' }
-      ]
-    },
-    {
-      title: 'Virtual Account', items: [
-        { id: 'bca', name: 'BCA', logo: 'BCA', color: '#003D6E' },
-        { id: 'mandiri', name: 'Mandiri', logo: 'MND', color: '#003E78' },
-        { id: 'bni', name: 'BNI', logo: 'BNI', color: '#F47B0F' },
-        { id: 'bri', name: 'BRI', logo: 'BRI', color: '#003D88' },
-      ]
-    },
-    {
-      title: 'E-Wallet', items: [
-        { id: 'gopay', name: 'GoPay', logo: 'G', color: '#00AED6' },
-        { id: 'ovo', name: 'OVO', logo: 'O', color: '#4C2A86' },
-        { id: 'dana', name: 'DANA', logo: 'D', color: '#118EEA' },
-        { id: 'shopeepay', name: 'ShopeePay', logo: 'SP', color: '#EE4D2D' },
-      ]
-    },
-    {
-      title: 'Kartu', items: [
-        { id: 'card', name: 'Kartu Kredit / Debit', desc: 'Visa, Mastercard, JCB', logo: '💳' }
-      ]
-    },
-  ];
-
-  const total = (payload?.amount || 0) + 5000;
-  const vaNumber = '8896 ' + Math.floor(Math.random() * 9000 + 1000) + ' ' + Math.floor(Math.random() * 9000 + 1000);
-
-  const handleFinish = async () => {
-    if (completing) return;
-    setCompleting(true);
     try {
-      await onSuccess?.({ method, total });
+      const normalizedCode = promoCode.trim().toLowerCase();
+      console.log('Validating promo code:', normalizedCode);
+      
+      const { data: promos, error } = await supabase
+        .from('promo_codes')
+        .select('discount_amount, discount_percent, active')
+        .eq('code', normalizedCode)
+        .eq('active', true);
+
+      console.log('Promo query result:', { promos, error });
+
+      if (error) {
+        console.error('Promo query error:', error);
+        setPromoError('Kode promo tidak ditemukan. Cek kembali atau hubungi support.');
+        setPromoDiscount(0);
+        return;
+      }
+
+      const promo = promos && promos.length > 0 ? promos[0] : null;
+      if (!promo) {
+        setPromoError('Kode promo tidak valid atau tidak aktif.');
+        setPromoDiscount(0);
+        return;
+      }
+
+      const discount = promo.discount_amount || (subtotal * (promo.discount_percent || 0) / 100);
+      setPromoDiscount(discount);
+      setPromoError('');
+      console.log('Promo valid! Discount:', discount);
+    } catch (err) {
+      console.error('Promo validation error:', err);
+      setPromoError('Gagal memvalidasi kode promo. ' + (err?.message || ''));
+      setPromoDiscount(0);
+    }
+  };
+
+  const handleDokuCheckout = async () => {
+    if (dokuLoading) return;
+    setDokuError('');
+
+    if (payload?.type !== 'booking') {
+      setDokuError('Checkout DOKU saat ini hanya tersedia untuk booking venue.');
+      return;
+    }
+
+    if (!payload?.venueId || !payload?.amount) {
+      setDokuError('Data booking belum lengkap, silakan ulangi pemilihan jadwal.');
+      return;
+    }
+
+    if (!supabase?.functions || typeof supabase.functions.invoke !== 'function') {
+      setDokuError('Client Supabase belum siap untuk memanggil DOKU checkout.');
+      return;
+    }
+
+    if (typeof crypto?.randomUUID !== 'function') {
+      setDokuError('Browser tidak mendukung UUID generator untuk checkout DOKU.');
+      return;
+    }
+
+    setDokuLoading(true);
+    try {
+      const bookingId = crypto.randomUUID();
+      const { data, error } = await supabase.functions.invoke('doku-checkout', {
+        body: {
+          booking_id: bookingId,
+          venue_id: payload.venueId,
+          amount: finalTotal,
+          currency: 'IDR',
+          customer_name: payload?.customerName || null,
+          customer_phone: payload?.customerPhone || null,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Gagal memanggil DOKU checkout.');
+      }
+
+      const checkoutUrl = data?.checkout_url || data?.transaction?.checkout_url;
+      if (!checkoutUrl) {
+        throw new Error('DOKU checkout URL tidak ditemukan dari response.');
+      }
+
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setDokuError(err?.message || 'Gagal membuka halaman pembayaran DOKU.');
     } finally {
-      setCompleting(false);
+      setDokuLoading(false);
     }
   };
 
@@ -3581,171 +3635,64 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
       </button>
 
       <div className="max-w-4xl mx-auto px-5 lg:px-8 py-6">
-        <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-2">/ PEMBAYARAN</div>
+        <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-2">/ PEMBAYARAN DOKU</div>
         <h1 className="font-display text-4xl lg:text-5xl mb-1 leading-[0.95]">
-          {step === 1 && <>PILIH METODE<br /><span className="font-serif-it font-normal" style={{ fontFamily: "'Instrument Serif', serif", fontStyle: 'italic', color: '#E11D2E' }}>pembayaran.</span></>}
-          {step === 2 && <>LANJUTKAN<br /><span className="font-serif-it font-normal" style={{ fontFamily: "'Instrument Serif', serif", fontStyle: 'italic', color: '#E11D2E' }}>pembayaran.</span></>}
-          {step === 3 && <>PEMBAYARAN<br /><span className="font-serif-it font-normal" style={{ fontFamily: "'Instrument Serif', serif", fontStyle: 'italic', color: '#E11D2E' }}>diterima.</span></>}
+          LANJUTKAN<br /><span className="font-serif-it font-normal" style={{ fontFamily: "'Instrument Serif', serif", fontStyle: 'italic', color: '#E11D2E' }}>pembayaran.</span>
         </h1>
 
         <div className="grid lg:grid-cols-3 gap-6 mt-8">
           <div className="lg:col-span-2">
-            {step === 1 && (
-              <div className="space-y-5">
-                {groups.map(g => (
-                  <div key={g.title}>
-                    <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-2">/ {g.title}</div>
-                    <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden">
-                      {g.items.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => setMethod(m)}
-                          className={`w-full px-4 py-3.5 flex items-center gap-4 text-left transition border-b border-neutral-100 last:border-0 hover:bg-neutral-50 ${method?.id === m.id ? 'bg-red-50' : ''}`}
-                        >
-                          <div className="w-12 h-9 rounded-md flex items-center justify-center font-bold text-white text-xs shrink-0" style={{ background: m.color || '#0A0A0A' }}>
-                            {m.logo}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold text-sm">{m.name}</div>
-                            {m.desc && <div className="text-xs text-neutral-500">{m.desc}</div>}
-                          </div>
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${method?.id === m.id ? 'border-[#E11D2E] bg-[#E11D2E]' : 'border-neutral-300'}`}>
-                            {method?.id === m.id && <Check size={11} className="text-white" strokeWidth={3} />}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+            <div className="bg-white rounded-2xl border border-neutral-200 p-6 lg:p-8 space-y-6">
+              <div>
+                <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-3">/ KODE PROMO</div>
+                <div className="flex gap-3">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={promoCode}
+                      onChange={(e) => setPromoCode(e.target.value)}
+                      placeholder="Masukkan kode promo (opsional)"
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                    />
                   </div>
-                ))}
+                  <button
+                    onClick={handleValidatePromo}
+                    className="px-6 py-3 rounded-full font-bold text-white text-sm"
+                    style={{ background: '#E11D2E' }}
+                  >
+                    Pakai
+                  </button>
+                </div>
+                {promoError && <div className="mt-2 text-xs text-red-600">{promoError}</div>}
+                {promoDiscount < 0 && <div className="mt-2 text-xs text-green-600">Kode promo valid! Hemat {formatRupiah(Math.abs(promoDiscount))}</div>}
               </div>
-            )}
 
-            {step === 2 && method && (
-              <div className="bg-white rounded-2xl border border-neutral-200 p-6 lg:p-8">
-                <div className="flex items-center gap-3 pb-5 mb-5 border-b border-neutral-100">
-                  <div className="w-12 h-9 rounded-md flex items-center justify-center font-bold text-white text-xs shrink-0" style={{ background: method.color || '#0A0A0A' }}>
-                    {method.logo}
+              <div className="border-t border-neutral-200 pt-6">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-16 h-12 rounded-lg flex items-center justify-center font-bold text-white" style={{ background: '#E11D2E' }}>
+                    DOKU
                   </div>
                   <div>
-                    <div className="font-bold">{method.name}</div>
-                    <div className="text-xs text-neutral-500">Lakukan pembayaran sebelum waktu habis</div>
-                  </div>
-                  <div className="ml-auto text-right">
-                    <div className="text-xs text-neutral-500 font-semibold">Sisa waktu</div>
-                    <div className="font-display text-2xl text-[#E11D2E]">{fmt(countdown)}</div>
+                    <div className="font-bold text-lg">DOKU Checkout</div>
+                    <div className="text-xs text-neutral-500">Metode pembayaran aman & terpercaya</div>
                   </div>
                 </div>
 
-                {method.id === 'qris' && (
-                  <div className="text-center py-6">
-                    <div className="inline-block bg-white border-4 border-neutral-900 p-4 rounded-2xl">
-                      <svg viewBox="0 0 100 100" width="200" height="200" style={{ display: 'block' }}>
-                        {[...Array(100)].map((_, i) => {
-                          const x = i % 10, y = Math.floor(i / 10);
-                          const fill = (x * y * 7 + i * 3) % 5 < 2 ? '#0A0A0A' : 'transparent';
-                          return <rect key={i} x={x * 10} y={y * 10} width="10" height="10" fill={fill} />;
-                        })}
-                        <rect x="0" y="0" width="30" height="30" fill="white" stroke="#0A0A0A" strokeWidth="3" />
-                        <rect x="6" y="6" width="18" height="18" fill="#0A0A0A" />
-                        <rect x="70" y="0" width="30" height="30" fill="white" stroke="#0A0A0A" strokeWidth="3" />
-                        <rect x="76" y="6" width="18" height="18" fill="#0A0A0A" />
-                        <rect x="0" y="70" width="30" height="30" fill="white" stroke="#0A0A0A" strokeWidth="3" />
-                        <rect x="6" y="76" width="18" height="18" fill="#0A0A0A" />
-                      </svg>
-                    </div>
-                    <div className="font-bold mt-4 mb-1">Scan QR di atas</div>
-                    <div className="text-sm text-neutral-500">Buka aplikasi e-wallet atau m-banking favoritmu</div>
-                  </div>
-                )}
-
-                {(method.id === 'bca' || method.id === 'mandiri' || method.id === 'bni' || method.id === 'bri') && (
-                  <div>
-                    <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-2">/ NOMOR VIRTUAL ACCOUNT</div>
-                    <div className="bg-neutral-50 border-2 border-dashed border-neutral-300 rounded-xl p-5 flex items-center justify-between mb-5">
-                      <div className="font-display text-3xl tracking-wider">{vaNumber}</div>
-                      <button className="px-4 py-2 rounded-full bg-neutral-900 text-white text-xs font-bold">SALIN</button>
-                    </div>
-                    <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-3">/ CARA BAYAR</div>
-                    <ol className="space-y-2 text-sm">
-                      {[
-                        `Buka aplikasi mobile banking ${method.name}`,
-                        'Pilih menu Transfer → Virtual Account',
-                        `Masukkan nomor di atas`,
-                        `Konfirmasi total: ${formatRupiah(total)}`,
-                        'Selesaikan transaksi'
-                      ].map((t, i) => (
-                        <li key={i} className="flex gap-3">
-                          <span className="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs text-white shrink-0" style={{ background: '#E11D2E' }}>{i + 1}</span>
-                          <span className="pt-0.5">{t}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-
-                {(method.id === 'gopay' || method.id === 'ovo' || method.id === 'dana' || method.id === 'shopeepay') && (
-                  <div className="text-center py-6">
-                    <Sparkles size={40} className="mx-auto mb-3" style={{ color: '#E11D2E' }} />
-                    <div className="font-display text-2xl mb-2">Buka Aplikasi {method.name}</div>
-                    <p className="text-sm text-neutral-500 max-w-xs mx-auto mb-5">Notifikasi pembayaran sudah dikirim ke aplikasi {method.name} di nomor terdaftar.</p>
-                    <button className="px-6 py-3 rounded-full font-bold text-white text-sm" style={{ background: '#E11D2E' }}>
-                      Buka {method.name}
-                    </button>
-                  </div>
-                )}
-
-                {method.id === 'card' && (
-                  <div className="space-y-3">
-                    <input className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 font-mono" placeholder="Nomor Kartu (4242 4242 4242 4242)" />
-                    <div className="grid grid-cols-2 gap-3">
-                      <input className="px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 font-mono" placeholder="MM/YY" />
-                      <input className="px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 font-mono" placeholder="CVV" />
-                    </div>
-                    <input className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900" placeholder="Nama di Kartu" />
-                  </div>
-                )}
-
                 <button
-                  onClick={() => setStep(3)}
-                  className="w-full mt-6 py-3.5 rounded-full font-bold text-white text-sm flex items-center justify-center gap-2"
+                  onClick={handleDokuCheckout}
+                  disabled={dokuLoading}
+                  className="w-full py-4 rounded-full font-bold text-white text-sm flex items-center justify-center gap-2 disabled:opacity-60"
                   style={{ background: '#E11D2E' }}
                 >
-                  Saya Sudah Bayar <Check size={14} strokeWidth={3} />
+                  {dokuLoading ? 'Membuka DOKU Checkout...' : 'Bayar via DOKU'} <ArrowUpRight size={16} strokeWidth={3} />
                 </button>
-                <div className="text-center text-xs text-neutral-500 mt-3 flex items-center justify-center gap-1">
+                {dokuError && <div className="mt-3 text-xs text-red-600 text-center">{dokuError}</div>}
+
+                <div className="text-center text-xs text-neutral-500 mt-4 flex items-center justify-center gap-1">
                   <ShieldCheck size={11} /> Pembayaran aman terenkripsi 256-bit SSL
                 </div>
               </div>
-            )}
-
-            {step === 3 && (
-              <div className="bg-white rounded-2xl border border-neutral-200 p-8 lg:p-10 text-center">
-                <div className="w-20 h-20 mx-auto mb-5 rounded-full flex items-center justify-center" style={{ background: '#E11D2E' }}>
-                  <Check size={40} className="text-white" strokeWidth={3} />
-                </div>
-                <h2 className="font-display text-4xl mb-2">PEMBAYARAN SUKSES</h2>
-                <p className="text-neutral-600 mb-6">Konfirmasi sudah dikirim ke email kamu.</p>
-
-                <div className="bg-neutral-50 rounded-xl p-5 text-left max-w-sm mx-auto mb-6">
-                  <div className="text-xs uppercase tracking-widest font-bold text-neutral-500 mb-3">/ DETAIL TRANSAKSI</div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-neutral-500">ID Transaksi</span><span className="font-mono font-bold">STD-{Math.floor(Math.random() * 900000 + 100000)}</span></div>
-                    <div className="flex justify-between"><span className="text-neutral-500">Metode</span><span className="font-bold">{method?.name}</span></div>
-                    <div className="flex justify-between"><span className="text-neutral-500">Item</span><span className="font-bold text-right">{payload?.itemName || 'Booking'}</span></div>
-                    <div className="flex justify-between border-t border-neutral-200 pt-2"><span className="text-neutral-500">Total</span><span className="font-display text-xl">{formatRupiah(total)}</span></div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleFinish}
-                  disabled={completing}
-                  className="px-6 py-3 rounded-full font-bold text-white text-sm disabled:opacity-60"
-                  style={{ background: '#E11D2E' }}
-                >
-                  {completing ? 'Menyimpan...' : 'Selesai'}
-                </button>
-              </div>
-            )}
+            </div>
           </div>
 
           <div className="lg:sticky lg:top-24 lg:self-start">
@@ -3756,25 +3703,17 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
                 {payload?.itemSub && <div className="text-sm text-neutral-500">{payload.itemSub}</div>}
               </div>
 
-              <div className="space-y-2 mb-4 text-sm border-t border-neutral-200 pt-4">
-                <div className="flex justify-between"><span className="text-neutral-500">Subtotal</span><span className="font-bold">{formatRupiah(payload?.amount || 0)}</span></div>
-                <div className="flex justify-between"><span className="text-neutral-500">Service fee</span><span className="font-bold">{formatRupiah(5000)}</span></div>
+              <div className="space-y-2 text-sm border-t border-neutral-200 pt-4">
+                <div className="flex justify-between"><span className="text-neutral-500">Harga</span><span className="font-bold">{formatRupiah(payload?.amount || 0)}</span></div>
+                <div className="flex justify-between"><span className="text-neutral-500">Service fee</span><span className="font-bold">{formatRupiah(serviceFee)}</span></div>
+                {promoDiscount !== 0 && (
+                  <div className="flex justify-between text-green-600"><span>Diskon Promo</span><span className="font-bold">{formatRupiah(promoDiscount)}</span></div>
+                )}
               </div>
-              <div className="flex justify-between border-t border-neutral-200 pt-3 mb-4">
-                <span className="font-bold">Total</span>
-                <span className="font-display text-2xl">{formatRupiah(total)}</span>
+              <div className="flex justify-between border-t border-neutral-200 pt-3 mb-4 font-bold text-lg">
+                <span>Total</span>
+                <span className="font-display text-2xl">{formatRupiah(finalTotal)}</span>
               </div>
-
-              {step === 1 && (
-                <button
-                  disabled={!method}
-                  onClick={() => setStep(2)}
-                  className={`w-full py-3.5 rounded-full font-bold text-sm flex items-center justify-center gap-2 ${method ? 'text-white' : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'}`}
-                  style={method ? { background: '#E11D2E' } : {}}
-                >
-                  {method ? 'Lanjutkan' : 'Pilih Metode'} {method && <ArrowRight size={14} />}
-                </button>
-              )}
 
               <div className="flex items-center justify-center gap-3 mt-4 text-[10px] text-neutral-400 font-bold">
                 <span>VISA</span><span>MASTERCARD</span><span>QRIS</span><span>OVO</span>

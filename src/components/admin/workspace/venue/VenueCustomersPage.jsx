@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Users, Search, Phone, Mail, Star, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
+import { Users, Search, Phone, Mail, Star, Calendar, ChevronDown, ChevronUp, Heart } from 'lucide-react';
 import { EmptyState, inputCls, selectCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
 
@@ -86,6 +86,19 @@ function CustomerRow({ customer }) {
               </div>
             </div>
           )}
+
+          {/* Favorite Courts Section */}
+          <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-700 uppercase tracking-wide mb-2">
+              <Heart size={12} />
+              Court Favorit
+            </div>
+            <div className="text-xs text-amber-600">
+              Fitur court favorit memerlukan customer login untuk menyimpan preferensi court.
+              <br />
+              Saat ini customer dapat menyimpan court favorit melalui aplikasi mobile.
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -98,6 +111,7 @@ export default function VenueCustomersPage({ auth, venue }) {
   const venueId = venue?.id;
   const [allBookings, setAllBookings] = useState([]);
   const [memberships, setMemberships] = useState([]);
+  const [favoriteCourts, setFavoriteCourts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('totalSpent');

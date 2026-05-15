@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserCog, Plus, ShieldCheck, Shield, User, AlertTriangle } from 'lucide-react';
+import { UserCog, Plus, ShieldCheck, Shield, User, AlertTriangle, FileText, Filter } from 'lucide-react';
 import { ActionButton, EmptyState, Field, Modal, inputCls, selectCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
+import { logStaffAction } from '../../../../services/supabaseService.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,15 @@ export default function VenueStaffPage({ auth, venue }) {
   const [editLoading, setEditLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [filterStatus, setFilterStatus] = useState('active');
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [showAuditLogs, setShowAuditLogs] = useState(false);
+  const [auditFilters, setAuditFilters] = useState({
+    actionType: '',
+    staffUserId: '',
+    fromDate: '',
+    toDate: '',
+  });
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3500); };
 
@@ -78,7 +88,50 @@ export default function VenueStaffPage({ auth, venue }) {
     }
   }, [venueId]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadAuditLogs = useCallback(async () => {
+    if (!venueId) return;
+    setAuditLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('staff_action_logs')
+        .select(`
+          id,
+          action_type,
+          action_description,
+          target_type,
+          target_id,
+          created_at,
+          venue_staff!inner (
+            role,
+            auth.users!inner (
+              email,
+              raw_user_meta_data
+            )
+          )
+        `)
+        .eq('venue_id', venueId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        console.warn('Audit logs not available:', error.message);
+        setAuditLogs([]);
+      } else {
+        setAuditLogs(data || []);
+      }
+    } catch (err) {
+      console.error('Error loading audit logs:', err.message);
+      setAuditLogs([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [venueId]);
+
+  useEffect(() => {
+    if (showAuditLogs) {
+      loadAuditLogs();
+    }
+  }, [showAuditLogs, loadAuditLogs]);
 
   async function handleInvite() {
     if (!inviteEmail.trim()) return;
@@ -111,6 +164,18 @@ export default function VenueStaffPage({ auth, venue }) {
       });
       if (insertErr) throw insertErr;
 
+      // Log the staff invite action
+      await logStaffAction({
+        venueId,
+        staffUserId: auth?.id,
+        actionType: 'staff_invite',
+        actionDescription: `Invited new staff member with role ${inviteRole}`,
+        targetType: 'staff',
+        targetId: user_id,
+        newValues: { role: inviteRole, status: 'active' },
+        metadata: { invited_email: inviteEmail },
+      });
+
       showToast('success', `Staf berhasil ditambahkan dengan peran ${ROLE_LABELS[inviteRole]}.`);
       setShowInvite(false);
       setInviteEmail('');
@@ -139,6 +204,25 @@ export default function VenueStaffPage({ auth, venue }) {
         .update({ role: editRole, status: editStatus })
         .eq('id', editing.id);
       if (error) throw error;
+
+      // Log the staff edit action
+      const changes = [];
+      if (editing.role !== editRole) changes.push(`role: ${editing.role} → ${editRole}`);
+      if (editing.status !== editStatus) changes.push(`status: ${editing.status} → ${editStatus}`);
+
+      if (changes.length > 0) {
+        await logStaffAction({
+          venueId,
+          staffUserId: auth?.id,
+          actionType: 'staff_update',
+          actionDescription: `Updated staff member: ${changes.join(', ')}`,
+          targetType: 'staff',
+          targetId: editing.user_id,
+          oldValues: { role: editing.role, status: editing.status },
+          newValues: { role: editRole, status: editStatus },
+        });
+      }
+
       showToast('success', 'Data staf diperbarui.');
       setShowEdit(false);
       load();
@@ -177,6 +261,9 @@ export default function VenueStaffPage({ auth, venue }) {
           <p className="text-neutral-500 text-sm mt-1">Kelola akses dan peran tim operasional venue.</p>
         </div>
         <ActionButton onClick={() => setShowInvite(true)}><Plus size={14} /> Tambah Staf</ActionButton>
+        <ActionButton variant="outline" onClick={() => setShowAuditLogs(!showAuditLogs)}>
+          <FileText size={14} /> {showAuditLogs ? 'Sembunyikan Log' : 'Tampilkan Log Audit'}
+        </ActionButton>
       </div>
 
       {/* Stats */}
@@ -247,6 +334,62 @@ export default function VenueStaffPage({ auth, venue }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Audit Logs Section */}
+      {showAuditLogs && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-neutral-900">Log Audit Aksi Staf</h2>
+            <ActionButton variant="outline" onClick={loadAuditLogs} loading={auditLoading}>
+              <FileText size={14} /> Refresh
+            </ActionButton>
+          </div>
+
+          {auditLoading ? (
+            <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-12 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
+          ) : auditLogs.length === 0 ? (
+            <EmptyState icon={FileText} title="Belum ada log audit" description="Aksi staf akan dicatat di sini untuk audit dan compliance." />
+          ) : (
+            <div className="rounded-2xl border border-neutral-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 border-b border-neutral-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Waktu</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Staf</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Aksi</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Deskripsi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {auditLogs.map(log => (
+                    <tr key={log.id} className="hover:bg-neutral-50 transition">
+                      <td className="px-4 py-3 text-xs text-neutral-500">
+                        {new Date(log.created_at).toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs font-mono text-neutral-500">
+                            {log.venue_staff?.auth?.users?.email?.slice(0, 20)}…
+                          </div>
+                          <RoleBadge role={log.venue_staff?.role} />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                          {log.action_type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-neutral-600 max-w-xs truncate">
+                        {log.action_description}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

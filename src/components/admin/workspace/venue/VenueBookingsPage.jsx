@@ -3,6 +3,8 @@ import { BookOpen, CalendarDays, CheckCircle2, Clock3, Edit3, Plus, Search } fro
 import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatusBadge, inputCls, selectCls, textareaCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
 import { useMembership } from '../../../../hooks/useMembership.js';
+import DokuPaymentModal from '../../../../components/payments/DokuPaymentModal.jsx';
+import { logStaffAction } from '../../../../services/supabaseService.js';
 
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'checked-in'];
 const PRIORITY_SLOT_START = '17:00';
@@ -51,6 +53,8 @@ function VenueBookingsWorkspace({ auth, venue }) {
   const [availableBonusHours, setAvailableBonusHours] = useState([]);
   const [selectedBonusHourId, setSelectedBonusHourId] = useState(null);
   const [bonusHoursToUse, setBonusHoursToUse] = useState(0);
+  const [dokuBooking, setDokuBooking] = useState(null);
+  const [dokuModalOpen, setDokuModalOpen] = useState(false);
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState(null);
   const [discountInfo, setDiscountInfo] = useState({});
@@ -309,6 +313,50 @@ function VenueBookingsWorkspace({ auth, venue }) {
     setSlotForm({ booking_date: '', start_time: '', end_time: '', court_id: '' });
   }
 
+  async function syncDokuTransactionStatus(bookingId, nextStatus, reason, context = {}) {
+    if (!bookingId || !nextStatus) return;
+
+    try {
+      const { data: latestTx, error: txError } = await supabase
+        .from('doku_payment_transactions')
+        .select('id, status, doku_response')
+        .eq('booking_id', bookingId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (txError || !latestTx) return;
+
+      const responseObject = (latestTx.doku_response && typeof latestTx.doku_response === 'object') ? latestTx.doku_response : {};
+      const history = Array.isArray(responseObject.history) ? responseObject.history : [];
+      const syncEntry = {
+        at: new Date().toISOString(),
+        source: 'booking_ui',
+        reason: reason || 'manual sync',
+        status_from: latestTx.status,
+        status_to: nextStatus,
+        context,
+      };
+
+      const nextResponse = {
+        ...responseObject,
+        last_manual_sync: syncEntry,
+        history: [...history, syncEntry].slice(-30),
+      };
+
+      await supabase
+        .from('doku_payment_transactions')
+        .update({
+          status: nextStatus,
+          doku_response: nextResponse,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', latestTx.id);
+    } catch (syncError) {
+      console.warn('DOKU transaction sync skipped:', syncError?.message || syncError);
+    }
+  }
+
   async function saveBooking() {
     if (!venue?.id || !form.customer_name.trim() || !form.branch_id || !form.court_id) return;
 
@@ -405,7 +453,56 @@ function VenueBookingsWorkspace({ auth, venue }) {
 
   async function updateBooking(bookingId, updates) {
     try {
-      await supabase.from('venue_bookings').update(updates).eq('id', bookingId);
+      // Get current booking state for audit log
+      const { data: currentBooking } = await supabase
+        .from('venue_bookings')
+        .select('*')
+        .eq('id', bookingId)
+        .single();
+
+      const { error: updateError } = await supabase
+        .from('venue_bookings')
+        .update(updates)
+        .eq('id', bookingId);
+
+      if (updateError) throw updateError;
+
+      const effectivePaymentMethod = updates.payment_method || currentBooking?.payment_method;
+      const effectivePaymentStatus = updates.payment_status || currentBooking?.payment_status;
+      const effectiveBookingStatus = updates.status || currentBooking?.status;
+
+      if (effectivePaymentMethod === 'doku') {
+        if (effectivePaymentStatus === 'paid') {
+          await syncDokuTransactionStatus(bookingId, 'completed', 'booking marked paid', {
+            booking_status: effectiveBookingStatus,
+            payment_status: effectivePaymentStatus,
+          });
+        } else if (effectivePaymentStatus === 'refunded') {
+          await syncDokuTransactionStatus(bookingId, 'refunded', 'booking refunded', {
+            booking_status: effectiveBookingStatus,
+            payment_status: effectivePaymentStatus,
+          });
+        } else if (effectiveBookingStatus === 'cancelled' && effectivePaymentStatus !== 'paid') {
+          await syncDokuTransactionStatus(bookingId, 'cancelled', 'booking cancelled before paid', {
+            booking_status: effectiveBookingStatus,
+            payment_status: effectivePaymentStatus,
+          });
+        }
+      }
+
+      // Log the action
+      const actionDescription = Object.keys(updates).map(key => `${key}: ${currentBooking?.[key] || 'null'} → ${updates[key]}`).join(', ');
+      await logStaffAction({
+        venueId: venue?.id,
+        staffUserId: auth?.id,
+        actionType: 'booking_update',
+        actionDescription: `Updated booking ${bookingId}: ${actionDescription}`,
+        targetType: 'booking',
+        targetId: bookingId,
+        oldValues: currentBooking,
+        newValues: { ...currentBooking, ...updates },
+      });
+
       showToast('success', 'Status booking berhasil diperbarui.');
       setSelected(null);
       await load();
@@ -416,6 +513,47 @@ function VenueBookingsWorkspace({ auth, venue }) {
         : rawMessage;
       showToast('error', mappedMessage);
     }
+  }
+
+  function handleDokuSuccess(transaction) {
+    if (!dokuBooking) return;
+    const transactionLabel = transaction?.doku_order_id || transaction?.id || null;
+    const confirmationNote = transactionLabel
+      ? `DOKU payment confirmed (${transactionLabel})`
+      : 'DOKU payment confirmed';
+    const dokuNote = [dokuBooking.notes, confirmationNote].filter(Boolean).join(' | ');
+    updateBooking(dokuBooking.id, {
+      payment_method: 'doku',
+      payment_status: 'paid',
+      status: dokuBooking.status === 'pending' ? 'confirmed' : dokuBooking.status,
+      notes: dokuNote,
+    });
+    setDokuModalOpen(false);
+    setDokuBooking(null);
+  }
+
+  async function handleDokuError(errorData) {
+    showToast('error', errorData?.message || 'Pembayaran DOKU gagal.');
+
+    if (dokuBooking) {
+      try {
+        await logStaffAction({
+          venueId: venue?.id,
+          staffUserId: auth?.id,
+          actionType: 'doku_payment_failed',
+          actionDescription: `DOKU payment failed for booking ${dokuBooking.id}: ${errorData?.message || 'unknown error'}`,
+          targetType: 'booking',
+          targetId: dokuBooking.id,
+          oldValues: dokuBooking,
+          newValues: dokuBooking,
+        });
+      } catch (logError) {
+        console.warn('Failed to write DOKU failure audit log:', logError?.message || logError);
+      }
+    }
+
+    setDokuModalOpen(false);
+    setDokuBooking(null);
   }
 
   async function processRefund() {
@@ -450,6 +588,12 @@ function VenueBookingsWorkspace({ auth, venue }) {
         .from('venue_bookings')
         .update({ status: 'cancelled', payment_status: 'refunded', notes: refundReason.trim() || null })
         .eq('id', refundTarget.id);
+
+      if (refundTarget.payment_method === 'doku') {
+        await syncDokuTransactionStatus(refundTarget.id, 'refunded', 'refund processed from booking management', {
+          reason: refundReason.trim() || null,
+        });
+      }
 
       showToast('success', 'Refund berhasil diproses.');
       setRefundTarget(null);
@@ -591,6 +735,7 @@ function VenueBookingsWorkspace({ auth, venue }) {
               <select className={selectCls} value={form.payment_method} onChange={(event) => setForm((current) => ({ ...current, payment_method: event.target.value }))}>
                 <option value="cash">Cash</option>
                 <option value="qris">QRIS</option>
+                <option value="doku">DOKU</option>
                 <option value="split">Split</option>
                 <option value="transfer">Transfer</option>
                 <option value="pending">Pending</option>
@@ -749,6 +894,16 @@ function VenueBookingsWorkspace({ auth, venue }) {
                     </button>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={booking.status} />
+                      {booking.payment_status !== 'paid' && booking.status !== 'cancelled' && (
+                        <button
+                          type="button"
+                          onClick={() => { setDokuBooking(booking); setDokuModalOpen(true); }}
+                          className="w-9 h-9 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 flex items-center justify-center hover:border-blue-400"
+                          title={booking.payment_method === 'doku' ? 'Retry Pembayaran DOKU' : 'Pembayaran DOKU'}
+                        >
+                          D
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openSlotEditor(booking)}
@@ -811,6 +966,11 @@ function VenueBookingsWorkspace({ auth, venue }) {
                 <ActionButton variant="outline" onClick={() => { openSlotEditor(selected); setSelected(null); }}>Edit Slot</ActionButton>
                 <ActionButton onClick={() => updateBooking(selected.id, { status: 'checked-in' })}>Check-In</ActionButton>
                 <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { status: 'completed', payment_status: 'paid' })}>Complete + Paid</ActionButton>
+                {selected.payment_status !== 'paid' && selected.status !== 'cancelled' && (
+                  <ActionButton variant="outline" onClick={() => { setDokuBooking(selected); setDokuModalOpen(true); setSelected(null); }}>
+                    {selected.payment_method === 'doku' ? 'Retry DOKU' : 'Bayar DOKU'}
+                  </ActionButton>
+                )}
                 <ActionButton variant="outline" onClick={() => updateBooking(selected.id, { payment_status: 'paid', status: selected.status === 'pending' ? 'confirmed' : selected.status })}>Mark Paid</ActionButton>
                 <ActionButton variant="danger" onClick={() => updateBooking(selected.id, { status: 'cancelled' })}>Cancel</ActionButton>
                 {(selected.payment_status === 'paid' || selected.payment_status === 'partial') && selected.payment_status !== 'refunded' && (
@@ -821,6 +981,18 @@ function VenueBookingsWorkspace({ auth, venue }) {
           );
         })()}
       </Modal>
+
+      <DokuPaymentModal
+        open={dokuModalOpen}
+        booking={dokuBooking}
+        venueId={venue?.id}
+        onClose={() => {
+          setDokuModalOpen(false);
+          setDokuBooking(null);
+        }}
+        onSuccess={handleDokuSuccess}
+        onError={handleDokuError}
+      />
 
       <Modal open={!!refundTarget} onClose={() => setRefundTarget(null)} title="Refund Booking" width="max-w-xl">
         {refundTarget ? (

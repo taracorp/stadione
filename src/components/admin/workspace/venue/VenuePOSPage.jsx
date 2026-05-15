@@ -3,6 +3,7 @@ import { supabase } from '../../../../config/supabase';
 import AdminLayout from '../../AdminLayout';
 import { DataContext } from '../../../../context/DataContext';
 import { useMembership } from '../../../../hooks/useMembership';
+import DokuPaymentModal from '../../../../components/payments/DokuPaymentModal.jsx';
 
 // Simple Toast component inline
 const Toast = ({ type, message, onClose }) => (
@@ -66,6 +67,8 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   const [availableBonusHours, setAvailableBonusHours] = useState([]);
   const [selectedBonusHourId, setSelectedBonusHourId] = useState(null);
   const [bonusHoursToUse, setBonusHoursToUse] = useState(0);
+  const [showDokuModal, setShowDokuModal] = useState(false);
+  const [dokuBooking, setDokuBooking] = useState(null);
 
   // Fetch active shift
   useEffect(() => {
@@ -321,6 +324,16 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
       // Chain: base → membership discount → bonus hour deduction
       const afterDiscount = membershipDiscount?.final_price || bookingData.total_price;
 
+      if (paymentMethod === 'doku') {
+        const finalPrice = Math.max(0, afterDiscount - (selectedBonusHourId && bonusHoursToUse > 0 && courts.find(c => c.id === walkInForm.courtId)
+          ? Math.min((courts.find(c => c.id === walkInForm.courtId)?.price_per_hour || 0) * Math.min(bonusHoursToUse, bookingData.duration_hours), afterDiscount)
+          : 0));
+        setDokuBooking({ ...bookingData, finalPrice });
+        setShowPaymentModal(false);
+        setShowDokuModal(true);
+        return;
+      }
+
       // Calculate bonus hour deduction
       let bonusDeduction = 0;
       if (selectedBonusHourId && bonusHoursToUse > 0) {
@@ -474,6 +487,125 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
     } catch (err) {
       console.error('Error processing payment:', err);
       setToast({ type: 'error', message: 'Gagal memproses pembayaran: ' + err.message });
+    }
+  };
+
+  const handleCompleteDokuPayment = async (transaction) => {
+    if (!dokuBooking || !activeShift) {
+      setToast({ type: 'error', message: 'Tidak ada booking DOKU yang dapat diselesaikan.' });
+      return;
+    }
+
+    try {
+      const booking = dokuBooking;
+      const finalPrice = Number(booking.finalPrice || booking.total_price || 0);
+      const { data: userData } = await supabase.auth.getUser();
+      const { data: payment, error: paymentErr } = await supabase
+        .from('venue_payments')
+        .insert({
+          booking_id: booking.id,
+          shift_id: activeShift.id,
+          amount: finalPrice,
+          method: 'doku',
+          status: 'confirmed',
+          processed_by: userData.user.id,
+        })
+        .select();
+
+      if (paymentErr) throw paymentErr;
+
+      const { error: updateErr } = await supabase
+        .from('venue_bookings')
+        .update({
+          status: booking.status === 'pending' ? 'confirmed' : booking.status,
+          payment_method: 'doku',
+          payment_status: 'paid',
+          total_price: finalPrice,
+        })
+        .eq('id', booking.id);
+
+      if (updateErr) throw updateErr;
+
+      if (membershipDiscount?.discount_percent > 0) {
+        await applyDiscountToBooking(
+          booking.id,
+          venueId,
+          booking.total_price,
+          membershipDiscount
+        );
+      }
+
+      if (selectedBonusHourId && bonusHoursToUse > 0) {
+        const actualHoursToUse = Math.min(bonusHoursToUse, booking.duration_hours);
+        await useBonusHour(selectedBonusHourId, booking.id, actualHoursToUse);
+      }
+
+      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.random()).slice(2, 5)}`;
+      const selectedCourt = courts.find(c => c.id === walkInForm.courtId);
+      const invoiceItems = [
+        {
+          description: `${selectedCourt?.name || 'Court'} - ${booking.duration_hours}jam${membershipDiscount?.discount_percent > 0 ? ` (${membershipDiscount.discount_percent}% member diskon)` : ''}`,
+          quantity: 1,
+          unit_price: selectedCourt?.price_per_hour || 0,
+          total: booking.total_price,
+        },
+      ];
+
+      if (selectedBonusHourId && bonusHoursToUse > 0) {
+        const bonusDeduction = Math.min((selectedCourt?.price_per_hour || 0) * Math.min(bonusHoursToUse, booking.duration_hours), booking.total_price);
+        if (bonusDeduction > 0) {
+          invoiceItems.push({
+            description: `Bonus Hours Redemption (${bonusHoursToUse} jam)`,
+            quantity: 1,
+            unit_price: -bonusDeduction,
+            total: -bonusDeduction,
+          });
+        }
+      }
+
+      const { error: invoiceErr } = await supabase
+        .from('venue_invoices')
+        .insert({
+          booking_id: booking.id,
+          payment_id: payment[0].id,
+          invoice_number: invoiceNumber,
+          items: invoiceItems,
+          subtotal: booking.total_price,
+          tax: 0,
+          total: finalPrice,
+          customer_name: booking.customer_name,
+          customer_phone: booking.customer_phone,
+          status: 'issued',
+          issued_at: new Date().toISOString(),
+        });
+
+      if (invoiceErr) throw invoiceErr;
+
+      setLastReceipt({
+        invoiceNumber,
+        booking,
+        selectedCourt: selectedCourt || null,
+        paymentMethod: 'doku',
+        finalPrice,
+        bonusDeduction: selectedBonusHourId ? Math.min((selectedCourt?.price_per_hour || 0) * Math.min(bonusHoursToUse, booking.duration_hours), booking.total_price) : 0,
+        membershipDiscount,
+        createdAt: new Date().toISOString(),
+      });
+
+      setShowDokuModal(false);
+      setShowReceiptModal(true);
+      setDokuBooking(null);
+      setBookingData(null);
+      setMembershipDiscount(null);
+      setCustomerMembership(null);
+      setAvailableBonusHours([]);
+      setSelectedBonusHourId(null);
+      setBonusHoursToUse(0);
+      setToast({ type: 'success', message: `Pembayaran DOKU berhasil! Invoice: ${invoiceNumber}` });
+      loadActiveShift();
+    } catch (err) {
+      console.error('Error completing DOKU payment:', err);
+      setToast({ type: 'error', message: 'Gagal menyelesaikan pembayaran DOKU: ' + err.message });
     }
   };
 
@@ -850,6 +982,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
                 <option value="cash">💵 Cash</option>
                 <option value="qris">📱 QRIS</option>
                 <option value="transfer">🏦 Transfer Bank</option>
+                <option value="doku">🌐 DOKU Online</option>
                 <option value="split">🔀 Split Payment</option>
               </select>
             </div>
@@ -906,6 +1039,21 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
           </div>
         )}
       </Modal>
+
+      <DokuPaymentModal
+        open={showDokuModal}
+        booking={dokuBooking}
+        venueId={venueId}
+        onClose={() => {
+          setShowDokuModal(false);
+          setDokuBooking(null);
+        }}
+        onSuccess={handleCompleteDokuPayment}
+        onError={(err) => {
+          setShowDokuModal(false);
+          setToast({ type: 'error', message: err?.message || 'Pembayaran DOKU gagal.' });
+        }}
+      />
 
       {/* Thermal Receipt Modal */}
       <Modal

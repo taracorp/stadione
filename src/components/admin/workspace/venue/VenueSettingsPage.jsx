@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, Save, MapPin, Phone, Globe, FileText, Building2 } from 'lucide-react';
 import { ActionButton, Field, inputCls, selectCls, textareaCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
+import { getDokuVenueConfig, saveDokuVenueConfig } from '../../../../services/supabaseService.js';
 
 const SPORT_OPTIONS = [
   'Futsal', 'Sepak Bola', 'Mini Soccer', 'Basket', 'Voli', 'Badminton',
@@ -16,6 +17,20 @@ export default function VenueSettingsPage({ auth, venue }) {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dokuConfig, setDokuConfig] = useState({
+    environment: 'sandbox',
+    business_id: '',
+    brand_id: '',
+    merchant_id: '',
+    api_key: '',
+    client_id: '',
+    secret_key: '',
+    doku_public_key: '',
+    merchant_public_key: '',
+    checkout_base_url: '',
+  });
+  const [dokuSaving, setDokuSaving] = useState(false);
+  const [dokuLoading, setDokuLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000); };
@@ -41,16 +56,59 @@ export default function VenueSettingsPage({ auth, venue }) {
         maps_url: data.maps_url || '',
         description: data.description || '',
       });
+
+      const dokuResponse = await getDokuVenueConfig(venueId);
+      if (!dokuResponse.error && dokuResponse.data) {
+        setDokuConfig({
+          environment: dokuResponse.data.environment || 'sandbox',
+          business_id: dokuResponse.data.business_id || '',
+          brand_id: dokuResponse.data.brand_id || '',
+          merchant_id: dokuResponse.data.merchant_id || '',
+          api_key: dokuResponse.data.api_key || '',
+          client_id: dokuResponse.data.client_id || '',
+          secret_key: dokuResponse.data.secret_key || '',
+          doku_public_key: dokuResponse.data.doku_public_key || '',
+          merchant_public_key: dokuResponse.data.merchant_public_key || '',
+          checkout_base_url: dokuResponse.data.checkout_base_url || '',
+        });
+      }
     } catch (err) {
       console.error('Settings load error:', err.message);
     } finally {
       setLoading(false);
+      setDokuLoading(false);
     }
   }, [venueId]);
 
   useEffect(() => { load(); }, [load]);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
+  const normalizedDokuConfig = {
+    environment: dokuConfig.environment === 'production' ? 'production' : 'sandbox',
+    business_id: String(dokuConfig.business_id || '').trim(),
+    brand_id: String(dokuConfig.brand_id || '').trim(),
+    merchant_id: String(dokuConfig.merchant_id || '').trim(),
+    api_key: String(dokuConfig.api_key || '').trim(),
+    client_id: String(dokuConfig.client_id || '').trim(),
+    secret_key: String(dokuConfig.secret_key || '').trim(),
+    doku_public_key: String(dokuConfig.doku_public_key || '').trim(),
+    merchant_public_key: String(dokuConfig.merchant_public_key || '').trim(),
+    checkout_base_url: String(dokuConfig.checkout_base_url || '').trim(),
+  };
+
+  const dokuMissingFields = [];
+  if (!normalizedDokuConfig.checkout_base_url) dokuMissingFields.push('Checkout Base URL');
+  if (normalizedDokuConfig.environment === 'production') {
+    if (!normalizedDokuConfig.business_id) dokuMissingFields.push('Business ID');
+    if (!normalizedDokuConfig.brand_id) dokuMissingFields.push('Brand ID');
+    if (!normalizedDokuConfig.merchant_id) dokuMissingFields.push('Merchant ID');
+    if (!normalizedDokuConfig.api_key) dokuMissingFields.push('API Key');
+    if (!normalizedDokuConfig.client_id) dokuMissingFields.push('Client ID');
+    if (!normalizedDokuConfig.secret_key) dokuMissingFields.push('Secret Key');
+  }
+
+  const dokuConfigReady = dokuMissingFields.length === 0;
 
   async function handleSave() {
     if (!form.name.trim()) { showToast('error', 'Nama venue tidak boleh kosong.'); return; }
@@ -73,6 +131,34 @@ export default function VenueSettingsPage({ auth, venue }) {
       showToast('error', err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveDokuConfig() {
+    if (!normalizedDokuConfig.checkout_base_url) {
+      showToast('error', 'Checkout Base URL wajib diisi.');
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(normalizedDokuConfig.checkout_base_url)) {
+      showToast('error', 'Checkout Base URL harus berupa URL valid (http/https).');
+      return;
+    }
+
+    if (normalizedDokuConfig.environment === 'production' && dokuMissingFields.length > 0) {
+      showToast('error', `Konfigurasi production belum lengkap: ${dokuMissingFields.join(', ')}.`);
+      return;
+    }
+
+    setDokuSaving(true);
+    try {
+      const response = await saveDokuVenueConfig(venueId, normalizedDokuConfig);
+      if (response.error) throw new Error(response.error);
+      showToast('success', 'Konfigurasi DOKU berhasil disimpan.');
+    } catch (err) {
+      showToast('error', err.message || 'Gagal menyimpan konfigurasi DOKU.');
+    } finally {
+      setDokuSaving(false);
     }
   }
 
@@ -164,6 +250,89 @@ export default function VenueSettingsPage({ auth, venue }) {
                 <input className={`${inputCls} pl-8`} value={form.contact_number} onChange={e => set('contact_number', e.target.value)} placeholder="cth: 08123456789" />
               </div>
             </Field>
+          </section>
+
+          {/* DOKU Payment Gateway */}
+          <section className="rounded-2xl border border-neutral-200 p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Settings size={15} className="text-emerald-600" />
+              <h2 className="font-bold text-neutral-900">DOKU Payment Gateway</h2>
+              <span className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${dokuConfigReady ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                {dokuConfigReady ? 'Ready' : 'Perlu Dilengkapi'}
+              </span>
+            </div>
+            {dokuLoading ? (
+              <div className="space-y-3">
+                {[...Array(3)].map((_, index) => <div key={index} className="h-12 rounded-2xl bg-neutral-100 animate-pulse" />)}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Business ID">
+                    <input className={inputCls} value={dokuConfig.business_id} onChange={e => setDokuConfig(c => ({ ...c, business_id: e.target.value }))} placeholder="BSN-..." />
+                  </Field>
+                  <Field label="Brand ID">
+                    <input className={inputCls} value={dokuConfig.brand_id} onChange={e => setDokuConfig(c => ({ ...c, brand_id: e.target.value }))} placeholder="BRN-..." />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Environment">
+                    <select className={selectCls} value={dokuConfig.environment} onChange={e => setDokuConfig(c => ({ ...c, environment: e.target.value }))}>
+                      <option value="sandbox">Sandbox</option>
+                      <option value="production">Production</option>
+                    </select>
+                  </Field>
+                  <Field label="Merchant ID">
+                    <input className={inputCls} value={dokuConfig.merchant_id} onChange={e => setDokuConfig(c => ({ ...c, merchant_id: e.target.value }))} placeholder="Merchant ID" />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="API Key">
+                    <input className={inputCls} value={dokuConfig.api_key} onChange={e => setDokuConfig(c => ({ ...c, api_key: e.target.value }))} placeholder="doku_key_..." />
+                  </Field>
+                  <Field label="Client ID">
+                    <input className={inputCls} value={dokuConfig.client_id} onChange={e => setDokuConfig(c => ({ ...c, client_id: e.target.value }))} placeholder="Client ID" />
+                  </Field>
+                  <Field label="Secret Key">
+                    <input type="password" className={inputCls} value={dokuConfig.secret_key} onChange={e => setDokuConfig(c => ({ ...c, secret_key: e.target.value }))} placeholder="Secret Key" />
+                  </Field>
+                </div>
+                <Field label="DOKU Public Key">
+                  <textarea
+                    className={textareaCls}
+                    rows={4}
+                    value={dokuConfig.doku_public_key}
+                    onChange={e => setDokuConfig(c => ({ ...c, doku_public_key: e.target.value }))}
+                    placeholder="-----BEGIN PUBLIC KEY-----"
+                  />
+                </Field>
+                <Field label="Merchant Public Key">
+                  <textarea
+                    className={textareaCls}
+                    rows={4}
+                    value={dokuConfig.merchant_public_key}
+                    onChange={e => setDokuConfig(c => ({ ...c, merchant_public_key: e.target.value }))}
+                    placeholder="-----BEGIN PUBLIC KEY-----"
+                  />
+                </Field>
+                <Field label="Checkout Base URL">
+                  <input className={inputCls} value={dokuConfig.checkout_base_url} onChange={e => setDokuConfig(c => ({ ...c, checkout_base_url: e.target.value }))} placeholder="https://checkout.doku.com/..." />
+                </Field>
+                {!dokuConfigReady && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Lengkapi field: {dokuMissingFields.join(', ')}
+                  </div>
+                )}
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                  Webhook endpoint function: <span className="font-mono">doku-webhook-handler</span>
+                </div>
+                <div className="flex justify-end">
+                  <ActionButton onClick={handleSaveDokuConfig} loading={dokuSaving}>
+                    <Save size={14} /> Simpan Konfigurasi DOKU
+                  </ActionButton>
+                </div>
+              </>
+            )}
           </section>
 
           {/* Venue ID info */}

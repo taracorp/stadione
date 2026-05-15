@@ -96,6 +96,459 @@ async function getNextVenueId() {
   return currentMaxId + 1;
 }
 
+export async function getDokuVenueConfig(venueId) {
+  if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
+  try {
+    const { data, error } = await supabase
+      .from('doku_venue_config')
+      .select('*')
+      .eq('venue_id', venueId)
+      .single();
+    if (error) {
+      if (isMissingColumnError(error, 'doku_venue_config') || error.message?.toLowerCase().includes('not found')) {
+        return { data: null };
+      }
+      throw error;
+    }
+    return { data };
+  } catch (err) {
+    console.error('Error loading DOKU config:', err.message);
+    return { error: err.message || 'Gagal memuat konfigurasi DOKU.' };
+  }
+}
+
+export async function saveDokuVenueConfig(venueId, config = {}) {
+  if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
+
+  const normalizedEnvironment = config.environment === 'production' ? 'production' : 'sandbox';
+  const normalizedBusinessId = String(config.business_id || '').trim();
+  const normalizedBrandId = String(config.brand_id || '').trim();
+  const normalizedApiKey = String(config.api_key || '').trim();
+  const normalizedCheckoutUrl = String(config.checkout_base_url || '').trim();
+  const normalizedMerchantId = String(config.merchant_id || '').trim();
+  const normalizedClientId = String(config.client_id || '').trim();
+  const normalizedSecretKey = String(config.secret_key || '').trim();
+  const normalizedDokuPublicKey = String(config.doku_public_key || '').trim();
+  const normalizedMerchantPublicKey = String(config.merchant_public_key || '').trim();
+
+  if (!normalizedCheckoutUrl) {
+    return { error: 'Checkout Base URL wajib diisi untuk konfigurasi DOKU.' };
+  }
+
+  if (!/^https?:\/\//i.test(normalizedCheckoutUrl)) {
+    return { error: 'Checkout Base URL harus berupa URL valid (http/https).' };
+  }
+
+  if (normalizedEnvironment === 'production') {
+    const missingFields = [];
+    if (!normalizedBusinessId) missingFields.push('Business ID');
+    if (!normalizedBrandId) missingFields.push('Brand ID');
+    if (!normalizedMerchantId) missingFields.push('Merchant ID');
+    if (!normalizedApiKey) missingFields.push('API Key');
+    if (!normalizedClientId) missingFields.push('Client ID');
+    if (!normalizedSecretKey) missingFields.push('Secret Key');
+
+    if (missingFields.length > 0) {
+      return { error: `Konfigurasi production belum lengkap: ${missingFields.join(', ')}.` };
+    }
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('doku_venue_config')
+      .upsert({
+        venue_id: venueId,
+        environment: normalizedEnvironment,
+        business_id: normalizedBusinessId || null,
+        brand_id: normalizedBrandId || null,
+        merchant_id: normalizedMerchantId || null,
+        api_key: normalizedApiKey || null,
+        client_id: normalizedClientId || null,
+        secret_key: normalizedSecretKey || null,
+        doku_public_key: normalizedDokuPublicKey || null,
+        merchant_public_key: normalizedMerchantPublicKey || null,
+        checkout_base_url: normalizedCheckoutUrl,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'venue_id' })
+      .select()
+      .single();
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error saving DOKU config:', err.message);
+    return { error: err.message || 'Gagal menyimpan konfigurasi DOKU.' };
+  }
+}
+
+export async function initiateDokuPayment(bookingId, venueId, payload = {}) {
+  if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
+
+  const requestBody = {
+    booking_id: bookingId,
+    venue_id: venueId,
+    amount: Number(payload.amount || 0),
+    currency: payload.currency || 'IDR',
+    customer_name: payload.customer_name || null,
+    customer_phone: payload.customer_phone || null,
+  };
+
+  try {
+    if (supabase.functions && typeof supabase.functions.invoke === 'function') {
+      const invokeResponse = await supabase.functions.invoke('doku-checkout', {
+        body: requestBody,
+      });
+
+      if (invokeResponse.error) {
+        console.warn('DOKU function invoke returned error, falling back to table insert:', invokeResponse.error.message || invokeResponse.error);
+      } else {
+        const invokeData = invokeResponse.data || {};
+        return {
+          data: invokeData.transaction || invokeData,
+          checkout_url: invokeData.checkout_url || null,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('DOKU function invoke failed:', err.message || err);
+  }
+
+  const getColumnMissingMessage = (error, columnName) => {
+    const message = (error?.message || '').toLowerCase();
+    return message.includes('column') && message.includes(columnName.toLowerCase()) && message.includes('does not exist');
+  };
+
+  const insertTransactionWithSchemaFallback = async (basePayload) => {
+    const attempts = [
+      { key: 'price', payload: { ...basePayload, price: basePayload.amount } },
+      { key: 'amount', payload: { ...basePayload } },
+    ];
+
+    let lastError = null;
+
+    for (const attempt of attempts) {
+      const insertPayload = { ...attempt.payload };
+      if (attempt.key === 'price') {
+        delete insertPayload.amount;
+      }
+
+      const { data, error } = await supabase
+        .from('doku_payment_transactions')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (!error) {
+        return { data };
+      }
+
+      lastError = error;
+
+      // Try alternate schema if column mismatch happens.
+      if ((attempt.key === 'price' && getColumnMissingMessage(error, 'price')) ||
+          (attempt.key === 'amount' && getColumnMissingMessage(error, 'amount'))) {
+        continue;
+      }
+
+      throw error;
+    }
+
+    throw lastError;
+  };
+
+  try {
+    const checkoutUrl = payload.checkout_url || (payload.return_url ? `${payload.return_url}?payment_status=pending&booking_id=${bookingId}` : null);
+    const transactionPayload = {
+      ...requestBody,
+      status: 'pending',
+      doku_order_id: `doku-${bookingId}-${Date.now()}`,
+      checkout_url: checkoutUrl,
+      doku_response: {
+        generated_at: new Date().toISOString(),
+        source: 'supabase_service_fallback',
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await insertTransactionWithSchemaFallback(transactionPayload)
+      .then((result) => ({ data: result.data, error: null }))
+      .catch((err) => ({ data: null, error: err }));
+
+    if (error) {
+      if (isMissingColumnError(error, 'doku_payment_transactions') || error.message?.toLowerCase().includes('not found')) {
+        return { error: 'Tabel transaksi DOKU belum tersedia. Jalankan migrasi DOKU terlebih dahulu.' };
+      }
+      throw error;
+    }
+
+    return {
+      data,
+      checkout_url: checkoutUrl,
+    };
+  } catch (err) {
+    console.error('Error initiating DOKU payment:', err.message);
+    return { error: err.message || 'Gagal memulai pembayaran DOKU.' };
+  }
+}
+
+export async function fetchDokuTransactions(venueId, filters = {}) {
+  if (!isSupabaseReady()) return { data: [] };
+  try {
+    let query = supabase.from('doku_payment_transactions').select('*').eq('venue_id', venueId).order('created_at', { ascending: false });
+    if (filters.status) query = query.eq('status', filters.status);
+    if (filters.from) query = query.gte('created_at', filters.from);
+    if (filters.to) query = query.lte('created_at', filters.to);
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data: data || [] };
+  } catch (err) {
+    console.error('Error fetching DOKU transactions:', err.message);
+    return { error: err.message || 'Gagal memuat transaksi DOKU.' };
+  }
+}
+
+export async function fetchDokuTransactionByBooking(bookingId) {
+  if (!isSupabaseReady()) return { data: null };
+  try {
+    const { data, error } = await supabase
+      .from('doku_payment_transactions')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (error) {
+      if (isMissingColumnError(error, 'doku_payment_transactions')) {
+        return { data: null };
+      }
+      throw error;
+    }
+    return { data };
+  } catch (err) {
+    console.error('Error fetching DOKU transaction:', err.message);
+    return { error: err.message || 'Gagal memuat status transaksi DOKU.' };
+  }
+}
+
+// ── Customer Favorite Courts ───────────────────────────────────────────────────
+
+export async function addCustomerFavoriteCourt(customerId, venueId, courtId) {
+  if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
+  try {
+    const { data, error } = await supabase
+      .from('customer_favorite_courts')
+      .insert({
+        customer_id: customerId,
+        venue_id: venueId,
+        court_id: courtId,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (isMissingColumnError(error, 'customer_favorite_courts')) {
+        return { error: 'Tabel favorit court belum tersedia. Jalankan migrasi favorit court terlebih dahulu.' };
+      }
+      if (error.code === '23505') { // unique violation
+        return { error: 'Court ini sudah ditandai sebagai favorit.' };
+      }
+      throw error;
+    }
+
+    return { data };
+  } catch (err) {
+    console.error('Error adding favorite court:', err.message);
+    return { error: err.message || 'Gagal menambahkan court favorit.' };
+  }
+}
+
+export async function removeCustomerFavoriteCourt(customerId, courtId) {
+  if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
+  try {
+    const { error } = await supabase
+      .from('customer_favorite_courts')
+      .delete()
+      .eq('customer_id', customerId)
+      .eq('court_id', courtId);
+
+    if (error) {
+      if (isMissingColumnError(error, 'customer_favorite_courts')) {
+        return { error: 'Tabel favorit court belum tersedia.' };
+      }
+      throw error;
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error removing favorite court:', err.message);
+    return { error: err.message || 'Gagal menghapus court favorit.' };
+  }
+}
+
+export async function fetchCustomerFavoriteCourts(customerId, venueId) {
+  if (!isSupabaseReady()) return { data: [] };
+  try {
+    const { data, error } = await supabase
+      .from('customer_favorite_courts')
+      .select(`
+        id,
+        created_at,
+        venue_courts (
+          id,
+          name,
+          sport_type,
+          price_per_hour,
+          venue_branches (
+            id,
+            name
+          )
+        )
+      `)
+      .eq('customer_id', customerId)
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      if (isMissingColumnError(error, 'customer_favorite_courts')) {
+        return { data: [] };
+      }
+      throw error;
+    }
+
+    return { data: data || [] };
+  } catch (err) {
+    console.error('Error fetching favorite courts:', err.message);
+    return { error: err.message || 'Gagal memuat court favorit.' };
+  }
+}
+
+export async function isCourtFavorited(customerId, courtId) {
+  if (!isSupabaseReady()) return { data: false };
+  try {
+    const { data, error } = await supabase
+      .from('customer_favorite_courts')
+      .select('id')
+      .eq('customer_id', customerId)
+      .eq('court_id', courtId)
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') { // no rows returned
+        return { data: false };
+      }
+      if (isMissingColumnError(error, 'customer_favorite_courts')) {
+        return { data: false };
+      }
+      throw error;
+    }
+
+    return { data: true };
+  } catch (err) {
+    console.error('Error checking favorite status:', err.message);
+    return { error: err.message || 'Gagal memeriksa status favorit.' };
+  }
+}
+
+// ── Staff Action Audit Log ─────────────────────────────────────────────────────
+
+export async function logStaffAction(params) {
+  if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
+
+  const {
+    venueId,
+    staffUserId,
+    actionType,
+    actionDescription,
+    targetType,
+    targetId,
+    oldValues,
+    newValues,
+    metadata,
+    ipAddress,
+    userAgent,
+  } = params;
+
+  try {
+    const { data, error } = await supabase.rpc('log_staff_action', {
+      p_venue_id: venueId,
+      p_staff_user_id: staffUserId,
+      p_action_type: actionType,
+      p_action_description: actionDescription,
+      p_target_type: targetType,
+      p_target_id: targetId,
+      p_old_values: oldValues,
+      p_new_values: newValues,
+      p_metadata: metadata,
+      p_ip_address: ipAddress,
+      p_user_agent: userAgent,
+    });
+
+    if (error) {
+      if (isMissingColumnError(error, 'staff_action_logs')) {
+        console.warn('Staff audit log table not available, skipping log');
+        return { success: true }; // Don't fail the main operation
+      }
+      throw error;
+    }
+
+    return { data };
+  } catch (err) {
+    console.error('Error logging staff action:', err.message);
+    // Don't return error to avoid breaking main operations
+    return { success: true };
+  }
+}
+
+export async function fetchStaffActionLogs(venueId, filters = {}) {
+  if (!isSupabaseReady()) return { data: [] };
+  try {
+    let query = supabase
+      .from('staff_action_logs')
+      .select(`
+        id,
+        action_type,
+        action_description,
+        target_type,
+        target_id,
+        old_values,
+        new_values,
+        metadata,
+        created_at,
+        venue_staff (
+          role,
+          auth.users (
+            email,
+            raw_user_meta_data
+          )
+        )
+      `)
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false });
+
+    if (filters.actionType) query = query.eq('action_type', filters.actionType);
+    if (filters.staffUserId) query = query.eq('staff_user_id', filters.staffUserId);
+    if (filters.targetType) query = query.eq('target_type', filters.targetType);
+    if (filters.fromDate) query = query.gte('created_at', filters.fromDate);
+    if (filters.toDate) query = query.lte('created_at', filters.toDate);
+    if (filters.limit) query = query.limit(filters.limit);
+
+    const { data, error } = await query;
+
+    if (error) {
+      if (isMissingColumnError(error, 'staff_action_logs')) {
+        return { data: [] };
+      }
+      throw error;
+    }
+
+    return { data: data || [] };
+  } catch (err) {
+    console.error('Error fetching staff action logs:', err.message);
+    return { error: err.message || 'Gagal memuat log aksi staf.' };
+  }
+}
+
 function isMissingSubstitutionRulesColumnError(error) {
   const message = String(error?.message || '').toLowerCase();
   return message.includes('substitution_rules')

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, Receipt, CreditCard, Wallet, ArrowUpRight, Download, Search } from 'lucide-react';
+import { TrendingUp, Receipt, CreditCard, Wallet, ArrowUpRight, Download, Search, ExternalLink } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { EmptyState, inputCls, selectCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
+import { fetchDokuTransactions } from '../../../../services/supabaseService.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,8 @@ export default function VenueFinancePage({ auth, venue }) {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [dokuSearch, setDokuSearch] = useState('');
+  const [dokuStatusFilter, setDokuStatusFilter] = useState('all');
   const [tab, setTab] = useState('overview');
 
   // Data
@@ -70,6 +73,8 @@ export default function VenueFinancePage({ auth, venue }) {
   const [invoices, setInvoices] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [discounts, setDiscounts] = useState([]);
+  const [dokuTransactions, setDokuTransactions] = useState([]);
+  const [dokuLoading, setDokuLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const { from, to } = useMemo(() => getRange(range, customStart, customEnd), [range, customStart, customEnd]);
@@ -78,7 +83,7 @@ export default function VenueFinancePage({ auth, venue }) {
     if (!venueId) return;
     setLoading(true);
     try {
-      const [bookRes, invRes, shiftRes, discRes] = await Promise.all([
+      const [bookRes, invRes, shiftRes, discRes, dokuRes] = await Promise.all([
         supabase
           .from('venue_bookings')
           .select('id, booking_date, total_price, payment_status, payment_method, customer_name, customer_phone, status')
@@ -124,12 +129,15 @@ export default function VenueFinancePage({ auth, venue }) {
               .lte('booking_date', to)
             ).data?.map(b => b.id) || []
           ),
+
+        fetchDokuTransactions(venueId),
       ]);
 
       setBookings(bookRes.data || []);
       setInvoices(invRes.data || []);
       setShifts(shiftRes.data || []);
       setDiscounts(discRes.data || []);
+      setDokuTransactions(dokuRes.data || []);
     } catch (err) {
       console.error('Finance load error:', err.message);
     } finally {
@@ -148,7 +156,7 @@ export default function VenueFinancePage({ auth, venue }) {
   const totalInvoices = invoices.filter(i => i.status !== 'voided').length;
 
   const paymentMethodBreakdown = useMemo(() => {
-    const methods = { cash: 0, qris: 0, transfer: 0 };
+    const methods = { cash: 0, qris: 0, transfer: 0, doku: 0 };
     paidBookings.forEach(b => {
       const m = b.payment_method || 'cash';
       if (methods[m] !== undefined) methods[m] += Number(b.total_price || 0);
@@ -184,6 +192,16 @@ export default function VenueFinancePage({ auth, venue }) {
       i.customer_phone?.includes(q)
     );
   }, [invoices, invoiceSearch]);
+
+  const filteredDokuTransactions = useMemo(() => {
+    const q = dokuSearch.trim().toLowerCase();
+    return dokuTransactions.filter((tx) => {
+      const matchesStatus = dokuStatusFilter === 'all' || tx.status === dokuStatusFilter;
+      const haystack = `${tx.doku_order_id || ''} ${tx.customer_name || ''} ${tx.customer_phone || ''}`.toLowerCase();
+      const matchesSearch = !q || haystack.includes(q);
+      return matchesStatus && matchesSearch;
+    });
+  }, [dokuTransactions, dokuSearch, dokuStatusFilter]);
 
   // ── Shift revenue (from shifts table) ────────────────────────────────────────
   const closedShifts = useMemo(() => shifts.filter(s => s.status === 'closed'), [shifts]);
@@ -239,8 +257,8 @@ export default function VenueFinancePage({ auth, venue }) {
       </div>
 
       {/* Payment method breakdown */}
-      <div className="grid md:grid-cols-3 gap-3">
-        {[['cash', 'Tunai', 'bg-emerald-100 text-emerald-700'], ['qris', 'QRIS', 'bg-blue-100 text-blue-700'], ['transfer', 'Transfer', 'bg-violet-100 text-violet-700']].map(([key, label, cls]) => {
+      <div className="grid md:grid-cols-4 gap-3">
+        {[['cash', 'Tunai', 'bg-emerald-100 text-emerald-700'], ['qris', 'QRIS', 'bg-blue-100 text-blue-700'], ['transfer', 'Transfer', 'bg-violet-100 text-violet-700'], ['doku', 'DOKU', 'bg-amber-100 text-amber-700']].map(([key, label, cls]) => {
           const val = paymentMethodBreakdown[key] || 0;
           const pct = totalRevenue > 0 ? Math.round((val / totalRevenue) * 100) : 0;
           return (
@@ -258,7 +276,7 @@ export default function VenueFinancePage({ auth, venue }) {
       {/* Chart + tabs */}
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
         <div className="flex items-center gap-1 p-3 border-b border-neutral-100 flex-wrap">
-          {[['overview', 'Grafik Pendapatan'], ['invoices', 'Invoice'], ['shifts', 'Shift']].map(([k, l]) => (
+          {[['overview', 'Grafik Pendapatan'], ['invoices', 'Invoice'], ['shifts', 'Shift'], ['doku', 'DOKU']].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setTab(k)}
               className={`px-3 py-1.5 rounded-xl text-sm font-bold transition ${tab === k ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-500 hover:text-neutral-900'}`}>
               {l}
@@ -344,6 +362,92 @@ export default function VenueFinancePage({ auth, venue }) {
                               inv.status === 'voided' ? 'bg-red-100 text-red-600' :
                               'bg-neutral-100 text-neutral-600'
                             }`}>{inv.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'doku' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    className={`${inputCls} pl-9`}
+                    placeholder="Cari order/customer/telepon..."
+                    value={dokuSearch}
+                    onChange={(e) => setDokuSearch(e.target.value)}
+                  />
+                </div>
+                <select
+                  className={`${selectCls} w-44`}
+                  value={dokuStatusFilter}
+                  onChange={(e) => setDokuStatusFilter(e.target.value)}
+                >
+                  <option value="all">Semua Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="completed">Completed</option>
+                  <option value="refunded">Refunded</option>
+                  <option value="failed">Failed</option>
+                  <option value="expired">Expired</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              {filteredDokuTransactions.length === 0 ? (
+                <EmptyState icon={ExternalLink} title="Belum ada transaksi DOKU" description="Transaksi DOKU akan muncul setelah konfigurasi dan checkout dibuat." />
+              ) : (
+                <div className="overflow-x-auto -mx-4">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left border-b border-neutral-100">
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Order</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Customer</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Jumlah</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Status</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Waktu</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDokuTransactions.map(tx => (
+                        <tr key={tx.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition">
+                          <td className="px-4 py-2.5 font-mono text-xs text-neutral-700">{tx.doku_order_id || tx.id}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="font-semibold text-neutral-900">{tx.customer_name || '—'}</div>
+                            <div className="text-xs text-neutral-400">{tx.customer_phone || ''}</div>
+                          </td>
+                          <td className="px-4 py-2.5 font-semibold text-neutral-900">Rp {fmt(tx.amount || tx.price)}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                              tx.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                              tx.status === 'refunded' ? 'bg-violet-100 text-violet-700' :
+                              tx.status === 'failed' || tx.status === 'expired' || tx.status === 'cancelled'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-neutral-100 text-neutral-600'
+                            }`}>{tx.status}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-neutral-500 text-xs">{fmtDate(tx.created_at)}</td>
+                          <td className="px-4 py-2.5">
+                            {tx.checkout_url ? (
+                              <button
+                                type="button"
+                                onClick={() => window.open(tx.checkout_url, '_blank')}
+                                className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-xs font-semibold text-neutral-700 hover:border-neutral-400"
+                                title={tx.status === 'pending' ? 'Lanjutkan checkout' : 'Buka checkout'}
+                              >
+                                <ExternalLink size={12} />
+                                {tx.status === 'pending' ? 'Lanjutkan' : 'Buka'}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-neutral-400">-</span>
+                            )}
                           </td>
                         </tr>
                       ))}

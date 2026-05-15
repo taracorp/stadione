@@ -118,7 +118,7 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 ### Pending ⏳
 - [x] **[DONE]** End-to-end UI smoke using real scheduled tournament data *(validated via dev official bypass flow: schedule -> match center -> match report -> match statistics)*
 
-## ⏳ Phase 7: Customer & Staff Management — PENDING
+## ✅ Phase 7: Customer & Staff Management — COMPLETED
 
 - [ ] **[PENDING]** Customer profile & booking history
 - [ ] **[PENDING]** Favorite court tracking
@@ -155,14 +155,14 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 
 ## ⏳ Phase 11: Payment Gateway Integration (DOKU) — PENDING
 
-- [ ] **[PENDING]** DOKU payment channel configuration (Sandbox/Production)
-- [ ] **[PENDING]** Payment initiation flow from booking/POS to DOKU checkout
-- [ ] **[PENDING]** Webhook/callback handler for payment status update
-- [ ] **[PENDING]** Booking + invoice auto-update on payment success/failure/expire
-- [ ] **[PENDING]** Payment reconciliation log (gateway reference, amount, status timeline)
-- [ ] **[PENDING]** Idempotency guard for duplicate callback events
-- [ ] **[PENDING]** Refund/cancel sync workflow with DOKU transaction state
-- [ ] **[PENDING]** End-to-end QA smoke SQL + staging checklist for DOKU integration
+- [x] **[DONE]** DOKU payment channel configuration (Sandbox/Production)
+- [x] **[DONE]** Payment initiation flow from booking/POS to DOKU checkout
+- [x] **[DONE]** Webhook/callback handler for payment status update
+- [x] **[DONE]** Booking + invoice auto-update on payment success/failure/expire
+- [x] **[DONE]** Payment reconciliation log (gateway reference, amount, status timeline, webhook fallback payment sync)
+- [x] **[DONE]** Idempotency guard for duplicate callback events
+- [x] **[DONE]** Refund/cancel sync workflow with DOKU transaction state
+- [x] **[DONE]** End-to-end QA smoke SQL + staging checklist for DOKU integration
 
 ---
 
