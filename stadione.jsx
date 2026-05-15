@@ -1852,6 +1852,7 @@ const AUTH_MODAL_MODES = {
 const AUTH_REQUEST_TIMEOUT_MS = 15000; // Primary login: 15s for responsive UX
 const AUTH_FALLBACK_TIMEOUT_MS = 20000; // Fallback: 20s if primary fails
 const AUTH_OAUTH_TIMEOUT_MS = 30000; // OAuth: 30s (external services slower)
+const AUTH_FORGOT_PASSWORD_TIMEOUT_MS = 45000; // Reset password email can take longer on provider side
 
 // ============ INPUT VALIDATION ============
 function validateEmail(email) {
@@ -2217,7 +2218,7 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
             redirectTo: getAuthRedirectUrl(AUTH_MODAL_MODES.recovery),
           }),
           'Reset password',
-          AUTH_REQUEST_TIMEOUT_MS
+          AUTH_FORGOT_PASSWORD_TIMEOUT_MS
         );
 
         if (resetError) throw resetError;
