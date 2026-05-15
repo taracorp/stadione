@@ -315,8 +315,8 @@ export default function VenueSettingsPage({ auth, venue }) {
                     placeholder="-----BEGIN PUBLIC KEY-----"
                   />
                 </Field>
-                <Field label="Checkout Base URL">
-                  <input className={inputCls} value={dokuConfig.checkout_base_url} onChange={e => setDokuConfig(c => ({ ...c, checkout_base_url: e.target.value }))} placeholder="https://checkout.doku.com/..." />
+                <Field label="DOKU Checkout API URL">
+                  <input className={inputCls} value={dokuConfig.checkout_base_url} onChange={e => setDokuConfig(c => ({ ...c, checkout_base_url: e.target.value }))} placeholder="https://api-sandbox.doku.com/checkout/v2/payment-url" />
                 </Field>
                 {!dokuConfigReady && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">

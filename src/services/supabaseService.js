@@ -190,6 +190,7 @@ export async function initiateDokuPayment(bookingId, venueId, payload = {}) {
     currency: payload.currency || 'IDR',
     customer_name: payload.customer_name || null,
     customer_phone: payload.customer_phone || null,
+    return_url: payload.return_url || null,
   };
 
   try {
@@ -204,7 +205,7 @@ export async function initiateDokuPayment(bookingId, venueId, payload = {}) {
         const invokeData = invokeResponse.data || {};
         return {
           data: invokeData.transaction || invokeData,
-          checkout_url: invokeData.checkout_url || null,
+          checkout_url: invokeData.checkout_url || invokeData?.transaction?.checkout_url || null,
         };
       }
     }
@@ -256,12 +257,11 @@ export async function initiateDokuPayment(bookingId, venueId, payload = {}) {
   };
 
   try {
-    const checkoutUrl = payload.checkout_url || (payload.return_url ? `${payload.return_url}?payment_status=pending&booking_id=${bookingId}` : null);
     const transactionPayload = {
       ...requestBody,
       status: 'pending',
       doku_order_id: `doku-${bookingId}-${Date.now()}`,
-      checkout_url: checkoutUrl,
+      checkout_url: payload.checkout_url || null,
       doku_response: {
         generated_at: new Date().toISOString(),
         source: 'supabase_service_fallback',
@@ -283,7 +283,7 @@ export async function initiateDokuPayment(bookingId, venueId, payload = {}) {
 
     return {
       data,
-      checkout_url: checkoutUrl,
+      checkout_url: payload.checkout_url || null,
     };
   } catch (err) {
     console.error('Error initiating DOKU payment:', err.message);

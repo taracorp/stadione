@@ -165,7 +165,6 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
         customer_name: booking.customer_name,
         customer_phone: booking.customer_phone,
         return_url: typeof window !== 'undefined' ? window.location.href : null,
-        checkout_url: config.checkout_base_url ? `${config.checkout_base_url}?order_id=${booking.id}&amount=${amount}` : null,
       });
 
       if (response.error) {
