@@ -697,10 +697,28 @@ export const checkAndNotifyIncompleteRosters = async () => {
 
     // For each, check if roster is complete
     for (const reg of registrations) {
-      const { complete } = await checkRosterCompleteness(reg.id);
+      const { complete, memberCount = 0, required = 0 } = await checkRosterCompleteness(reg.id);
       if (!complete) {
-        // TODO: Send notification to coordinator
-        console.log(`[AUTO-REMINDER] Coordinator ${reg.registrant_name} has incomplete roster`);
+        const missingPlayers = Math.max(0, required - memberCount);
+        await recordRegistrationHistory(
+          reg.id,
+          'auto_roster_reminder',
+          reg.user_id || null,
+          'system',
+          'slot_secured',
+          'slot_secured',
+          {
+            reminder_type: 'incomplete_roster',
+            missing_players: missingPlayers,
+            roster_count: memberCount,
+            required_roster: required,
+            reminded_at: new Date().toISOString(),
+          }
+        );
+
+        console.log(
+          `[AUTO-REMINDER] Coordinator ${reg.registrant_name} has incomplete roster (${memberCount}/${required})`
+        );
       }
     }
   } catch (err) {
