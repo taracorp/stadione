@@ -358,6 +358,15 @@ export async function submitQuizAnswer(userId, quizId, articleId, selectedAnswer
   if (!supabase || !userId) return null;
 
   try {
+    const attempted = await hasTriviaAttempt(userId, articleId);
+    if (attempted) {
+      return {
+        success: false,
+        message: 'Trivia untuk artikel ini sudah pernah dikerjakan. Kesempatan hanya 1x.',
+        alreadyAttempted: true,
+      };
+    }
+
     // Get the quiz to check correct answer
     const quiz = await supabase
       .from('article_quiz')
@@ -422,7 +431,9 @@ export async function submitQuizAnswer(userId, quizId, articleId, selectedAnswer
       success: true,
       isCorrect,
       pointsAwarded,
-      message: isCorrect ? 'Jawaban benar! +1 poin' : 'Jawaban salah. Coba lagi!',
+      message: isCorrect
+        ? 'Jawaban benar! +1 poin'
+        : 'Jawaban salah. Trivia diselesaikan dan kesempatan hanya 1x.',
       result: resultData?.[0]
     };
   } catch (error) {
@@ -438,8 +449,8 @@ export async function submitGeneratedQuizAttempt(userId, articleId, attempt) {
     if (!supabase || !userId) return { success: false, message: 'User tidak ditemukan.' };
 
   try {
-    const existingProgress = await getArticleProgress(userId, articleId);
-    if (existingProgress?.quiz_attempted) {
+    const attempted = await hasTriviaAttempt(userId, articleId);
+    if (attempted) {
       return {
         success: false,
         message: 'Trivia untuk artikel ini sudah pernah dikerjakan. Kesempatan hanya 1x.',
@@ -519,10 +530,23 @@ export async function hasTriviaAttempt(userId, articleId) {
 
     if (error) {
       console.error('Error checking trivia attempt from quiz_results:', error.message);
+    } else if (Number(count || 0) > 0) {
+      return true;
+    }
+
+    const { count: legacyCount, error: legacyError } = await supabase
+      .from('activity_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('reference_id', articleId)
+      .in('activity_type', ['trivia_correct', 'article_read']);
+
+    if (legacyError) {
+      console.error('Error checking trivia attempt from legacy activity_log:', legacyError.message);
       return false;
     }
 
-    return Number(count || 0) > 0;
+    return Number(legacyCount || 0) > 0;
   } catch (error) {
     console.error('Error checking trivia attempt:', error.message);
     return false;
