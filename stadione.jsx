@@ -1891,7 +1891,13 @@ function getPasswordStrength(password) {
 function getAuthRedirectUrl(mode) {
   if (typeof window === 'undefined') return undefined;
 
-  const url = new URL(window.location.origin);
+  const hostname = window.location.hostname;
+  const isVercelPreviewHost = hostname.endsWith('.vercel.app') && hostname !== 'stadione.vercel.app';
+  const baseOrigin = isVercelPreviewHost
+    ? 'https://stadione.vercel.app'
+    : window.location.origin;
+
+  const url = new URL(baseOrigin);
   if (mode) url.searchParams.set('auth_mode', mode);
   return url.toString();
 }
