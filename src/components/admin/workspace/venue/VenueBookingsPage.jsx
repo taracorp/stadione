@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, CalendarDays, CheckCircle2, Clock3, Edit3, Plus, Search } from 'lucide-react';
+import { BookOpen, CalendarDays, CheckCircle2, Clock3, Edit3, Plus, Search, Globe } from 'lucide-react';
 import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatusBadge, inputCls, selectCls, textareaCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
 import { useMembership } from '../../../../hooks/useMembership.js';
+import DokuPaymentModal from '../../../payments/DokuPaymentModal.jsx';
 
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'checked-in'];
 const PRIORITY_SLOT_START = '17:00';
 const PRIORITY_SLOT_END = '20:00';
+
+function overlapsTime(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && aEnd > bStart;
+}
 
 const BOOKING_EMPTY = {
   branch_id: '',
@@ -34,6 +39,7 @@ function VenueBookingsWorkspace({ auth, venue }) {
   const [bookings, setBookings] = useState([]);
   const [branches, setBranches] = useState([]);
   const [courts, setCourts] = useState([]);
+  const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(BOOKING_EMPTY);
   const [saving, setSaving] = useState(false);
@@ -54,6 +60,7 @@ function VenueBookingsWorkspace({ auth, venue }) {
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState(null);
   const [discountInfo, setDiscountInfo] = useState({});
+  const [dokuBooking, setDokuBooking] = useState(null);
 
   function showToast(type, message) {
     setToast({ type, message });
@@ -70,16 +77,24 @@ function VenueBookingsWorkspace({ auth, venue }) {
 
     setLoading(true);
     try {
-      const [bookingResult, branchResult, courtResult] = await Promise.all([
+      const [bookingResult, branchResult, courtResult, maintenanceResult] = await Promise.all([
         supabase.from('venue_bookings').select('*').eq('venue_id', venue.id).order('created_at', { ascending: false }),
         supabase.from('venue_branches').select('*').eq('venue_id', venue.id).order('created_at', { ascending: false }),
         supabase.from('venue_courts').select('*').eq('venue_id', venue.id).order('created_at', { ascending: false }),
+        supabase
+          .from('venue_maintenance_schedules')
+          .select('id, court_id, title, maintenance_date, start_time, end_time, status, is_blocking')
+          .eq('venue_id', venue.id)
+          .eq('is_blocking', true)
+          .in('status', ['scheduled', 'in_progress'])
+          .order('maintenance_date', { ascending: true }),
       ]);
 
       const bookingData = bookingResult.data || [];
       setBookings(bookingData);
       setBranches(branchResult.data || []);
       setCourts(courtResult.data || []);
+      setMaintenanceBlocks(maintenanceResult.data || []);
 
       // Load discount info for all bookings
       if (bookingData.length > 0) {
@@ -193,9 +208,19 @@ function VenueBookingsWorkspace({ auth, venue }) {
     return bookings.find((booking) => {
       if (booking.court_id !== form.court_id || booking.booking_date !== form.booking_date) return false;
       if (!ACTIVE_BOOKING_STATUSES.includes(booking.status)) return false;
-      return form.start_time < booking.end_time && form.end_time > booking.start_time;
+      return overlapsTime(form.start_time, form.end_time, booking.start_time, booking.end_time);
     }) || null;
   }, [bookings, form.booking_date, form.court_id, form.start_time, form.end_time, computedDurationHours]);
+
+  const maintenanceConflict = useMemo(() => {
+    if (!form.booking_date || !form.court_id || !form.start_time || !form.end_time || !computedDurationHours) return null;
+    return maintenanceBlocks.find((block) => {
+      const sameCourt = !block.court_id || block.court_id === form.court_id;
+      if (!sameCourt) return false;
+      if (block.maintenance_date !== form.booking_date) return false;
+      return overlapsTime(form.start_time, form.end_time, String(block.start_time || '').slice(0, 5), String(block.end_time || '').slice(0, 5));
+    }) || null;
+  }, [maintenanceBlocks, form.booking_date, form.court_id, form.start_time, form.end_time, computedDurationHours]);
 
   const filteredBookings = useMemo(() => {
     return bookings.filter((booking) => {
@@ -231,9 +256,19 @@ function VenueBookingsWorkspace({ auth, venue }) {
       if (booking.id === editingSlot.id) return false;
       if (booking.court_id !== slotForm.court_id || booking.booking_date !== slotForm.booking_date) return false;
       if (!ACTIVE_BOOKING_STATUSES.includes(booking.status)) return false;
-      return slotForm.start_time < booking.end_time && slotForm.end_time > booking.start_time;
+      return overlapsTime(slotForm.start_time, slotForm.end_time, booking.start_time, booking.end_time);
     }) || null;
   }, [bookings, editingSlot, slotForm.booking_date, slotForm.court_id, slotForm.start_time, slotForm.end_time, slotDurationHours]);
+
+  const slotMaintenanceConflict = useMemo(() => {
+    if (!editingSlot || !slotForm.booking_date || !slotForm.court_id || !slotForm.start_time || !slotForm.end_time || !slotDurationHours) return null;
+    return maintenanceBlocks.find((block) => {
+      const sameCourt = !block.court_id || block.court_id === slotForm.court_id;
+      if (!sameCourt) return false;
+      if (block.maintenance_date !== slotForm.booking_date) return false;
+      return overlapsTime(slotForm.start_time, slotForm.end_time, String(block.start_time || '').slice(0, 5), String(block.end_time || '').slice(0, 5));
+    }) || null;
+  }, [maintenanceBlocks, editingSlot, slotForm.booking_date, slotForm.court_id, slotForm.start_time, slotForm.end_time, slotDurationHours]);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +356,13 @@ function VenueBookingsWorkspace({ auth, venue }) {
 
     if (conflictBooking) {
       const message = `Slot bentrok dengan booking ${conflictBooking.customer_name} (${conflictBooking.start_time} - ${conflictBooking.end_time}).`;
+      setFormError(message);
+      showToast('error', message);
+      return;
+    }
+
+    if (maintenanceConflict) {
+      const message = `Slot diblokir maintenance: ${maintenanceConflict.title} (${String(maintenanceConflict.start_time || '').slice(0, 5)} - ${String(maintenanceConflict.end_time || '').slice(0, 5)}).`;
       setFormError(message);
       showToast('error', message);
       return;
@@ -482,6 +524,11 @@ function VenueBookingsWorkspace({ auth, venue }) {
       return;
     }
 
+    if (slotMaintenanceConflict) {
+      showToast('error', `Reschedule ditolak: ada maintenance ${slotMaintenanceConflict.title} (${String(slotMaintenanceConflict.start_time || '').slice(0, 5)} - ${String(slotMaintenanceConflict.end_time || '').slice(0, 5)}).`);
+      return;
+    }
+
     setSavingSlot(true);
     try {
       await supabase
@@ -556,6 +603,11 @@ function VenueBookingsWorkspace({ auth, venue }) {
             {conflictBooking ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 Court sudah terpakai di slot itu: {conflictBooking.customer_name} ({conflictBooking.start_time} - {conflictBooking.end_time}).
+              </div>
+            ) : null}
+            {maintenanceConflict ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                Slot diblokir maintenance: {maintenanceConflict.title} ({String(maintenanceConflict.start_time || '').slice(0, 5)} - {String(maintenanceConflict.end_time || '').slice(0, 5)}).
               </div>
             ) : null}
           <div className="grid md:grid-cols-2 gap-3">
@@ -749,6 +801,16 @@ function VenueBookingsWorkspace({ auth, venue }) {
                     </button>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={booking.status} />
+                      {booking.status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => setDokuBooking(booking)}
+                          className="flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 transition"
+                          title="Bayar Online via DOKU"
+                        >
+                          <Globe size={11} /> Online
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openSlotEditor(booking)}
@@ -868,6 +930,12 @@ function VenueBookingsWorkspace({ auth, venue }) {
               </div>
             ) : null}
 
+            {slotMaintenanceConflict ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                Slot diblokir maintenance: {slotMaintenanceConflict.title} ({String(slotMaintenanceConflict.start_time || '').slice(0, 5)} - {String(slotMaintenanceConflict.end_time || '').slice(0, 5)}).
+              </div>
+            ) : null}
+
             <div className="grid md:grid-cols-2 gap-3">
               <Field label="Tanggal">
                 <input type="date" className={inputCls} value={slotForm.booking_date} onChange={(event) => setSlotForm((current) => ({ ...current, booking_date: event.target.value }))} />
@@ -905,6 +973,24 @@ function VenueBookingsWorkspace({ auth, venue }) {
           {toast.message}
         </div>
       ) : null}
+
+      {/* DOKU Online Payment Modal */}
+      <DokuPaymentModal
+        isOpen={!!dokuBooking}
+        booking={dokuBooking}
+        venueId={venue?.id}
+        auth={auth}
+        onClose={() => setDokuBooking(null)}
+        onPaymentSuccess={async () => {
+          setDokuBooking(null);
+          await load();
+          showToast('success', 'Pembayaran online berhasil! Booking telah dikonfirmasi.');
+        }}
+        onPaymentFailed={() => {
+          setDokuBooking(null);
+          showToast('error', 'Pembayaran online gagal atau kadaluarsa.');
+        }}
+      />
     </div>
   );
 }

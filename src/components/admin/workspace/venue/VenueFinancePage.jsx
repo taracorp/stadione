@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, Receipt, CreditCard, Wallet, ArrowUpRight, Download, Search } from 'lucide-react';
+import { TrendingUp, Receipt, CreditCard, Wallet, ArrowUpRight, Download, Search, Globe } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { EmptyState, inputCls, selectCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
+import { getDokuPaymentHistory } from '../../../../services/supabaseService.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,8 @@ export default function VenueFinancePage({ auth, venue }) {
   const [invoices, setInvoices] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [discounts, setDiscounts] = useState([]);
+  const [dokuTransactions, setDokuTransactions] = useState([]);
+  const [dokuLoading, setDokuLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const { from, to } = useMemo(() => getRange(range, customStart, customEnd), [range, customStart, customEnd]);
@@ -137,7 +140,21 @@ export default function VenueFinancePage({ auth, venue }) {
     }
   }, [venueId, from, to]);
 
+  const loadDokuTransactions = useCallback(async () => {
+    if (!venueId) return;
+    setDokuLoading(true);
+    try {
+      const { data } = await getDokuPaymentHistory(venueId, { limit: 100 });
+      setDokuTransactions(data || []);
+    } catch (err) {
+      console.error('DOKU history load error:', err.message);
+    } finally {
+      setDokuLoading(false);
+    }
+  }, [venueId]);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (tab === 'doku') loadDokuTransactions(); }, [tab, loadDokuTransactions]);
 
   // ── Derived metrics ───────────────────────────────────────────────────────────
 
@@ -258,7 +275,7 @@ export default function VenueFinancePage({ auth, venue }) {
       {/* Chart + tabs */}
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
         <div className="flex items-center gap-1 p-3 border-b border-neutral-100 flex-wrap">
-          {[['overview', 'Grafik Pendapatan'], ['invoices', 'Invoice'], ['shifts', 'Shift']].map(([k, l]) => (
+          {[['overview', 'Grafik Pendapatan'], ['invoices', 'Invoice'], ['shifts', 'Shift'], ['doku', '🌐 DOKU Online']].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setTab(k)}
               className={`px-3 py-1.5 rounded-xl text-sm font-bold transition ${tab === k ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-500 hover:text-neutral-900'}`}>
               {l}
@@ -349,6 +366,68 @@ export default function VenueFinancePage({ auth, venue }) {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── DOKU Transactions ── */}
+          {tab === 'doku' && (
+            <div className="space-y-3">
+              {dokuLoading ? (
+                <div className="flex items-center justify-center py-8 gap-2">
+                  <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-neutral-500">Memuat transaksi DOKU...</span>
+                </div>
+              ) : dokuTransactions.length === 0 ? (
+                <EmptyState icon={Globe} title="Belum ada transaksi DOKU" description="Transaksi pembayaran online via DOKU akan muncul di sini." />
+              ) : (
+                <div className="overflow-x-auto -mx-4">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left border-b border-neutral-100">
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Order ID</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Customer</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Tanggal</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold text-right">Jumlah</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Status</th>
+                        <th className="px-4 py-2 text-xs text-neutral-400 font-semibold">Metode</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dokuTransactions.map(tx => (
+                        <tr key={tx.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition">
+                          <td className="px-4 py-2.5 font-mono text-xs text-neutral-600 max-w-[140px] truncate">{tx.doku_order_id}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="font-semibold text-neutral-900">{tx.customer_name || '—'}</div>
+                            <div className="text-xs text-neutral-400">{tx.customer_email || ''}</div>
+                          </td>
+                          <td className="px-4 py-2.5 text-neutral-500 text-xs">{fmtDate(tx.created_at)}</td>
+                          <td className="px-4 py-2.5 font-semibold text-neutral-900 text-right">Rp {fmt(tx.amount)}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                              tx.status === 'failed' || tx.status === 'expired' ? 'bg-red-100 text-red-600' :
+                              tx.status === 'awaiting' || tx.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                              'bg-neutral-100 text-neutral-600'
+                            }`}>{tx.status}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-neutral-500">{tx.payment_method || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Summary */}
+              {dokuTransactions.length > 0 && (
+                <div className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                  <span className="text-sm font-semibold text-neutral-600">
+                    {dokuTransactions.filter(t => t.status === 'completed').length} transaksi selesai
+                  </span>
+                  <span className="font-bold text-neutral-900">
+                    Total: Rp {fmt(dokuTransactions.filter(t => t.status === 'completed').reduce((s, t) => s + Number(t.amount || 0), 0))}
+                  </span>
                 </div>
               )}
             </div>

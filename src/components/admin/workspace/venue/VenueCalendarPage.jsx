@@ -61,6 +61,7 @@ export default function VenueCalendarPage({ venue }) {
   const [view, setView] = useState('week');
   const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()));
   const [bookings, setBookings] = useState([]);
+  const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
   const [courts, setCourts] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -113,6 +114,11 @@ export default function VenueCalendarPage({ venue }) {
     bookings: filteredBookings.filter((booking) => booking.court_id === court.id && booking.booking_date === selectedDate),
   })), [courts, filteredBookings, selectedDate]);
 
+  const dayMaintenanceByCourt = useMemo(() => courts.map((court) => ({
+    court,
+    blocks: maintenanceBlocks.filter((block) => block.maintenance_date === selectedDate && (!block.court_id || block.court_id === court.id)),
+  })), [courts, maintenanceBlocks, selectedDate]);
+
   const monthBookingsByDate = useMemo(() => {
     const map = {};
     visibleDays.forEach((day) => { map[day] = []; });
@@ -144,7 +150,7 @@ export default function VenueCalendarPage({ venue }) {
     try {
       await supabase.rpc('expire_old_venue_bookings', { p_venue_id: venue.id });
 
-      const [bookingResult, courtResult] = await Promise.all([
+      const [bookingResult, courtResult, maintenanceResult] = await Promise.all([
         supabase
           .from('venue_bookings')
           .select('*')
@@ -158,11 +164,22 @@ export default function VenueCalendarPage({ venue }) {
           .select('*')
           .eq('venue_id', venue.id)
           .order('name', { ascending: true }),
+        supabase
+          .from('venue_maintenance_schedules')
+          .select('id, court_id, title, maintenance_date, start_time, end_time, status, is_blocking')
+          .eq('venue_id', venue.id)
+          .eq('is_blocking', true)
+          .in('status', ['scheduled', 'in_progress'])
+          .gte('maintenance_date', range.start)
+          .lte('maintenance_date', range.end)
+          .order('maintenance_date', { ascending: true })
+          .order('start_time', { ascending: true }),
       ]);
 
       const bookingData = bookingResult.data || [];
       setBookings(bookingData);
       setCourts(courtResult.data || []);
+      setMaintenanceBlocks(maintenanceResult.data || []);
 
       if (bookingData.length > 0) {
         const { data: discountData } = await supabase
@@ -184,6 +201,16 @@ export default function VenueCalendarPage({ venue }) {
       setLoading(false);
     }
   }, [range.end, range.start, venue?.id]);
+
+  const editMaintenanceConflict = useMemo(() => {
+    if (!editingBooking || !editForm.booking_date || !editForm.start_time || !editForm.end_time || !editForm.court_id) return null;
+    return maintenanceBlocks.find((block) => {
+      const sameCourt = !block.court_id || block.court_id === editForm.court_id;
+      if (!sameCourt) return false;
+      if (block.maintenance_date !== editForm.booking_date) return false;
+      return overlaps(editForm.start_time, editForm.end_time, formatTime(block.start_time), formatTime(block.end_time));
+    }) || null;
+  }, [maintenanceBlocks, editingBooking, editForm.booking_date, editForm.start_time, editForm.end_time, editForm.court_id]);
 
   useEffect(() => {
     load();
@@ -232,6 +259,18 @@ export default function VenueCalendarPage({ venue }) {
       const conflict = await findConflict(booking.id, targetDate, targetCourtId, targetStartTime, targetEndTime);
       if (conflict) {
         showToast('error', `Slot bentrok dengan booking ${conflict.customer_name} (${formatTime(conflict.start_time)} - ${formatTime(conflict.end_time)}).`);
+        return;
+      }
+
+      const maintenanceConflict = maintenanceBlocks.find((block) => {
+        const sameCourt = !block.court_id || block.court_id === targetCourtId;
+        if (!sameCourt) return false;
+        if (block.maintenance_date !== targetDate) return false;
+        return overlaps(targetStartTime, targetEndTime, formatTime(block.start_time), formatTime(block.end_time));
+      });
+
+      if (maintenanceConflict) {
+        showToast('error', `Slot diblokir maintenance: ${maintenanceConflict.title} (${formatTime(maintenanceConflict.start_time)} - ${formatTime(maintenanceConflict.end_time)}).`);
         return;
       }
 
@@ -427,11 +466,20 @@ export default function VenueCalendarPage({ venue }) {
               <p className="text-2xl font-display text-neutral-900">{totalDiscountBookings}</p>
             </div>
           </div>
+          <div className="rounded-2xl border border-neutral-200 p-4 flex items-center gap-3 col-span-full md:col-span-1">
+            <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center">⛔</div>
+            <div>
+              <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Maintenance Block</p>
+              <p className="text-2xl font-display text-neutral-900">{maintenanceBlocks.length}</p>
+            </div>
+          </div>
         </div>
 
         {view === 'day' && (
           <div className="space-y-4">
-            {dayBookingsByCourt.map(({ court, bookings: courtBookings }) => (
+            {dayBookingsByCourt.map(({ court, bookings: courtBookings }) => {
+              const courtBlocks = dayMaintenanceByCourt.find((item) => item.court.id === court.id)?.blocks || [];
+              return (
               <div key={court.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div>
@@ -440,6 +488,15 @@ export default function VenueCalendarPage({ venue }) {
                   </div>
                   <StatusBadge status={court.status} />
                 </div>
+                {courtBlocks.length > 0 ? (
+                  <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 space-y-1">
+                    {courtBlocks.map((block) => (
+                      <div key={block.id} className="text-xs text-red-700">
+                        ⛔ {formatTime(block.start_time)} - {formatTime(block.end_time)} · {block.title}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {courtBookings.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-neutral-300 px-4 py-5 text-sm text-neutral-500">Tidak ada booking untuk court ini pada tanggal {selectedDate}.</div>
                 ) : (
@@ -448,7 +505,8 @@ export default function VenueCalendarPage({ venue }) {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -515,6 +573,12 @@ export default function VenueCalendarPage({ venue }) {
             {editConflict ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 Slot bentrok dengan booking {editConflict.customer_name} ({formatTime(editConflict.start_time)} - {formatTime(editConflict.end_time)}).
+              </div>
+            ) : null}
+
+            {editMaintenanceConflict ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                Slot diblokir maintenance: {editMaintenanceConflict.title} ({formatTime(editMaintenanceConflict.start_time)} - {formatTime(editMaintenanceConflict.end_time)}).
               </div>
             ) : null}
 

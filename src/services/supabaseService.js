@@ -207,13 +207,20 @@ export async function fetchVenues() {
       .select(`
         *,
         venue_tags(tag)
-      `);
+      `)
+      .order('is_featured', { ascending: false })
+      .order('featured_priority', { ascending: false })
+      .order('rating', { ascending: false });
     if (error) throw error;
     
     // Transform to match frontend format
     return data.map(v => ({
       ...v,
-      tags: v.venue_tags.map(t => t.tag)
+      is_featured: Boolean(v.is_featured),
+      is_sponsored: Boolean(v.is_sponsored),
+      featured_priority: Number(v.featured_priority || 0),
+      featured_badge_label: v.featured_badge_label || 'Featured Venue',
+      tags: (v.venue_tags || []).map(t => t.tag)
     }));
   } catch (err) {
     console.error('Error fetching venues:', err.message);
@@ -1896,6 +1903,122 @@ export async function reviewVenueVerificationRequest(payload) {
   }
 }
 
+function getAdsPriorityByTier(tier) {
+  const normalized = String(tier || '').toLowerCase();
+  if (normalized === 'platinum') return 100;
+  if (normalized === 'gold') return 80;
+  if (normalized === 'silver') return 60;
+  return 40;
+}
+
+function buildAdsVenuePlacementMetadata(subscription) {
+  const scopes = Array.isArray(subscription?.placement_scope) ? subscription.placement_scope : [];
+  const scopeSet = new Set(scopes);
+  const tier = String(subscription?.package_tier || '').toLowerCase();
+  const tierLabel = tier ? `${tier.charAt(0).toUpperCase()}${tier.slice(1)}` : 'Venue';
+
+  return {
+    is_featured: scopeSet.has('featured_listing') || scopeSet.has('homepage_banner') || scopeSet.has('search_promoted') || scopeSet.has('booking_page_top'),
+    is_sponsored: scopeSet.has('homepage_banner') || scopeSet.has('search_promoted') || scopeSet.has('booking_page_top'),
+    featured_priority: scopes.length > 0 ? getAdsPriorityByTier(tier) : 0,
+    featured_badge_label: scopes.length > 0 ? `Featured ${tierLabel}` : 'Featured Venue',
+    featured_until: subscription?.ends_at || null,
+  };
+}
+
+export async function fetchVenueAdsApprovalQueue() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchVenueAdsApprovalQueue returning fallback empty array.');
+    return [];
+  }
+
+  try {
+    const allowed = await hasAnyCurrentUserPermission([PERMISSIONS.OPERATOR_VERIFY]);
+    if (!allowed) {
+      console.warn('Permission denied: fetchVenueAdsApprovalQueue requires operator verification permission.');
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('venue_ad_subscriptions')
+      .select('*, venues(id, name, city, owner_user_id)')
+      .eq('status', 'pending_approval')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching venue ads approval queue:', err.message);
+    return [];
+  }
+}
+
+export async function reviewVenueAdsSubscriptionRequest(payload) {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: reviewVenueAdsSubscriptionRequest skipped.');
+    return false;
+  }
+
+  const decision = payload.decision === 'approved' ? 'approved' : 'rejected';
+
+  try {
+    const allowed = await hasAnyCurrentUserPermission([PERMISSIONS.OPERATOR_VERIFY]);
+    if (!allowed) {
+      console.warn('Permission denied: reviewVenueAdsSubscriptionRequest requires operator verification permission.');
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    const nextStatus = decision === 'approved' ? 'active' : 'rejected';
+
+    const { data: updatedSubscription, error: requestError } = await supabase
+      .from('venue_ad_subscriptions')
+      .update({
+        status: nextStatus,
+        approved_by: decision === 'approved' ? (payload.reviewerId || null) : null,
+        approved_at: decision === 'approved' ? now : null,
+        notes: payload.adminNotes || null,
+        updated_at: now,
+      })
+      .eq('id', payload.subscriptionId)
+      .select('*')
+      .single();
+
+    if (requestError) throw requestError;
+
+    if (decision === 'approved') {
+      const metadata = buildAdsVenuePlacementMetadata(updatedSubscription);
+      const { error: venueError } = await supabase
+        .from('venues')
+        .update(metadata)
+        .eq('id', payload.venueId);
+
+      if (venueError) throw venueError;
+    }
+
+    try {
+      await supabase.rpc('log_admin_action', {
+        p_action: `venue_ads.${decision}`,
+        p_target_type: 'venue_ad_subscription',
+        p_target_id: String(payload.subscriptionId),
+        p_details: {
+          venue_id: payload.venueId,
+          decision,
+          package_tier: updatedSubscription?.package_tier || null,
+          placement_scope: updatedSubscription?.placement_scope || [],
+        }
+      });
+    } catch (auditError) {
+      console.warn('Audit log write skipped for venue ads review:', auditError.message);
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error reviewing venue ads subscription request:', err.message);
+    return false;
+  }
+}
+
 export async function fetchOfficialProfile(userId) {
   if (!isSupabaseReady() || !userId) return null;
 
@@ -2681,5 +2804,684 @@ export async function getActivitySummary(userId) {
   } catch (err) {
     console.error('Error getting activity summary:', err.message);
     return null;
+  }
+}
+
+// ── AD ANALYTICS & ROI TRACKING (Phase 9B) ───────────────────────────────────
+
+export async function recordAdImpression(venueId, subscriptionId, placementChannel, options = {}) {
+  if (!isSupabaseReady()) return { error: 'Supabase not ready' };
+  try {
+    const { data, error } = await supabase.rpc('record_ad_impression', {
+      p_venue_id: venueId,
+      p_subscription_id: subscriptionId,
+      p_placement_channel: placementChannel,
+      p_user_id: options.userId || null,
+      p_session_id: options.sessionId || null,
+      p_device_type: options.deviceType || null,
+    });
+
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error recording ad impression:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function recordAdClick(venueId, subscriptionId, placementChannel, options = {}) {
+  if (!isSupabaseReady()) return { error: 'Supabase not ready' };
+  try {
+    const { data, error } = await supabase.rpc('record_ad_click', {
+      p_venue_id: venueId,
+      p_subscription_id: subscriptionId,
+      p_placement_channel: placementChannel,
+      p_user_id: options.userId || null,
+      p_session_id: options.sessionId || null,
+      p_device_type: options.deviceType || null,
+    });
+
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error recording ad click:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function recordAdConversion(venueId, subscriptionId, bookingId, placementChannel, bookingAmount = 0, options = {}) {
+  if (!isSupabaseReady()) return { error: 'Supabase not ready' };
+  try {
+    const { data, error } = await supabase.rpc('record_ad_conversion', {
+      p_venue_id: venueId,
+      p_subscription_id: subscriptionId,
+      p_ad_click_id: options.adClickId || null,
+      p_booking_id: bookingId,
+      p_placement_channel: placementChannel,
+      p_user_id: options.userId || null,
+      p_booking_amount_idr: bookingAmount,
+    });
+
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error recording ad conversion:', err.message);
+    return { error: err.message };
+  }
+}
+
+// ── PUBLIC VENUE PAGES (Phase 10A) ────────────────────────────────────────────
+
+export async function fetchPublicVenueDetails(venueId) {
+  if (!isSupabaseReady() || !venueId) return null;
+  try {
+    const { data: venue, error: venueError } = await supabase
+      .from('venues')
+      .select(`
+        id, name, city, province, address, sport, price, description,
+        contact_number, maps_url, is_featured, is_sponsored, 
+        featured_priority, verification_status
+      `)
+      .eq('id', venueId)
+      .eq('verification_status', 'verified')
+      .maybeSingle();
+
+    if (venueError || !venue) return null;
+
+    const [photosRes, facilitiesRes, reviewsRes, hoursRes, courtsRes] = await Promise.all([
+      supabase
+        .from('venue_photos')
+        .select('id, photo_url, title, description, is_cover, photo_order')
+        .eq('venue_id', venueId)
+        .order('photo_order', { ascending: true }),
+      supabase
+        .from('venue_facilities')
+        .select('id, facility_name, facility_category, available, description')
+        .eq('venue_id', venueId)
+        .eq('available', true)
+        .order('facility_category', { ascending: true }),
+      supabase
+        .from('venue_reviews')
+        .select('id, reviewer_name, rating, title, comment, verified_booking, created_at')
+        .eq('venue_id', venueId)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(10),
+      supabase
+        .from('venue_operating_hours')
+        .select('day_of_week, is_open, open_time, close_time, notes')
+        .eq('venue_id', venueId)
+        .order('day_of_week', { ascending: true }),
+      supabase
+        .from('venue_courts')
+        .select('id, name, sport_type, surface_type, capacity, indoor, has_lighting, has_ac, price_per_hour, status')
+        .eq('venue_id', venueId)
+        .eq('status', 'available')
+        .order('name', { ascending: true }),
+    ]);
+
+    return {
+      venue,
+      photos: photosRes.data || [],
+      facilities: facilitiesRes.data || [],
+      reviews: reviewsRes.data || [],
+      operatingHours: hoursRes.data || [],
+      courts: courtsRes.data || [],
+    };
+  } catch (err) {
+    console.error('Error fetching public venue details:', err.message);
+    return null;
+  }
+}
+
+export async function searchPublicVenues(filters = {}) {
+  if (!isSupabaseReady()) return [];
+  try {
+    const { data, error } = await supabase.rpc('search_venues_public', {
+      p_sport: filters.sport || null,
+      p_province: filters.province || null,
+      p_city: filters.city || null,
+      p_min_price: filters.minPrice || null,
+      p_max_price: filters.maxPrice || null,
+      p_limit: filters.limit || 20,
+    });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error searching public venues:', err.message);
+    return [];
+  }
+}
+
+export async function fetchVenueReviewSummary(venueId) {
+  if (!isSupabaseReady() || !venueId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('venue_review_summary')
+      .select('*')
+      .eq('id', venueId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error fetching venue review summary:', err.message);
+    return null;
+  }
+}
+
+export async function submitVenueReview(venueId, reviewData) {
+  if (!isSupabaseReady() || !venueId) return { error: 'Invalid data' };
+  try {
+    const payload = {
+      venue_id: venueId,
+      user_id: reviewData.userId || null,
+      reviewer_name: reviewData.reviewerName?.trim() || 'Anonymous',
+      rating: Number(reviewData.rating),
+      title: reviewData.title?.trim() || null,
+      comment: reviewData.comment?.trim() || null,
+      verified_booking: reviewData.verifiedBooking || false,
+    };
+
+    const { data, error } = await supabase
+      .from('venue_reviews')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error submitting venue review:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function fetchVenuePhotos(venueId) {
+  if (!isSupabaseReady() || !venueId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('venue_photos')
+      .select('id, photo_url, title, description, is_cover, photo_order')
+      .eq('venue_id', venueId)
+      .order('photo_order', { ascending: true })
+      .order('is_cover', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching venue photos:', err.message);
+    return [];
+  }
+}
+
+export async function fetchVenueOperatingHours(venueId) {
+  if (!isSupabaseReady() || !venueId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('venue_operating_hours')
+      .select('day_of_week, is_open, open_time, close_time, notes')
+      .eq('venue_id', venueId)
+      .order('day_of_week', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching operating hours:', err.message);
+    return [];
+  }
+}
+
+export async function fetchAdAnalyticsSummary(venueId) {
+  if (!isSupabaseReady() || !venueId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('venue_ad_analytics_summary')
+      .select('*')
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching ad analytics summary:', err.message);
+    return [];
+  }
+}
+
+export async function fetchAdAnalyticsDaily(venueId, subscriptionId = null) {
+  if (!isSupabaseReady() || !venueId) return [];
+  try {
+    let query = supabase
+      .from('venue_ad_analytics_daily')
+      .select('*')
+      .eq('venue_id', venueId)
+      .order('date', { ascending: false })
+      .limit(30);
+
+    if (subscriptionId) {
+      query = query.eq('subscription_id', subscriptionId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching ad analytics daily:', err.message);
+    return [];
+  }
+}
+
+export async function fetchAdImpressions(subscriptionId, options = {}) {
+  if (!isSupabaseReady() || !subscriptionId) return [];
+  try {
+    let query = supabase
+      .from('venue_ad_impressions')
+      .select('*')
+      .eq('subscription_id', subscriptionId)
+      .order('created_at', { ascending: false });
+
+    if (options.limit) query = query.limit(options.limit);
+    if (options.days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - options.days);
+      query = query.gte('created_at', cutoff.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching ad impressions:', err.message);
+    return [];
+  }
+}
+
+export async function fetchAdClicks(subscriptionId, options = {}) {
+  if (!isSupabaseReady() || !subscriptionId) return [];
+  try {
+    let query = supabase
+      .from('venue_ad_clicks')
+      .select('*')
+      .eq('subscription_id', subscriptionId)
+      .order('created_at', { ascending: false });
+
+    if (options.limit) query = query.limit(options.limit);
+    if (options.days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - options.days);
+      query = query.gte('created_at', cutoff.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching ad clicks:', err.message);
+    return [];
+  }
+}
+
+export async function fetchAdConversions(subscriptionId, options = {}) {
+  if (!isSupabaseReady() || !subscriptionId) return [];
+  try {
+    let query = supabase
+      .from('venue_ad_conversions')
+      .select('*')
+      .eq('subscription_id', subscriptionId)
+      .order('created_at', { ascending: false });
+
+    if (options.limit) query = query.limit(options.limit);
+    if (options.days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - options.days);
+      query = query.gte('created_at', cutoff.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching ad conversions:', err.message);
+    return [];
+  }
+}
+
+// ============================================================================
+// PHASE 11: DOKU PAYMENT GATEWAY FUNCTIONS
+// ============================================================================
+
+export async function getDokuVenueConfig(venueId) {
+  if (!isSupabaseReady() || !venueId) return { error: 'Missing parameters' };
+  try {
+    const { data, error } = await supabase
+      .from('doku_venue_config')
+      .select('*')
+      .eq('venue_id', venueId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error fetching DOKU venue config:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function createDokuVenueConfig(venueId, config) {
+  if (!isSupabaseReady() || !venueId || !config?.doku_merchant_id) {
+    return { error: 'Missing required configuration' };
+  }
+  try {
+    const { data, error } = await supabase
+      .from('doku_venue_config')
+      .upsert({
+        venue_id: venueId,
+        doku_merchant_id: config.doku_merchant_id,
+        doku_client_id: config.doku_client_id,
+        doku_secret_key: config.doku_secret_key,
+        environment: config.environment || 'sandbox',
+        is_enabled: config.is_enabled || false,
+        configured_by: config.configured_by,
+      }, { onConflict: 'venue_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error creating DOKU config:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function initiateDokuPayment(bookingId, venueId, paymentInfo) {
+  if (!isSupabaseReady() || !bookingId || !venueId) {
+    return { error: 'Missing booking or venue ID' };
+  }
+  try {
+    // Get booking details
+    const { data: booking, error: bookingErr } = await supabase
+      .from('venue_bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .single();
+
+    if (bookingErr || !booking) throw bookingErr || new Error('Booking not found');
+
+    // Generate DOKU order ID
+    const { data: orderIdData, error: orderIdErr } = await supabase
+      .rpc('generate_doku_order_id', { p_venue_id: venueId });
+
+    if (orderIdErr) throw orderIdErr;
+
+    // Create DOKU transaction record
+    const { data: transaction, error: txnErr } = await supabase
+      .from('doku_payment_transactions')
+      .insert({
+        venue_id: venueId,
+        booking_id: bookingId,
+        doku_order_id: orderIdData,
+        amount: booking.total_price,
+        customer_name: booking.customer_name,
+        customer_email: paymentInfo?.customer_email || `customer_${bookingId}@stadione.id`,
+        customer_phone: booking.customer_phone || paymentInfo?.customer_phone,
+        status: 'initiated',
+        initiated_at: new Date().toISOString(),
+        initiated_by: paymentInfo?.initiated_by,
+        metadata: {
+          booking_date: booking.booking_date,
+          court_info: paymentInfo?.court_info,
+        },
+      })
+      .select()
+      .single();
+
+    if (txnErr) throw txnErr;
+
+    return {
+      data: transaction,
+      dokuOrderId: orderIdData,
+    };
+  } catch (err) {
+    console.error('Error initiating DOKU payment:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function updateDokuTransactionStatus(dokuOrderId, newStatus, dokuPaymentId = null, response = null) {
+  if (!isSupabaseReady() || !dokuOrderId) {
+    return { error: 'Missing DOKU order ID' };
+  }
+  try {
+    const { data, error } = await supabase
+      .rpc('process_doku_payment_status_update', {
+        p_doku_order_id: dokuOrderId,
+        p_new_status: newStatus,
+        p_doku_payment_id: dokuPaymentId,
+        p_response: response,
+      });
+
+    if (error) throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error updating DOKU transaction status:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function getDokuTransaction(dokuOrderId) {
+  if (!isSupabaseReady() || !dokuOrderId) {
+    return { error: 'Missing DOKU order ID' };
+  }
+  try {
+    const { data, error } = await supabase
+      .from('doku_payment_transactions')
+      .select('*')
+      .eq('doku_order_id', dokuOrderId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error fetching DOKU transaction:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function processDokuWebhookEvent(webhookPayload) {
+  if (!isSupabaseReady() || !webhookPayload) {
+    return { error: 'Missing webhook payload' };
+  }
+  try {
+    const dokuOrderId = webhookPayload.order_id || webhookPayload.orderId;
+    const webhookIdFromDoku = webhookPayload.webhook_id || webhookPayload.event_id;
+
+    if (!dokuOrderId) throw new Error('No order ID in webhook');
+
+    // Check for duplicate webhook (idempotency)
+    if (webhookIdFromDoku) {
+      const { data: existingEvent, error: checkErr } = await supabase
+        .from('payment_webhook_events')
+        .select('id, is_processed')
+        .eq('webhook_id_from_doku', webhookIdFromDoku)
+        .maybeSingle();
+
+      if (checkErr && checkErr.code !== 'PGRST116') throw checkErr;
+
+      if (existingEvent) {
+        return {
+          data: existingEvent,
+          isDuplicate: true,
+          message: 'Webhook already processed',
+        };
+      }
+    }
+
+    // Find transaction
+    const { data: transaction, error: txnErr } = await supabase
+      .from('doku_payment_transactions')
+      .select('id')
+      .eq('doku_order_id', dokuOrderId)
+      .single();
+
+    if (txnErr && txnErr.code !== 'PGRST116') throw txnErr;
+
+    // Log webhook event
+    const { data: webhookEvent, error: logErr } = await supabase
+      .from('payment_webhook_events')
+      .insert({
+        webhook_source: 'doku',
+        doku_order_id: dokuOrderId,
+        doku_payment_id: webhookPayload.payment_id || webhookPayload.paymentId,
+        event_type: webhookPayload.event_type || webhookPayload.status,
+        webhook_signature: webhookPayload.signature || '',
+        webhook_payload: webhookPayload,
+        webhook_id_from_doku: webhookIdFromDoku,
+        related_transaction_id: transaction?.id,
+        is_processed: false,
+      })
+      .select()
+      .single();
+
+    if (logErr) throw logErr;
+
+    // Process status update if transaction exists
+    if (transaction) {
+      const statusMap = {
+        'payment.completed': 'completed',
+        'payment.failed': 'failed',
+        'payment.pending': 'pending',
+        'payment.cancelled': 'cancelled',
+        'payment.expired': 'expired',
+      };
+
+      const newStatus = statusMap[webhookPayload.event_type] || 'pending';
+
+      await updateDokuTransactionStatus(dokuOrderId, newStatus, webhookPayload.payment_id, webhookPayload);
+
+      // Mark webhook as processed
+      await supabase
+        .from('payment_webhook_events')
+        .update({ is_processed: true, processing_result: 'success' })
+        .eq('id', webhookEvent.id);
+    }
+
+    return { data: webhookEvent, isDuplicate: false };
+  } catch (err) {
+    console.error('Error processing DOKU webhook:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function createPaymentReconciliation(dokuTransactionId, dokuAmount, venueAmount = null) {
+  if (!isSupabaseReady() || !dokuTransactionId || !dokuAmount) {
+    return { error: 'Missing required reconciliation data' };
+  }
+  try {
+    const { data, error } = await supabase
+      .rpc('create_payment_reconciliation', {
+        p_doku_transaction_id: dokuTransactionId,
+        p_doku_amount: dokuAmount,
+        p_venue_amount: venueAmount,
+      });
+
+    if (error) throw error;
+    return { data: data?.[0] };
+  } catch (err) {
+    console.error('Error creating payment reconciliation:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function getDokuRefundStatus(dokuOrderId) {
+  if (!isSupabaseReady() || !dokuOrderId) {
+    return { error: 'Missing DOKU order ID' };
+  }
+  try {
+    const { data, error } = await supabase
+      .from('doku_refund_transactions')
+      .select('*')
+      .eq('doku_order_id', dokuOrderId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return { data };
+  } catch (err) {
+    console.error('Error fetching DOKU refund status:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function initiateDokuRefund(dokuTransactionId, refundAmount, reason, requestedBy) {
+  if (!isSupabaseReady() || !dokuTransactionId || !refundAmount) {
+    return { error: 'Missing refund parameters' };
+  }
+  try {
+    // Get transaction details
+    const { data: transaction, error: txnErr } = await supabase
+      .from('doku_payment_transactions')
+      .select('*')
+      .eq('id', dokuTransactionId)
+      .single();
+
+    if (txnErr || !transaction) throw txnErr || new Error('Transaction not found');
+
+    // Create refund record
+    const { data: refund, error: refundErr } = await supabase
+      .from('doku_refund_transactions')
+      .insert({
+        doku_transaction_id: dokuTransactionId,
+        doku_order_id: transaction.doku_order_id,
+        refund_amount: refundAmount,
+        refund_reason: reason,
+        status: 'initiated',
+        requested_by: requestedBy,
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (refundErr) throw refundErr;
+    return { data: refund };
+  } catch (err) {
+    console.error('Error initiating DOKU refund:', err.message);
+    return { error: err.message };
+  }
+}
+
+export async function getDokuPaymentHistory(venueId, options = {}) {
+  if (!isSupabaseReady() || !venueId) {
+    return { error: 'Missing venue ID' };
+  }
+  try {
+    let query = supabase
+      .from('doku_payment_transactions')
+      .select('*')
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false });
+
+    if (options.limit) query = query.limit(options.limit);
+    if (options.status) query = query.eq('status', options.status);
+    if (options.days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - options.days);
+      query = query.gte('created_at', cutoff.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return { data: data || [] };
+  } catch (err) {
+    console.error('Error fetching DOKU payment history:', err.message);
+    return { error: err.message };
   }
 }

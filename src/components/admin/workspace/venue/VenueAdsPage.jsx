@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Megaphone, Plus, Tag, Copy, Check, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Megaphone, Plus, Tag, Copy, Check, ToggleLeft, ToggleRight, Sparkles, TrendingUp } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { ActionButton, EmptyState, Field, Modal, inputCls, selectCls, textareaCls } from '../../AdminLayout.jsx';
 import { supabase } from '../../../../config/supabase.js';
+import { fetchAdAnalyticsSummary, fetchAdAnalyticsDaily } from '../../../../services/supabaseService.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -16,6 +18,45 @@ function fmtDiscount(promo) {
 }
 
 const APPLIES_LABELS = { all: 'Semua Pelanggan', member_only: 'Member Saja', new_customer: 'Pelanggan Baru' };
+
+const PLACEMENT_CHANNELS = [
+  { key: 'regional_highlight', label: 'Regional Highlight', description: 'Tampil pada rekomendasi wilayah kota.' },
+  { key: 'featured_listing', label: 'Featured Listing', description: 'Prioritas di daftar venue booking.' },
+  { key: 'homepage_banner', label: 'Homepage Banner', description: 'Slot banner pada halaman utama.' },
+  { key: 'search_promoted', label: 'Search Promoted', description: 'Dorong posisi di hasil pencarian.' },
+  { key: 'booking_page_top', label: 'Booking Page Top', description: 'Posisi atas pada halaman booking.' },
+];
+
+const ADS_PACKAGE_CATALOG = {
+  Bronze: {
+    tier: 'Bronze',
+    monthly_fee_idr: 500000,
+    placement_scope: ['regional_highlight'],
+    ctr_target_percent: 2,
+    description: 'Boost visibilitas regional untuk venue Anda.',
+  },
+  Silver: {
+    tier: 'Silver',
+    monthly_fee_idr: 1500000,
+    placement_scope: ['featured_listing', 'regional_highlight'],
+    ctr_target_percent: 4,
+    description: 'Masuk listing featured dengan eksposur lebih tinggi.',
+  },
+  Gold: {
+    tier: 'Gold',
+    monthly_fee_idr: 3000000,
+    placement_scope: ['homepage_banner', 'featured_listing', 'regional_highlight'],
+    ctr_target_percent: 6,
+    description: 'Prioritas homepage banner untuk jangkauan maksimal.',
+  },
+  Platinum: {
+    tier: 'Platinum',
+    monthly_fee_idr: 5000000,
+    placement_scope: ['multi_placement', 'homepage_banner', 'search_promoted', 'regional_highlight'],
+    ctr_target_percent: 10,
+    description: 'Paket premium dengan multi-placement dan prioritas tertinggi.',
+  },
+};
 
 const EMPTY_FORM = {
   title: '', description: '', promo_code: '', discount_type: 'percent', discount_value: '',
@@ -32,6 +73,8 @@ function randomCode() {
 export default function VenueAdsPage({ auth, venue }) {
   const venueId = venue?.id;
   const [promos, setPromos] = useState([]);
+  const [adSubscriptions, setAdSubscriptions] = useState([]);
+  const [venueProfile, setVenueProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -40,6 +83,13 @@ export default function VenueAdsPage({ auth, venue }) {
   const [toast, setToast] = useState(null);
   const [copied, setCopied] = useState(null);
   const [filterActive, setFilterActive] = useState('all');
+  const [buyingTier, setBuyingTier] = useState('');
+  const [savingFeatured, setSavingFeatured] = useState(false);
+  const [savingPlacement, setSavingPlacement] = useState(false);
+  const [placementDraft, setPlacementDraft] = useState([]);
+  const [analyticsSummary, setAnalyticsSummary] = useState([]);
+  const [analyticsDaily, setAnalyticsDaily] = useState([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000); };
 
@@ -47,21 +97,54 @@ export default function VenueAdsPage({ auth, venue }) {
     if (!venueId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('venue_promotions')
-        .select('*')
-        .eq('venue_id', venueId)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setPromos(data || []);
+      const [promoRes, packageRes, venueRes] = await Promise.all([
+        supabase
+          .from('venue_promotions')
+          .select('*')
+          .eq('venue_id', venueId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('venue_ad_subscriptions')
+          .select('*')
+          .eq('venue_id', venueId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('venues')
+          .select('id, is_featured, is_sponsored, featured_priority, featured_badge_label, featured_until')
+          .eq('id', venueId)
+          .maybeSingle(),
+      ]);
+
+      if (promoRes.error) throw promoRes.error;
+      if (packageRes.error) throw packageRes.error;
+      if (venueRes.error) throw venueRes.error;
+
+      setPromos(promoRes.data || []);
+      setAdSubscriptions(packageRes.data || []);
+      setVenueProfile(venueRes.data || null);
+
+      // Load analytics data
+      setLoadingAnalytics(true);
+      const summary = await fetchAdAnalyticsSummary(venueId);
+      const daily = await fetchAdAnalyticsDaily(venueId);
+      setAnalyticsSummary(summary || []);
+      setAnalyticsDaily(daily || []);
+      setLoadingAnalytics(false);
     } catch (err) {
-      console.error('Promos load error:', err.message);
+      console.error('Promos/ads load error:', err.message);
+      showToast('error', err.message);
+      setLoadingAnalytics(false);
     } finally {
       setLoading(false);
     }
   }, [venueId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const topPackage = adSubscriptions.find((row) => row.status === 'active' || row.status === 'pending_approval');
+    setPlacementDraft(Array.isArray(topPackage?.placement_scope) ? topPackage.placement_scope : []);
+  }, [adSubscriptions]);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
@@ -134,6 +217,148 @@ export default function VenueAdsPage({ auth, venue }) {
     } catch (err) { showToast('error', err.message); }
   }
 
+  async function activatePackage(tier) {
+    if (!venueId || !ADS_PACKAGE_CATALOG[tier]) return;
+
+    const selected = ADS_PACKAGE_CATALOG[tier];
+    const start = new Date();
+    const end = new Date(start);
+    end.setDate(end.getDate() + 30);
+
+    setBuyingTier(tier);
+    try {
+      const payload = {
+        venue_id: venueId,
+        package_tier: selected.tier.toLowerCase(),
+        monthly_fee_idr: selected.monthly_fee_idr,
+        placement_scope: selected.placement_scope,
+        ctr_target_percent: selected.ctr_target_percent,
+        status: 'pending_approval',
+        starts_at: start.toISOString().slice(0, 10),
+        ends_at: end.toISOString().slice(0, 10),
+        created_by: auth?.id || null,
+      };
+
+      const { error } = await supabase.from('venue_ad_subscriptions').insert(payload);
+      if (error) throw error;
+
+      showToast('success', `Paket ${selected.tier} diajukan dan menunggu approval admin.`);
+      load();
+    } catch (err) {
+      showToast('error', err.message);
+    } finally {
+      setBuyingTier('');
+    }
+  }
+
+  function priorityByTier(tier) {
+    const tierNormalized = String(tier || '').toLowerCase();
+    if (tierNormalized === 'platinum') return 100;
+    if (tierNormalized === 'gold') return 80;
+    if (tierNormalized === 'silver') return 60;
+    return 40;
+  }
+
+  function resolveAllowedScopesByTier(tier) {
+    const tierKey = String(tier || '').toLowerCase();
+    if (!tierKey) return [];
+    const catalog = Object.values(ADS_PACKAGE_CATALOG).find((item) => item.tier.toLowerCase() === tierKey);
+    if (!catalog) return [];
+    const rawScopes = Array.isArray(catalog.placement_scope) ? catalog.placement_scope : [];
+    if (rawScopes.includes('multi_placement')) {
+      return PLACEMENT_CHANNELS.map((item) => item.key);
+    }
+    return rawScopes.filter((scope) => scope !== 'multi_placement');
+  }
+
+  function buildPlacementMetadata(scopes = [], packageTier = null) {
+    const scopeSet = new Set(scopes || []);
+    const tierLabel = packageTier
+      ? `${String(packageTier).charAt(0).toUpperCase()}${String(packageTier).slice(1).toLowerCase()}`
+      : null;
+    return {
+      is_featured: scopeSet.has('featured_listing') || scopeSet.has('homepage_banner') || scopeSet.has('search_promoted') || scopeSet.has('booking_page_top'),
+      is_sponsored: scopeSet.has('homepage_banner') || scopeSet.has('search_promoted') || scopeSet.has('booking_page_top'),
+      featured_priority: scopeSet.size > 0 ? priorityByTier(packageTier) : 0,
+      featured_badge_label: scopeSet.size > 0 ? `Featured ${tierLabel || 'Venue'}` : 'Featured Venue',
+    };
+  }
+
+  async function updateFeaturedPlacement(enabled) {
+    if (!venueId) return;
+    setSavingFeatured(true);
+    try {
+      const topPackage = adSubscriptions.find((row) => row.status === 'active' || row.status === 'pending_approval');
+      const metadata = buildPlacementMetadata(enabled ? placementDraft : [], topPackage?.package_tier);
+
+      const { error } = await supabase
+        .from('venues')
+        .update({
+          is_featured: enabled ? metadata.is_featured : false,
+          is_sponsored: enabled ? metadata.is_sponsored : false,
+          featured_priority: enabled ? metadata.featured_priority : 0,
+          featured_badge_label: enabled ? metadata.featured_badge_label : 'Featured Venue',
+          featured_until: enabled ? (topPackage?.ends_at || null) : null,
+        })
+        .eq('id', venueId);
+
+      if (error) throw error;
+      showToast('success', enabled ? 'Featured badge aktif dan placement diprioritaskan.' : 'Featured badge dinonaktifkan.');
+      load();
+    } catch (err) {
+      showToast('error', err.message);
+    } finally {
+      setSavingFeatured(false);
+    }
+  }
+
+  async function savePlacementScopes() {
+    const topPackage = adSubscriptions.find((row) => row.status === 'active' || row.status === 'pending_approval');
+    if (!topPackage?.id) {
+      showToast('error', 'Belum ada paket ads aktif/pending untuk dikonfigurasi.');
+      return;
+    }
+
+    const allowedScopes = new Set(resolveAllowedScopesByTier(topPackage.package_tier));
+    const sanitizedScopes = placementDraft.filter((scope) => allowedScopes.has(scope));
+    const metadata = buildPlacementMetadata(sanitizedScopes, topPackage.package_tier);
+
+    setSavingPlacement(true);
+    try {
+      const { error: subError } = await supabase
+        .from('venue_ad_subscriptions')
+        .update({ placement_scope: sanitizedScopes })
+        .eq('id', topPackage.id);
+      if (subError) throw subError;
+
+      const { error: venueError } = await supabase
+        .from('venues')
+        .update({
+          is_featured: metadata.is_featured,
+          is_sponsored: metadata.is_sponsored,
+          featured_priority: metadata.featured_priority,
+          featured_badge_label: metadata.featured_badge_label,
+          featured_until: topPackage.ends_at || null,
+        })
+        .eq('id', venueId);
+      if (venueError) throw venueError;
+
+      showToast('success', 'Konfigurasi placement berhasil disimpan.');
+      load();
+    } catch (err) {
+      showToast('error', err.message);
+    } finally {
+      setSavingPlacement(false);
+    }
+  }
+
+  function togglePlacementScope(scopeKey) {
+    setPlacementDraft((current) => {
+      if (current.includes(scopeKey)) return current.filter((item) => item !== scopeKey);
+      return [...current, scopeKey];
+    });
+  }
+
   function copyCode(code) {
     navigator.clipboard.writeText(code).then(() => {
       setCopied(code);
@@ -155,6 +380,8 @@ export default function VenueAdsPage({ auth, venue }) {
 
   const activeCount = promos.filter(p => p.is_active && !isExpired(p)).length;
   const totalUsage = promos.reduce((s, p) => s + (p.usage_count || 0), 0);
+  const activePackage = adSubscriptions.find((row) => row.status === 'active' || row.status === 'pending_approval') || null;
+  const allowedPlacementScopes = resolveAllowedScopesByTier(activePackage?.package_tier);
 
   if (!venueId) {
     return (
@@ -180,6 +407,250 @@ export default function VenueAdsPage({ auth, venue }) {
         </div>
         <ActionButton onClick={openCreate}><Plus size={14} /> Buat Promo</ActionButton>
       </div>
+
+      <div className="rounded-3xl border border-neutral-200 bg-white p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">Ads Package</p>
+            <h2 className="text-xl font-black text-neutral-900">Bronze / Silver / Gold / Platinum</h2>
+            <p className="text-sm text-neutral-500 mt-1">Aktifkan paket iklan berlangganan untuk meningkatkan eksposur venue.</p>
+          </div>
+          {activePackage && (
+            <div className="rounded-2xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+              Paket aktif: <span className="font-bold uppercase">{activePackage.package_tier}</span> ({activePackage.status.replace('_', ' ')})
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          {Object.values(ADS_PACKAGE_CATALOG).map((pkg) => {
+            const isCurrentTier = activePackage?.package_tier === pkg.tier.toLowerCase();
+            return (
+              <div key={pkg.tier} className={`rounded-2xl border p-4 ${isCurrentTier ? 'border-emerald-300 bg-emerald-50' : 'border-neutral-200 bg-white'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-black text-neutral-900">{pkg.tier}</div>
+                  <Sparkles size={14} className={isCurrentTier ? 'text-emerald-600' : 'text-neutral-400'} />
+                </div>
+                <div className="text-2xl font-black text-neutral-900">Rp {pkg.monthly_fee_idr.toLocaleString('id-ID')}</div>
+                <div className="text-xs text-neutral-500 mb-3">per bulan · target CTR {pkg.ctr_target_percent}%</div>
+                <div className="text-xs text-neutral-600 mb-3">{pkg.description}</div>
+                <ul className="text-xs text-neutral-600 space-y-1 mb-4">
+                  {pkg.placement_scope.map((scope) => (
+                    <li key={scope}>• {scope.replaceAll('_', ' ')}</li>
+                  ))}
+                </ul>
+                <ActionButton
+                  onClick={() => activatePackage(pkg.tier)}
+                  loading={buyingTier === pkg.tier}
+                  disabled={Boolean(isCurrentTier)}
+                  className="w-full justify-center"
+                >
+                  {isCurrentTier ? 'Sedang Aktif' : `Pilih ${pkg.tier}`}
+                </ActionButton>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rounded-2xl border border-neutral-200 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-bold text-neutral-900">Featured Venue Badge</div>
+            <div className="text-xs text-neutral-500 mt-0.5">
+              {venueProfile?.is_featured
+                ? `Aktif${venueProfile?.featured_badge_label ? ` sebagai ${venueProfile.featured_badge_label}` : ''}${venueProfile?.featured_priority ? ` · priority ${venueProfile.featured_priority}` : ''}`
+                : 'Belum aktif. Aktifkan untuk menonjolkan venue di listing.'}
+            </div>
+          </div>
+          <ActionButton
+            onClick={() => updateFeaturedPlacement(!venueProfile?.is_featured)}
+            loading={savingFeatured}
+            variant={venueProfile?.is_featured ? 'outline' : 'primary'}
+          >
+            {venueProfile?.is_featured ? 'Nonaktifkan Featured' : 'Aktifkan Featured'}
+          </ActionButton>
+        </div>
+
+        <div className="rounded-2xl border border-neutral-200 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-bold text-neutral-900">Multi-placement Control</div>
+              <div className="text-xs text-neutral-500 mt-0.5">
+                Atur channel penayangan aktif untuk paket {activePackage?.package_tier ? String(activePackage.package_tier).toUpperCase() : '—'}.
+              </div>
+            </div>
+            <ActionButton
+              onClick={savePlacementScopes}
+              loading={savingPlacement}
+              disabled={!activePackage}
+              variant="outline"
+            >
+              Simpan Placement
+            </ActionButton>
+          </div>
+
+          {!activePackage ? (
+            <div className="text-xs text-neutral-500">Pilih paket ads terlebih dahulu untuk mengatur placement.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {PLACEMENT_CHANNELS.map((channel) => {
+                const allowed = allowedPlacementScopes.includes(channel.key);
+                const checked = placementDraft.includes(channel.key);
+                return (
+                  <label
+                    key={channel.key}
+                    className={`rounded-xl border px-3 py-2 flex items-start gap-3 ${allowed ? 'border-neutral-200 bg-white cursor-pointer' : 'border-neutral-100 bg-neutral-50 opacity-60 cursor-not-allowed'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={checked}
+                      disabled={!allowed || savingPlacement}
+                      onChange={() => togglePlacementScope(channel.key)}
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-neutral-900">{channel.label}</span>
+                      <span className="block text-xs text-neutral-500">{channel.description}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Analytics Dashboard */}
+      {analyticsSummary.length > 0 && (
+        <div className="rounded-3xl border border-neutral-200 bg-white p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">Performance</p>
+              <h2 className="text-xl font-black text-neutral-900">Analytics & ROI Tracking</h2>
+              <p className="text-sm text-neutral-500 mt-1">Monitor performa iklan Anda dengan metrik realtime: impressions, clicks, conversions, dan ROI.</p>
+            </div>
+            <TrendingUp size={20} className="text-emerald-600" />
+          </div>
+
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {analyticsSummary.map((summary) => {
+              const impressions = summary.total_impressions || 0;
+              const clicks = summary.total_clicks || 0;
+              const conversions = summary.total_conversions || 0;
+              const revenue = summary.conversion_revenue_idr || 0;
+              const ctr = summary.click_through_rate_percent || 0;
+              const conversionRate = summary.conversion_rate_percent || 0;
+              const roi = summary.roi_percent || 0;
+
+              return (
+                <React.Fragment key={summary.subscription_id}>
+                  <div className="rounded-2xl border border-neutral-200 p-4">
+                    <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Impressions</div>
+                    <div className="text-2xl font-bold text-neutral-900">{impressions.toLocaleString('id-ID')}</div>
+                    <div className="text-xs text-neutral-500 mt-1">Total views</div>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200 p-4">
+                    <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Clicks</div>
+                    <div className="text-2xl font-bold text-blue-600">{clicks.toLocaleString('id-ID')}</div>
+                    <div className="text-xs text-neutral-500 mt-1">CTR: {ctr}%</div>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200 p-4">
+                    <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Conversions</div>
+                    <div className="text-2xl font-bold text-emerald-600">{conversions.toLocaleString('id-ID')}</div>
+                    <div className="text-xs text-neutral-500 mt-1">Rate: {conversionRate}%</div>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200 p-4">
+                    <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Net ROI</div>
+                    <div className={`text-2xl font-bold ${roi >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {roi >= 0 ? '+' : ''}{roi.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-neutral-500 mt-1">Rp {(summary.net_roi_idr || 0).toLocaleString('id-ID')}</div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Revenue Summary */}
+          {analyticsSummary.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-neutral-200">
+              {analyticsSummary.map((summary) => (
+                <div key={`revenue-${summary.subscription_id}`} className="col-span-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <div className="text-sm font-bold text-neutral-900">Paket: {summary.package_tier.toUpperCase()}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">
+                        Biaya: Rp {summary.monthly_fee_idr.toLocaleString('id-ID')} · Revenue: Rp {summary.conversion_revenue_idr.toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Trend Chart */}
+          {analyticsDaily.length > 0 && (
+            <div className="rounded-2xl border border-neutral-200 p-4 pt-6 mt-4">
+              <div className="text-sm font-bold text-neutral-900 mb-3">30-Hari Trend</div>
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={analyticsDaily}>
+                  <defs>
+                    <linearGradient id="colorImpressions" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorClicks" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorConversions" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" stroke="#9ca3af" style={{ fontSize: '12px' }} />
+                  <YAxis stroke="#9ca3af" style={{ fontSize: '12px' }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#ffffff', 
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px'
+                    }}
+                    formatter={(value) => value.toLocaleString('id-ID')}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '16px' }} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="impressions" 
+                    stroke="#3b82f6" 
+                    fillOpacity={1} 
+                    fill="url(#colorImpressions)"
+                    name="Impressions"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="clicks" 
+                    stroke="#8b5cf6" 
+                    fillOpacity={1} 
+                    fill="url(#colorClicks)"
+                    name="Clicks"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="conversions" 
+                    stroke="#10b981" 
+                    fillOpacity={1} 
+                    fill="url(#colorConversions)"
+                    name="Conversions"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

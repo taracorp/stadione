@@ -157,7 +157,14 @@ function Sidebar({ activePage, onNav, venueName, sidebarOpen, onClose }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function VenueWorkspacePage({ auth, onBack, onNav: parentNav }) {
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const host = window.location.hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') return 'dashboard';
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('e2e_venue_page');
+    return NAV_ITEMS.some((item) => item.key === requested) ? requested : 'dashboard';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [venue, setVenue] = useState(null);
   const [loadingVenue, setLoadingVenue] = useState(true);

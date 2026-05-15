@@ -11,6 +11,13 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function deriveLoyalty(score) {
+  if (score >= 120) return { tier: 'Champion', nextTarget: null, tone: 'bg-amber-100 text-amber-700' };
+  if (score >= 80) return { tier: 'Elite', nextTarget: 120, tone: 'bg-indigo-100 text-indigo-700' };
+  if (score >= 40) return { tier: 'Regular', nextTarget: 80, tone: 'bg-blue-100 text-blue-700' };
+  return { tier: 'Newcomer', nextTarget: 40, tone: 'bg-neutral-100 text-neutral-700' };
+}
+
 // ── CustomerRow ───────────────────────────────────────────────────────────────
 
 function CustomerRow({ customer }) {
@@ -33,11 +40,15 @@ function CustomerRow({ customer }) {
                 {customer.membership.tier_name}
               </span>
             )}
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${customer.loyaltyTone}`}>
+              Loyalty {customer.loyaltyTier}
+            </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-neutral-400 mt-0.5 flex-wrap">
             {customer.phone && <span className="flex items-center gap-1"><Phone size={10} />{customer.phone}</span>}
             {customer.email && <span className="flex items-center gap-1"><Mail size={10} />{customer.email}</span>}
             <span className="flex items-center gap-1"><Calendar size={10} />{customer.bookingCount} booking</span>
+            {customer.favoriteCourtName && <span>Court favorit: {customer.favoriteCourtName}</span>}
             <span className="flex items-center gap-1"><Star size={10} />Rp {fmt(customer.totalSpent)}</span>
           </div>
         </div>
@@ -48,7 +59,7 @@ function CustomerRow({ customer }) {
 
       {open && (
         <div className="border-t border-neutral-100 p-4 bg-neutral-50 space-y-3">
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-5 gap-3">
             <div>
               <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Total Booking</div>
               <div className="font-bold text-neutral-900">{customer.bookingCount}</div>
@@ -61,6 +72,28 @@ function CustomerRow({ customer }) {
               <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Booking Terakhir</div>
               <div className="font-bold text-neutral-900">{fmtDate(customer.lastBooking)}</div>
             </div>
+            <div>
+              <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Court Favorit</div>
+              <div className="font-bold text-neutral-900">{customer.favoriteCourtName || '—'}</div>
+              {customer.favoriteCourtCount > 0 && (
+                <div className="text-xs text-neutral-500">{customer.favoriteCourtCount} booking</div>
+              )}
+            </div>
+            <div>
+              <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Loyalty</div>
+              <div className="font-bold text-neutral-900">{customer.loyaltyTier}</div>
+              <div className="text-xs text-neutral-500">Skor {customer.loyaltyScore}</div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+            <div className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-1">Loyalty Program</div>
+            {customer.loyaltyNextTarget ? (
+              <div className="text-xs text-neutral-700">
+                Butuh <span className="font-semibold">{customer.loyaltyNextTarget - customer.loyaltyScore}</span> skor lagi untuk naik tier.
+              </div>
+            ) : (
+              <div className="text-xs text-neutral-700">Tier tertinggi sudah tercapai. Eligible untuk reward prioritas venue.</div>
+            )}
           </div>
           {customer.membership && (
             <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
@@ -79,7 +112,7 @@ function CustomerRow({ customer }) {
               <div className="space-y-1">
                 {customer.recentBookings.map(b => (
                   <div key={b.id} className="flex items-center justify-between text-xs text-neutral-600 py-1 border-b border-neutral-100 last:border-0">
-                    <span>{fmtDate(b.booking_date)} · {b.start_time?.slice(0,5)}–{b.end_time?.slice(0,5)}</span>
+                    <span>{fmtDate(b.booking_date)} · {b.start_time?.slice(0,5)}–{b.end_time?.slice(0,5)} · {b.court_name || 'Court'}</span>
                     <span className={`font-semibold ${b.payment_status === 'paid' ? 'text-emerald-700' : 'text-yellow-600'}`}>Rp {fmt(b.total_price)}</span>
                   </div>
                 ))}
@@ -97,6 +130,7 @@ function CustomerRow({ customer }) {
 export default function VenueCustomersPage({ auth, venue }) {
   const venueId = venue?.id;
   const [allBookings, setAllBookings] = useState([]);
+  const [courts, setCourts] = useState([]);
   const [memberships, setMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -106,10 +140,10 @@ export default function VenueCustomersPage({ auth, venue }) {
     if (!venueId) return;
     setLoading(true);
     try {
-      const [bookRes, memRes] = await Promise.all([
+      const [bookRes, memRes, courtRes] = await Promise.all([
         supabase
           .from('venue_bookings')
-          .select('id, customer_name, customer_phone, customer_email, booking_date, start_time, end_time, total_price, payment_status, status')
+          .select('id, court_id, customer_name, customer_phone, customer_email, booking_date, start_time, end_time, total_price, payment_status, status')
           .eq('venue_id', venueId)
           .order('booking_date', { ascending: false }),
 
@@ -119,9 +153,15 @@ export default function VenueCustomersPage({ auth, venue }) {
           .eq('venue_id', venueId)
           .eq('status', 'active')
           .gte('end_date', new Date().toISOString().slice(0, 10)),
+
+        supabase
+          .from('venue_courts')
+          .select('id, name')
+          .eq('venue_id', venueId),
       ]);
       setAllBookings(bookRes.data || []);
       setMemberships(memRes.data || []);
+      setCourts(courtRes.data || []);
     } catch (err) {
       console.error('Customers load error:', err.message);
     } finally {
@@ -132,6 +172,14 @@ export default function VenueCustomersPage({ auth, venue }) {
   useEffect(() => { load(); }, [load]);
 
   // ── Build customer profiles from bookings ─────────────────────────────────
+
+  const courtNameById = useMemo(() => {
+    const map = {};
+    for (const court of courts) {
+      map[court.id] = court.name;
+    }
+    return map;
+  }, [courts]);
 
   const customers = useMemo(() => {
     const map = {};
@@ -147,6 +195,13 @@ export default function VenueCustomersPage({ auth, venue }) {
           totalSpent: 0,
           lastBooking: null,
           recentBookings: [],
+          favoriteCourtName: null,
+          favoriteCourtCount: 0,
+          loyaltyScore: 0,
+          loyaltyTier: 'Newcomer',
+          loyaltyNextTarget: 40,
+          loyaltyTone: 'bg-neutral-100 text-neutral-700',
+          courtUsage: {},
           membership: null,
         };
       }
@@ -154,7 +209,15 @@ export default function VenueCustomersPage({ auth, venue }) {
       c.bookingCount++;
       if (b.payment_status === 'paid') c.totalSpent += Number(b.total_price || 0);
       if (!c.lastBooking || b.booking_date > c.lastBooking) c.lastBooking = b.booking_date;
-      if (c.recentBookings.length < 5) c.recentBookings.push(b);
+      const courtName = courtNameById[b.court_id] || 'Court tidak ditemukan';
+      if (b.court_id) {
+        const currentUsage = c.courtUsage[b.court_id] || { count: 0, name: courtName };
+        c.courtUsage[b.court_id] = {
+          count: currentUsage.count + 1,
+          name: currentUsage.name,
+        };
+      }
+      if (c.recentBookings.length < 5) c.recentBookings.push({ ...b, court_name: courtName });
     }
 
     // Attach membership data (matched by phone via raw_user_meta_data — best effort)
@@ -162,8 +225,21 @@ export default function VenueCustomersPage({ auth, venue }) {
     // For now, we'll surface membership separately or skip joining here
     // Future: join via auth.users phone lookup
 
-    return Object.values(map);
-  }, [allBookings]);
+    return Object.values(map).map((customer) => {
+      const favoriteEntry = Object.values(customer.courtUsage).sort((a, b) => b.count - a.count)[0] || null;
+      const loyaltyScore = Math.min(180, Math.round((customer.bookingCount * 6) + (customer.totalSpent / 250000)));
+      const loyalty = deriveLoyalty(loyaltyScore);
+      return {
+        ...customer,
+        favoriteCourtName: favoriteEntry?.name || null,
+        favoriteCourtCount: Number(favoriteEntry?.count || 0),
+        loyaltyScore,
+        loyaltyTier: loyalty.tier,
+        loyaltyNextTarget: loyalty.nextTarget,
+        loyaltyTone: loyalty.tone,
+      };
+    });
+  }, [allBookings, courtNameById]);
 
   const sorted = useMemo(() => {
     return [...customers].sort((a, b) => {

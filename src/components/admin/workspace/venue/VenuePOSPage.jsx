@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useContext, useCallback } from 'react';
 import { supabase } from '../../../../config/supabase';
 import AdminLayout from '../../AdminLayout';
 import { DataContext } from '../../../../context/DataContext';
 import { useMembership } from '../../../../hooks/useMembership';
+import DokuPaymentModal from '../../../payments/DokuPaymentModal.jsx';
 
 // Simple Toast component inline
 const Toast = ({ type, message, onClose }) => (
@@ -42,6 +43,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showClosingReportModal, setShowClosingReportModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showDokuModal, setShowDokuModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
@@ -71,9 +73,9 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   useEffect(() => {
     loadActiveShift();
     loadCourts();
-  }, [venueId]);
+  }, [loadActiveShift]);
 
-  const loadActiveShift = async () => {
+  const loadActiveShift = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -92,7 +94,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [venueId]);
 
   const loadCourts = async () => {
     try {
@@ -313,11 +315,61 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
   };
 
   // Process payment
+  // Helper: create invoice + finalize after DOKU payment success
+  const handleDokuPaymentSuccess = useCallback(async (dokuTransaction) => {
+    if (!bookingData) return;
+    try {
+      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.random()).slice(2, 5)}`;
+      const selectedCourt = courts.find(c => c.id === bookingData.court_id);
+      await supabase.from('venue_invoices').insert({
+        booking_id: bookingData.id,
+        invoice_number: invoiceNumber,
+        items: [{ description: `${selectedCourt?.name || 'Court'} — DOKU Online Payment`, quantity: 1, unit_price: bookingData.total_price, total: bookingData.total_price }],
+        subtotal: bookingData.total_price,
+        tax: 0,
+        total: bookingData.total_price,
+        customer_name: bookingData.customer_name,
+        customer_phone: bookingData.customer_phone,
+        status: 'issued',
+        issued_at: new Date().toISOString(),
+      });
+      await supabase.from('venue_bookings').update({ status: 'paid' }).eq('id', bookingData.id);
+
+      setLastReceipt({
+        invoiceNumber,
+        booking: bookingData,
+        selectedCourt,
+        paymentMethod: 'doku',
+        finalPrice: bookingData.total_price,
+        bonusDeduction: 0,
+        membershipDiscount: null,
+        createdAt: new Date().toISOString(),
+      });
+      setShowDokuModal(false);
+      setShowPaymentModal(false);
+      setShowReceiptModal(true);
+      setBookingData(null);
+      loadActiveShift();
+      setToast({ type: 'success', message: `Pembayaran DOKU berhasil! Invoice: ${invoiceNumber}` });
+    } catch (err) {
+      console.error('Error finalizing DOKU payment:', err);
+      setToast({ type: 'error', message: 'Pembayaran berhasil tapi gagal buat invoice: ' + err.message });
+    }
+  }, [bookingData, courts, loadActiveShift]);
+
   const handleProcessPayment = async () => {
     try {
       if (!bookingData || !activeShift) return;
 
       const paymentMethod = walkInForm.paymentMethod;
+
+      // If DOKU online payment, delegate to DokuPaymentModal
+      if (paymentMethod === 'doku') {
+        setShowPaymentModal(false);
+        setShowDokuModal(true);
+        return;
+      }
+
       // Chain: base → membership discount → bonus hour deduction
       const afterDiscount = membershipDiscount?.final_price || bookingData.total_price;
 
@@ -851,6 +903,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
                 <option value="qris">📱 QRIS</option>
                 <option value="transfer">🏦 Transfer Bank</option>
                 <option value="split">🔀 Split Payment</option>
+                <option value="doku">🌐 Online (DOKU)</option>
               </select>
             </div>
 
@@ -1012,6 +1065,24 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
           </div>
         )}
       </Modal>
+
+      {/* DOKU Online Payment Modal */}
+      <DokuPaymentModal
+        isOpen={showDokuModal}
+        booking={bookingData}
+        venueId={venueId}
+        auth={user}
+        onClose={() => {
+          setShowDokuModal(false);
+          setShowPaymentModal(true);
+        }}
+        onPaymentSuccess={handleDokuPaymentSuccess}
+        onPaymentFailed={() => {
+          setShowDokuModal(false);
+          setShowPaymentModal(true);
+          setToast({ type: 'error', message: 'Pembayaran DOKU gagal atau kadaluarsa. Pilih metode lain.' });
+        }}
+      />
     </AdminLayout>
   );
 };

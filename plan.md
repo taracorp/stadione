@@ -91,7 +91,7 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 - [x] **[DONE]** Priority booking slot reservation (member-only hours)
 - [x] **[DONE]** Bonus hour redemption workflow
 
-## 🔄 Phase 6: Tournament & Reservation — IN PROGRESS
+## ✅ Phase 6: Tournament & Reservation — COMPLETE
 
 ### Completed ✅
 - [x] **[DONE]** Tournament management page (create tournament, teams, bracket, schedule, results)
@@ -117,37 +117,48 @@ Stadione Venue Management Workspace adalah **end-to-end operating system** untuk
 
 ### Pending ⏳
 - [x] **[DONE]** End-to-end UI smoke using real scheduled tournament data *(validated via dev official bypass flow: schedule -> match center -> match report -> match statistics)*
+- [x] **[DONE]** Build hardening & compatibility fixes (venue calendar integrity, membership context/supabase imports) with green production build and successful deploy to production commit `f2d7da5`
 
-## ⏳ Phase 7: Customer & Staff Management — PENDING
+## ✅ Phase 7: Customer & Staff Management — COMPLETE
 
-- [ ] **[PENDING]** Customer profile & booking history
-- [ ] **[PENDING]** Favorite court tracking
-- [ ] **[PENDING]** Customer loyalty program
-- [ ] **[PENDING]** Staff access lifecycle (Active/Suspended/Disabled/Archived)
-- [ ] **[PENDING]** Audit log for staff actions
-- [ ] **[PENDING]** Staff role management & permissions
+- [x] **[DONE]** Customer profile & booking history *(implemented in VenueCustomersPage with searchable customer list, per-customer aggregates, and recent booking timeline)*
+- [x] **[DONE]** Favorite court tracking *(derived from booking history in VenueCustomersPage and surfaced as per-customer court favorit + usage count)*
+- [x] **[DONE]** Customer loyalty program *(loyalty score + tier progression derived from booking frequency and spend, surfaced in VenueCustomersPage)*
+- [x] **[DONE]** Staff access lifecycle (Active/Suspended/Disabled/Archived) *(implemented in VenueStaffPage with full status filters and quick lifecycle transition actions)*
+- [x] **[DONE]** Audit log for staff actions *(implemented in VenueStaffPage: invite, role/status edit, and lifecycle transitions now write to venue_staff_audit_log with non-blocking fallback)*
+- [x] **[DONE]** Staff role management & permissions *(implemented in VenueStaffPage with role-based guardrails: owner/manager manage rights, owner/self protection, restricted role assignment, and read-only UI for non-managing roles)*
 
-## ⏳ Phase 8: Maintenance & Reports — PENDING
+## ✅ Phase 8: Maintenance & Reports — COMPLETE
 
-- [ ] **[PENDING]** Maintenance schedule & court blocking
-- [ ] **[PENDING]** Cleaning checklist system
-- [ ] **[PENDING]** Repair history tracking
-- [ ] **[PENDING]** Financial reports (daily/monthly revenue)
-- [ ] **[PENDING]** Occupancy analytics & trends
-- [ ] **[PENDING]** Peak hour analysis
+- [x] **[DONE]** Maintenance schedule & court blocking *(implemented via venue_maintenance_schedules + maintenance blocking guard in booking and calendar flows)*
+- [x] **[DONE]** Cleaning checklist system *(implemented via venue_cleaning_checklists + checklist create/assign/status workflow in VenueMaintenancePage)*
+- [x] **[DONE]** Repair history tracking *(implemented via venue_maintenance_repair_history + automatic timeline logging for create/edit/status changes in VenueMaintenancePage)*
+- [x] **[DONE]** Financial reports (daily/monthly revenue) *(implemented in VenueDashboard with paid booking aggregation for daily and month-to-date revenue)*
+- [x] **[DONE]** Occupancy analytics & trends *(implemented in VenueDashboard using 7-day utilization trend from booking hours vs venue capacity)*
+- [x] **[DONE]** Peak hour analysis *(implemented in VenueDashboard with top hourly demand ranking from month-to-date bookings)*
 
-## ⏳ Phase 9: Promotion & Ads Engine — PENDING
+### Next Active Focus
+- � **Last Completed:** Phase 10A (Public venue pages with photos/facilities/reviews/search) — ✅ COMPLETE
+- 🎯 **Next Target:** Phase 11 (Payment Gateway Integration: DOKU) or Phase 10B (Advanced features: notifications/occupancy AI/dynamic pricing)
 
-- [ ] **[PENDING]** Ads package system (Bronze/Silver/Gold/Platinum)
-- [ ] **[PENDING]** Featured venue badge & placement
-- [ ] **[PENDING]** Multi-placement ads control
-- [ ] **[PENDING]** Super admin ads approval workflow
-- [ ] **[PENDING]** Ads analytics & ROI tracking
+## ✅ Phase 9: Promotion & Ads Engine — COMPLETE
 
-## ⏳ Phase 10: Public & Advanced Features — PENDING
+- [x] **[DONE]** Ads package system (Bronze/Silver/Gold/Platinum) *(implemented in VenueAdsPage + venue_ad_subscriptions schema with approval-ready status flow)*
+- [x] **[DONE]** Featured venue badge & placement *(implemented via venues featured fields + public listing badge render + placement sorting by featured priority)*
+- [x] **[DONE]** Multi-placement ads control *(implemented in VenueAdsPage with per-channel placement toggles persisted to venue_ad_subscriptions.placement_scope and synced to venue featured/sponsored metadata)*
+- [x] **[DONE]** Super admin ads approval workflow *(implemented in VerificationQueuePage + supabaseService ads queue/review functions with approve/reject status transitions and venue placement sync on approval)*
+- [x] **[DONE]** Ads analytics & ROI tracking *(implemented with venue_ad_impressions/clicks/conversions tables, analytics_summary/analytics_daily views, helper functions, and dashboard UI with metrics and 30-day trend chart)*
 
-- [ ] **[PENDING]** Public venue page (photos, facilities, reviews)
-- [ ] **[PENDING]** Search & filter system (sport/location/price/amenities)
+## ✅ Phase 10A: Public Venue Pages — COMPLETE
+
+- [x] **[DONE]** Public venue page (photos, facilities, reviews) *(database schema with 4 tables: venue_photos, venue_facilities, venue_reviews, venue_operating_hours; RLS policies for public access to verified venues; PublicVenuePage component with photo gallery, operating hours, facilities grid, review system, booking CTA; PublicVenueListingPage for venue discovery with search/filter by sport/location/price)*
+- [x] **[DONE]** Search & filter system (sport/location/price/amenities) *(implemented in PublicVenueListingPage with collapsible filters and RPC search_venues_public function; paginated results with 50 items per search)*
+- [x] **[DONE]** Database schema with helper functions *(get_venue_by_id_public for single venue with aggregated ratings; search_venues_public with sport/province/city/price filters; venue_review_summary view for aggregated rating metrics)*
+- [x] **[DONE]** Service layer functions *(fetchPublicVenueDetails, searchPublicVenues, fetchVenueReviewSummary, submitVenueReview, fetchVenuePhotos, fetchVenueOperatingHours with error handling and Supabase guard checks)*
+- [x] **[DONE]** Routing integration *(stadione.jsx connected to both listing and detail pages with publicVenueId state management; goTo function updated)*
+
+## ⏳ Phase 10B: Advanced Features — PENDING
+
 - [ ] **[PENDING]** Smart notification system (reminders)
 - [ ] **[PENDING]** AI occupancy recommendations
 - [ ] **[PENDING]** Dynamic pricing engine
@@ -723,9 +734,9 @@ Venue owners dapat membeli **ads packages** untuk visibility & reach di platform
 
 ---
 
-# 1️⃣2️⃣ FINANCIAL REPORT SYSTEM ⏳ [PENDING - Phase 8]
+# 1️⃣2️⃣ FINANCIAL REPORT SYSTEM 🔄 [PARTIAL COMPLETE - Phase 8]
 
-**Status:** Placeholder page exists, analytics engine pending Phase 8
+**Status:** Daily/monthly revenue, occupancy trend, dan peak hour analysis sudah live di VenueDashboard. Refund report dan staff shift report masih pending.
 
 ## Report Types (Planned)
 
@@ -737,6 +748,14 @@ Venue owners dapat membeli **ads packages** untuk visibility & reach di platform
 | Peak hours analysis | Monthly   | Analytics   |
 | Refund report      | On-demand | Finance     |
 | Staff shift report | Daily     | Manager     |
+
+### Implementation Progress
+- [x] Daily revenue
+- [x] Monthly revenue
+- [x] Occupancy trend
+- [x] Peak hours analysis
+- [ ] Refund report
+- [ ] Staff shift report
 
 ---
 

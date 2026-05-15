@@ -59,6 +59,8 @@ const MatchReportPage = lazy(() => import('./src/components/admin/official/Match
 const MatchStatisticsPage = lazy(() => import('./src/components/admin/official/MatchStatisticsPage.jsx'));
 const QuickRegistrationModal = lazy(() => import('./src/components/QuickRegistrationModal.jsx'));
 const TeamWorkspaceModal = lazy(() => import('./src/components/TeamWorkspaceModal.jsx'));
+const PublicVenuePage = lazy(() => import('./src/components/public/PublicVenuePage.jsx'));
+const PublicVenueListingPage = lazy(() => import('./src/components/public/PublicVenueListingPage.jsx'));
 
 // ============ DATA ============
 const VENUES = [
@@ -984,6 +986,16 @@ const BookingPage = ({ onSelect, venues }) => {
             <button key={v.id} onClick={() => onSelect(v)} className="text-left bg-white rounded-2xl overflow-hidden hover-lift fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
               <div className="aspect-[5/3] relative overflow-hidden grain" style={{ background: v.color }}>
                 <div className="absolute top-4 left-4 text-xs font-bold px-3 py-1 bg-white text-neutral-900 uppercase tracking-wider">{v.sport}</div>
+                {Boolean(v.is_featured) && (
+                  <div className="absolute top-4 right-4 text-[10px] font-bold px-2.5 py-1 bg-yellow-300 text-neutral-900 uppercase tracking-wider rounded-full flex items-center gap-1">
+                    <Sparkles size={10} /> {v.featured_badge_label || 'Featured Venue'}
+                  </div>
+                )}
+                {Boolean(v.is_sponsored) && (
+                  <div className="absolute top-14 right-4 text-[10px] font-bold px-2.5 py-1 bg-neutral-900 text-white uppercase tracking-wider rounded-full">
+                    Sponsored
+                  </div>
+                )}
                 <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-black/40 backdrop-blur-sm rounded-full text-white text-xs font-bold flex items-center gap-1">
                   <Star size={12} fill="white" /> {v.rating}
                 </div>
@@ -1051,6 +1063,16 @@ const BookingDetail = ({ venue, onBack, onPay }) => {
           <div className="flex items-center gap-4 text-sm text-neutral-600 mb-6 flex-wrap">
             <span className="flex items-center gap-1"><MapPin size={14} /> {venue.city}</span>
             <span className="flex items-center gap-1"><Star size={14} fill="#E11D2E" color="#E11D2E" /> {venue.rating} ({venue.reviews} ulasan)</span>
+            {Boolean(venue.is_featured) && (
+              <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-yellow-200 text-neutral-900 font-bold uppercase tracking-wide">
+                <Sparkles size={11} /> {venue.featured_badge_label || 'Featured Venue'}
+              </span>
+            )}
+            {Boolean(venue.is_sponsored) && (
+              <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-neutral-900 text-white font-bold uppercase tracking-wide">
+                Sponsored
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 mb-8">
             {venue.tags.map(t => (
@@ -4288,6 +4310,26 @@ const DEV_E2E_OFFICIAL_AUTH = Object.freeze({
   },
 });
 
+const DEV_E2E_VENUE_AUTH = Object.freeze({
+  id: 'bfd955d4-8c5d-4053-ae5c-d79e7c11350d',
+  email: 'qa.venue@stadione.dev',
+  name: 'QA Venue',
+  roles: ['venue_partner'],
+  permissions: [
+    'tournament.create',
+    'tournament.edit',
+  ],
+  activeContext: {
+    context_scope: 'workspace',
+    context_role: 'venue_partner',
+    context_entity_type: 'venue',
+    context_entity_id: null,
+    context_label: 'Workspace Console',
+    metadata: { source: 'dev_e2e_bypass' },
+    switched_at: new Date().toISOString(),
+  },
+});
+
 export default function Stadione() {
   const [page, setPage] = useState('home');
   const [tournamentDetail, setTournamentDetail] = useState(null);
@@ -4298,6 +4340,7 @@ export default function Stadione() {
   const [coachDetail, setCoachDetail] = useState(null);
   const [paymentPayload, setPaymentPayload] = useState(null);
   const [chatInitial, setChatInitial] = useState(null);
+  const [publicVenueId, setPublicVenueId] = useState(null);
   const [tab, setTab] = useState('klasemen');
   const [returnTo, setReturnTo] = useState(null);
 
@@ -4309,17 +4352,42 @@ export default function Stadione() {
     const mode = getAuthModeFromUrl();
     return mode === AUTH_MODAL_MODES.recovery ? AUTH_MODAL_MODES.recovery : AUTH_MODAL_MODES.login;
   });
+  const isLocalhostRuntime = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1';
+  }, []);
   const devOfficialBypass = useMemo(() => {
     if (typeof window === 'undefined') return false;
-    if (!import.meta.env.DEV) return false;
+    if (!isLocalhostRuntime) return false;
     const params = new URLSearchParams(window.location.search);
     return params.get('e2e_official') === '1';
-  }, []);
+  }, [isLocalhostRuntime]);
+  const devVenueBypass = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (!isLocalhostRuntime) return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('e2e_venue') === '1';
+  }, [isLocalhostRuntime]);
   const devOfficialBypassPage = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const params = new URLSearchParams(window.location.search);
     return params.get('e2e_page') || '';
   }, []);
+
+  useEffect(() => {
+    if (!(devOfficialBypass || devVenueBypass)) return;
+
+    if (devOfficialBypassPage === 'schedule') {
+      setPage('official-schedule');
+    } else if (devOfficialBypassPage === 'center') {
+      setPage('official-center');
+    } else if (devOfficialBypassPage === 'workspace') {
+      setPage('venue-workspace');
+    } else if (devOfficialBypassPage === 'manager') {
+      setPage('venue-manager');
+    }
+  }, [devOfficialBypass, devVenueBypass, devOfficialBypassPage]);
 
   const handleAuth = useCallback(async (user) => {
     const nextAuth = await enrichAuthUser(user);
@@ -4331,6 +4399,23 @@ export default function Stadione() {
     let subscription;
 
     const restoreSession = async () => {
+      if (devOfficialBypass || devVenueBypass) {
+        setAuth(devOfficialBypass ? DEV_E2E_OFFICIAL_AUTH : DEV_E2E_VENUE_AUTH);
+        setShowAuth(false);
+        setAuthInitialError('');
+
+        if (devOfficialBypassPage === 'schedule') {
+          setPage('official-schedule');
+        } else if (devOfficialBypassPage === 'center') {
+          setPage('official-center');
+        } else if (devOfficialBypassPage === 'workspace') {
+          setPage('venue-workspace');
+        } else if (devOfficialBypassPage === 'manager') {
+          setPage('venue-manager');
+        }
+        return;
+      }
+
       try {
         const supabase = await getSupabaseAuthClient();
 
@@ -4348,6 +4433,13 @@ export default function Stadione() {
 
         const { data } = supabase.auth.onAuthStateChange(
           async (event, currentSession) => {
+            if (devOfficialBypass || devVenueBypass) {
+              setAuth(devOfficialBypass ? DEV_E2E_OFFICIAL_AUTH : DEV_E2E_VENUE_AUTH);
+              setShowAuth(false);
+              setAuthInitialError('');
+              return;
+            }
+
             if (event === 'PASSWORD_RECOVERY') {
               setAuthMode(AUTH_MODAL_MODES.recovery);
               setAuthInitialError('');
@@ -4366,6 +4458,8 @@ export default function Stadione() {
             } else {
               if (devOfficialBypass) {
                 setAuth(DEV_E2E_OFFICIAL_AUTH);
+              } else if (devVenueBypass) {
+                setAuth(DEV_E2E_VENUE_AUTH);
               } else {
                 setAuth(null);
               }
@@ -4379,16 +4473,6 @@ export default function Stadione() {
         if (!error && session?.user) {
           const nextAuth = await enrichAuthUser(session.user);
           setAuth(nextAuth);
-        } else if (devOfficialBypass) {
-          setAuth(DEV_E2E_OFFICIAL_AUTH);
-          setShowAuth(false);
-          setAuthInitialError('');
-
-          if (devOfficialBypassPage === 'schedule') {
-            setPage('official-schedule');
-          } else if (devOfficialBypassPage === 'center') {
-            setPage('official-center');
-          }
         }
       } catch (err) {
         console.error('Failed to restore session:', err);
@@ -4400,7 +4484,7 @@ export default function Stadione() {
     return () => {
       subscription?.unsubscribe();
     };
-  }, [devOfficialBypass, devOfficialBypassPage]);
+  }, [devOfficialBypass, devVenueBypass, devOfficialBypassPage]);
 
   // Fetch data from Supabase
   const { venues, loading: venuesLoading } = useVenues();
@@ -4429,6 +4513,7 @@ export default function Stadione() {
     if (newPage === 'coach-profile') setCoachDetail(data);
     if (newPage === 'payment') setPaymentPayload(data);
     if (newPage === 'chat') setChatInitial(data);
+    if (newPage === 'public-venue') setPublicVenueId(data);
     if (opts.returnTo !== undefined) setReturnTo(opts.returnTo);
     setPage(newPage);
     if (newPage.startsWith('tournament-detail')) setTab(tournamentDetail?.format === 'Knockout' ? 'bagan' : 'klasemen');
@@ -4700,6 +4785,8 @@ export default function Stadione() {
             chats={CHATS_DATA}
           />
         )}
+        {page === 'public-venues' && <Suspense fallback={<LazyFallback label="Memuat venue..." />}><PublicVenueListingPage onSelectVenue={(id) => goTo('public-venue', id)} /></Suspense>}
+        {page === 'public-venue' && publicVenueId && <Suspense fallback={<LazyFallback label="Memuat venue..." />}><PublicVenuePage venueId={publicVenueId} onBooking={(id) => goTo('booking-detail', { id })} /></Suspense>}
       </main>
       {page !== 'chat' && (
         <Footer onNav={goTo} onCoachDashboard={() => auth ? goTo('coach-dashboard') : openAuth('login')} />

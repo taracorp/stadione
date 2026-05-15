@@ -56,9 +56,32 @@ export default function VenueStaffPage({ auth, venue }) {
   const [editStatus, setEditStatus] = useState('active');
   const [editLoading, setEditLoading] = useState(false);
   const [toast, setToast] = useState(null);
-  const [filterStatus, setFilterStatus] = useState('active');
+  const [filterStatus, setFilterStatus] = useState('all');
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3500); };
+
+  const currentMember = staff.find((member) => member.user_id === auth?.id);
+  const currentRole = venue?.owner_user_id === auth?.id ? 'owner' : (currentMember?.role || venue?.staffRole || null);
+  const canManageStaff = currentRole === 'owner' || currentRole === 'manager';
+
+  async function writeAuditLog({ targetUserId = null, action, oldValue = null, newValue = null, notes = null }) {
+    if (!venueId || !auth?.id || !action) return;
+    try {
+      const { error } = await supabase.from('venue_staff_audit_log').insert({
+        venue_id: venueId,
+        target_user_id: targetUserId,
+        action_by: auth.id,
+        action,
+        old_value: oldValue,
+        new_value: newValue,
+        notes,
+      });
+      if (error) throw error;
+    } catch (err) {
+      // Audit write must not block operational action.
+      console.warn('Staff audit log insert failed:', err.message);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!venueId) return;
@@ -81,6 +104,10 @@ export default function VenueStaffPage({ auth, venue }) {
   useEffect(() => { load(); }, [load]);
 
   async function handleInvite() {
+    if (!canManageStaff) {
+      showToast('error', 'Anda tidak memiliki izin untuk menambah staf.');
+      return;
+    }
     if (!inviteEmail.trim()) return;
     setInviteLoading(true);
     try {
@@ -94,10 +121,22 @@ export default function VenueStaffPage({ auth, venue }) {
       }
       const { user_id } = data[0];
 
+      if (user_id === auth?.id) {
+        showToast('error', 'Tidak dapat menambahkan akun Anda sendiri sebagai staf baru.');
+        setInviteLoading(false);
+        return;
+      }
+
       // Check already a staff member
       const exists = staff.find(s => s.user_id === user_id);
       if (exists) {
         showToast('error', 'Pengguna ini sudah terdaftar sebagai staf di venue ini.');
+        setInviteLoading(false);
+        return;
+      }
+
+      if (currentRole === 'manager' && inviteRole === 'manager') {
+        showToast('error', 'Manager tidak dapat mengundang role manager lain.');
         setInviteLoading(false);
         return;
       }
@@ -110,6 +149,13 @@ export default function VenueStaffPage({ auth, venue }) {
         invited_by: auth?.id || null,
       });
       if (insertErr) throw insertErr;
+
+      await writeAuditLog({
+        targetUserId: user_id,
+        action: 'staff_invited',
+        newValue: JSON.stringify({ role: inviteRole, status: 'active' }),
+        notes: `Invite via email ${inviteEmail.trim().toLowerCase()}`,
+      });
 
       showToast('success', `Staf berhasil ditambahkan dengan peran ${ROLE_LABELS[inviteRole]}.`);
       setShowInvite(false);
@@ -124,14 +170,47 @@ export default function VenueStaffPage({ auth, venue }) {
   }
 
   function openEdit(member) {
+    if (!canManageMember(member)) {
+      showToast('error', 'Anda tidak memiliki izin untuk mengubah staf ini.');
+      return;
+    }
     setEditing(member);
     setEditRole(member.role);
     setEditStatus(member.status);
     setShowEdit(true);
   }
 
+  function canManageMember(member) {
+    if (!canManageStaff || !member) return false;
+    if (member.user_id === auth?.id) return false;
+    if (member.role === 'owner') return false;
+    if (currentRole === 'manager' && member.role === 'manager') return false;
+    return true;
+  }
+
+  function allowedRoleOptions(member) {
+    if (currentRole === 'owner') {
+      return ['manager', 'cashier', 'staff'];
+    }
+    if (currentRole === 'manager') {
+      return ['cashier', 'staff'];
+    }
+    return [member?.role || 'staff'];
+  }
+
   async function handleEditSave() {
     if (!editing) return;
+    if (!canManageMember(editing)) {
+      showToast('error', 'Anda tidak memiliki izin untuk menyimpan perubahan staf ini.');
+      return;
+    }
+
+    const roleOptions = allowedRoleOptions(editing);
+    if (!roleOptions.includes(editRole)) {
+      showToast('error', 'Role yang dipilih tidak diizinkan untuk akun Anda.');
+      return;
+    }
+
     setEditLoading(true);
     try {
       const { error } = await supabase
@@ -139,6 +218,27 @@ export default function VenueStaffPage({ auth, venue }) {
         .update({ role: editRole, status: editStatus })
         .eq('id', editing.id);
       if (error) throw error;
+
+      if (editing.role !== editRole) {
+        await writeAuditLog({
+          targetUserId: editing.user_id,
+          action: 'staff_role_changed',
+          oldValue: editing.role,
+          newValue: editRole,
+          notes: 'Updated from staff edit modal',
+        });
+      }
+
+      if (editing.status !== editStatus) {
+        await writeAuditLog({
+          targetUserId: editing.user_id,
+          action: 'staff_status_changed',
+          oldValue: editing.status,
+          newValue: editStatus,
+          notes: 'Updated from staff edit modal',
+        });
+      }
+
       showToast('success', 'Data staf diperbarui.');
       setShowEdit(false);
       load();
@@ -149,9 +249,65 @@ export default function VenueStaffPage({ auth, venue }) {
     }
   }
 
+  async function updateMemberStatus(member, nextStatus) {
+    if (!canManageMember(member)) {
+      showToast('error', 'Anda tidak memiliki izin untuk mengubah status staf ini.');
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('venue_staff')
+        .update({ status: nextStatus })
+        .eq('id', member.id);
+      if (error) throw error;
+
+      await writeAuditLog({
+        targetUserId: member.user_id,
+        action: 'staff_lifecycle_transition',
+        oldValue: member.status,
+        newValue: nextStatus,
+        notes: 'Updated from lifecycle quick action',
+      });
+
+      showToast('success', `Status staf diubah ke ${STATUS_LABELS[nextStatus] || nextStatus}.`);
+      load();
+    } catch (err) {
+      showToast('error', err.message);
+    }
+  }
+
+  function lifecycleActions(member) {
+    if (!canManageMember(member)) {
+      return [];
+    }
+    if (member.status === 'active') {
+      return [
+        { key: 'suspend', label: 'Suspend', status: 'suspended', cls: 'text-yellow-700' },
+        { key: 'disable', label: 'Disable', status: 'disabled', cls: 'text-red-700' },
+      ];
+    }
+    if (member.status === 'suspended') {
+      return [
+        { key: 'activate', label: 'Aktifkan', status: 'active', cls: 'text-emerald-700' },
+        { key: 'disable', label: 'Disable', status: 'disabled', cls: 'text-red-700' },
+      ];
+    }
+    if (member.status === 'disabled') {
+      return [
+        { key: 'activate', label: 'Aktifkan', status: 'active', cls: 'text-emerald-700' },
+        { key: 'archive', label: 'Arsipkan', status: 'archived', cls: 'text-neutral-700' },
+      ];
+    }
+    return [
+      { key: 'activate', label: 'Aktifkan', status: 'active', cls: 'text-emerald-700' },
+    ];
+  }
+
   const filtered = filterStatus === 'all' ? staff : staff.filter(s => s.status === filterStatus);
   const activeCount = staff.filter(s => s.status === 'active').length;
   const suspCount = staff.filter(s => s.status === 'suspended').length;
+  const disabledCount = staff.filter(s => s.status === 'disabled').length;
+  const archivedCount = staff.filter(s => s.status === 'archived').length;
 
   if (!venueId) {
     return (
@@ -176,11 +332,21 @@ export default function VenueStaffPage({ auth, venue }) {
           <h1 className="font-display text-3xl lg:text-4xl text-neutral-900">Manajemen Staf</h1>
           <p className="text-neutral-500 text-sm mt-1">Kelola akses dan peran tim operasional venue.</p>
         </div>
-        <ActionButton onClick={() => setShowInvite(true)}><Plus size={14} /> Tambah Staf</ActionButton>
+        {canManageStaff ? (
+          <ActionButton onClick={() => setShowInvite(true)}><Plus size={14} /> Tambah Staf</ActionButton>
+        ) : (
+          <ActionButton variant="outline" disabled title="Hanya owner atau manager yang dapat menambah staf."><Plus size={14} /> Tambah Staf</ActionButton>
+        )}
       </div>
 
+      {!canManageStaff && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+          Anda memiliki akses baca saja untuk data staf. Hubungi owner/manager untuk perubahan role dan status.
+        </div>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="rounded-2xl border border-neutral-200 p-4">
           <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Total Staf</div>
           <div className="text-2xl font-bold text-neutral-900">{staff.length}</div>
@@ -194,14 +360,24 @@ export default function VenueStaffPage({ auth, venue }) {
           <div className={`text-2xl font-bold ${suspCount > 0 ? 'text-yellow-600' : 'text-neutral-900'}`}>{suspCount}</div>
         </div>
         <div className="rounded-2xl border border-neutral-200 p-4">
-          <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Manager</div>
-          <div className="text-2xl font-bold text-neutral-900">{staff.filter(s => s.role === 'manager').length}</div>
+          <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Disabled</div>
+          <div className={`text-2xl font-bold ${disabledCount > 0 ? 'text-red-600' : 'text-neutral-900'}`}>{disabledCount}</div>
+        </div>
+        <div className="rounded-2xl border border-neutral-200 p-4">
+          <div className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Arsip</div>
+          <div className={`text-2xl font-bold ${archivedCount > 0 ? 'text-neutral-600' : 'text-neutral-900'}`}>{archivedCount}</div>
         </div>
       </div>
 
       {/* Filter tabs */}
       <div className="flex items-center gap-1 p-1 bg-neutral-100 rounded-2xl w-fit flex-wrap">
-        {[['active', 'Aktif'], ['suspended', 'Ditangguhkan'], ['all', 'Semua']].map(([k, l]) => (
+        {[
+          ['all', 'Semua'],
+          ['active', 'Aktif'],
+          ['suspended', 'Ditangguhkan'],
+          ['disabled', 'Disabled'],
+          ['archived', 'Arsip'],
+        ].map(([k, l]) => (
           <button key={k} type="button" onClick={() => setFilterStatus(k)}
             className={`px-3 py-1.5 rounded-xl text-sm font-bold transition ${filterStatus === k ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'}`}>
             {l}
@@ -213,7 +389,12 @@ export default function VenueStaffPage({ auth, venue }) {
       {loading ? (
         <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon={UserCog} title="Belum ada staf" description="Tambahkan anggota tim yang sudah mendaftar di Stadione." action={<ActionButton onClick={() => setShowInvite(true)}><Plus size={14} /> Tambah Staf</ActionButton>} />
+        <EmptyState
+          icon={UserCog}
+          title="Belum ada staf"
+          description="Tambahkan anggota tim yang sudah mendaftar di Stadione."
+          action={canManageStaff ? <ActionButton onClick={() => setShowInvite(true)}><Plus size={14} /> Tambah Staf</ActionButton> : null}
+        />
       ) : (
         <div className="rounded-2xl border border-neutral-200 overflow-hidden">
           <table className="w-full text-sm">
@@ -223,6 +404,7 @@ export default function VenueStaffPage({ auth, venue }) {
                 <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Peran</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Ditambahkan</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-neutral-500 uppercase tracking-wide">Lifecycle</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -240,8 +422,30 @@ export default function VenueStaffPage({ auth, venue }) {
                   <td className="px-4 py-3"><RoleBadge role={member.role} /></td>
                   <td className="px-4 py-3"><StatusDot status={member.status} /></td>
                   <td className="px-4 py-3 text-xs text-neutral-500">{fmtDate(member.invited_at)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {lifecycleActions(member).length === 0 ? (
+                        <span className="text-xs text-neutral-400">Tidak ada aksi</span>
+                      ) : lifecycleActions(member).map((action) => (
+                        <button
+                          key={action.key}
+                          type="button"
+                          onClick={() => updateMemberStatus(member, action.status)}
+                          className={`text-xs font-semibold hover:underline ${action.cls}`}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => openEdit(member)} className="text-xs text-emerald-600 hover:underline font-semibold">Edit</button>
+                    <button
+                      onClick={() => openEdit(member)}
+                      disabled={!canManageMember(member)}
+                      className={`text-xs font-semibold ${canManageMember(member) ? 'text-emerald-600 hover:underline' : 'text-neutral-300 cursor-not-allowed'}`}
+                    >
+                      Edit
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -262,7 +466,7 @@ export default function VenueStaffPage({ auth, venue }) {
           </Field>
           <Field label="Peran">
             <select className={selectCls} value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
-              <option value="manager">Manager</option>
+              {currentRole === 'owner' && <option value="manager">Manager</option>}
               <option value="cashier">Kasir</option>
               <option value="staff">Staf</option>
             </select>
@@ -279,9 +483,9 @@ export default function VenueStaffPage({ auth, venue }) {
         <div className="space-y-4">
           <Field label="Peran">
             <select className={selectCls} value={editRole} onChange={e => setEditRole(e.target.value)}>
-              <option value="manager">Manager</option>
-              <option value="cashier">Kasir</option>
-              <option value="staff">Staf</option>
+              {allowedRoleOptions(editing).map((role) => (
+                <option key={role} value={role}>{ROLE_LABELS[role] || role}</option>
+              ))}
             </select>
           </Field>
           <Field label="Status">

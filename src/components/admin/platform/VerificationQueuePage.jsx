@@ -4,8 +4,10 @@ import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatCard, StatusBa
 import {
   fetchCurrentUserPermissions,
   fetchVerificationQueue,
+  fetchVenueAdsApprovalQueue,
   fetchVenueVerificationQueue,
   reviewTournamentVerificationRequest,
+  reviewVenueAdsSubscriptionRequest,
   reviewVenueVerificationRequest,
 } from '../../../services/supabaseService.js';
 import { canAccessFeature } from '../../../utils/permissions.js';
@@ -31,9 +33,10 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
         return;
       }
 
-      const [tournamentQueue, venueQueue] = await Promise.all([
+      const [tournamentQueue, venueQueue, adsQueue] = await Promise.all([
         fetchVerificationQueue(),
         fetchVenueVerificationQueue(),
+        fetchVenueAdsApprovalQueue(),
       ]);
 
       const normalizedTournamentQueue = (tournamentQueue || []).map((item) => ({
@@ -46,8 +49,14 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
         venue_name: item.venues?.name || 'Venue',
         venue_city: item.venues?.city || '-',
       }));
+      const normalizedAdsQueue = (adsQueue || []).map((item) => ({
+        ...item,
+        queueType: 'ads',
+        venue_name: item.venues?.name || 'Venue',
+        venue_city: item.venues?.city || '-',
+      }));
 
-      setQueue([...normalizedVenueQueue, ...normalizedTournamentQueue]);
+      setQueue([...normalizedAdsQueue, ...normalizedVenueQueue, ...normalizedTournamentQueue]);
     } catch (err) {
       console.error('VerificationQueuePage load error:', err);
       setQueue([]);
@@ -73,15 +82,23 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
             reviewerId: auth?.id,
             adminNotes,
           })
-        : await reviewTournamentVerificationRequest({
-            requestId: selected.id,
-            tournamentId: selected.tournament_id,
-            decision,
-            reviewerId: auth?.id,
-            adminNotes,
-            operatorType: selected.operator_type,
-            requestedClassification: selected.requested_classification,
-          });
+        : selected.queueType === 'ads'
+          ? await reviewVenueAdsSubscriptionRequest({
+              subscriptionId: selected.id,
+              venueId: selected.venue_id,
+              decision,
+              reviewerId: auth?.id,
+              adminNotes,
+            })
+          : await reviewTournamentVerificationRequest({
+              requestId: selected.id,
+              tournamentId: selected.tournament_id,
+              decision,
+              reviewerId: auth?.id,
+              adminNotes,
+              operatorType: selected.operator_type,
+              requestedClassification: selected.requested_classification,
+            });
 
       if (!ok) return;
 
@@ -93,10 +110,11 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
     }
   }
 
-  const pendingCount = queue.filter((item) => item.status === 'pending').length;
+  const pendingCount = queue.filter((item) => item.status === 'pending' || item.status === 'pending_approval').length;
   const reviewCount = queue.filter((item) => item.status === 'under_review').length;
   const venueCount = queue.filter((item) => item.queueType === 'venue').length;
   const operatorCount = queue.filter((item) => item.queueType === 'tournament').length;
+  const adsCount = queue.filter((item) => item.queueType === 'ads').length;
   const filteredQueue = queueFilter === 'all'
     ? queue
     : queue.filter((item) => item.queueType === queueFilter);
@@ -106,7 +124,7 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
       variant="platform"
       kicker="/ PLATFORM — VERIFIKASI"
       title={<>VERIFIKASI<br /><span style={{ fontFamily: "'Instrument Serif', serif", fontStyle: 'italic', fontWeight: 400 }}>workspace.</span></>}
-      subtitle="Tinjau request verifikasi operator dan venue dari satu queue platform."
+      subtitle="Tinjau request verifikasi operator, venue, dan approval ads dari satu queue platform."
       onBack={onBack}
       breadcrumbs={[{ label: 'Platform Console', onClick: () => onNav('platform-console') }, { label: 'Verifikasi' }]}
     >
@@ -114,14 +132,13 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
         <StatCard label="Pending" value={loading ? '—' : pendingCount} icon={Clock} accent="amber" />
         <StatCard label="Under Review" value={loading ? '—' : reviewCount} icon={ShieldCheck} accent="blue" />
         <StatCard label="Venue Queue" value={loading ? '—' : venueCount} icon={ShieldCheck} accent="emerald" />
-        <StatCard label="Total Queue" value={loading ? '—' : queue.length} icon={CheckCircle} accent="violet" />
+        <StatCard label="Ads Queue" value={loading ? '—' : adsCount} icon={Sparkles} accent="violet" />
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6">
         {[
           { key: 'all', label: 'Semua', count: queue.length },
-          { key: 'venue', label: 'Venue', count: venueCount },
-          { key: 'tournament', label: 'Operator', count: operatorCount },
+          { key: 'venue', label: 'Venue', count: venueCount },          { key: 'ads', label: 'Ads', count: adsCount },          { key: 'tournament', label: 'Operator', count: operatorCount },
         ].map((tab) => {
           const active = queueFilter === tab.key;
           return (
@@ -150,7 +167,7 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
           title="Queue kosong"
           description={queueFilter === 'all'
             ? 'Tidak ada request verifikasi yang menunggu review saat ini.'
-            : `Tidak ada request tipe ${queueFilter === 'venue' ? 'venue' : 'operator'} saat ini.`}
+            : `Tidak ada request tipe ${queueFilter === 'venue' ? 'venue' : queueFilter === 'ads' ? 'ads' : 'operator'} saat ini.`}
         />
       ) : (
         <div className="space-y-3">
@@ -162,16 +179,23 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
                     <span className="font-semibold text-neutral-900">{item.venue_name || item.organization_name || item.requester_name || 'Operator'}</span>
                     <StatusBadge status={item.status} />
                     <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-neutral-400">
-                      {item.queueType === 'venue' ? 'Venue' : 'Operator'}
+                      {item.queueType === 'venue' ? 'Venue' : item.queueType === 'ads' ? 'Ads' : 'Operator'}
                     </span>
                   </div>
                   <div className="text-sm text-neutral-500">
                     {item.queueType === 'venue'
                       ? `${item.verification_type || 'individual'} · ${item.venue_city || '-'}`
-                      : `${item.operator_type || 'operator'} · ${item.requester_email || '-'}`}
+                      : item.queueType === 'ads'
+                        ? `${String(item.package_tier || 'package').toUpperCase()} · Rp ${Number(item.monthly_fee_idr || 0).toLocaleString('id-ID')}/bulan`
+                        : `${item.operator_type || 'operator'} · ${item.requester_email || '-'}`}
                   </div>
                   {item.tournament_name && <div className="text-xs text-neutral-400 mt-1">Turnamen: {item.tournament_name}</div>}
                   {item.queueType === 'venue' && <div className="text-xs text-neutral-400 mt-1">Venue ID: {item.venue_id}</div>}
+                  {item.queueType === 'ads' && (
+                    <div className="text-xs text-neutral-400 mt-1">
+                      Placement: {Array.isArray(item.placement_scope) && item.placement_scope.length > 0 ? item.placement_scope.join(', ') : '—'}
+                    </div>
+                  )}
                   {item.notes && <div className="text-xs text-neutral-400 mt-1 italic">"{item.notes}"</div>}
                 </div>
                 <ActionButton size="sm" onClick={() => { setSelected(item); setAdminNotes(item.admin_notes || item.notes || ''); }}>
@@ -183,7 +207,7 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
         </div>
       )}
 
-      <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.queueType === 'venue' ? 'Review Verifikasi Venue' : 'Review Verifikasi Operator'}>
+      <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.queueType === 'venue' ? 'Review Verifikasi Venue' : selected?.queueType === 'ads' ? 'Review Approval Ads Venue' : 'Review Verifikasi Operator'}>
         {selected && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
@@ -191,8 +215,15 @@ export default function VerificationQueuePage({ auth, onBack, onNav }) {
               <div className="text-sm text-neutral-500 mt-1">
                 {selected.queueType === 'venue'
                   ? `${selected.verification_type || 'individual'} · ${selected.venue_city || '-'}`
-                  : `${selected.operator_type || 'operator'} · ${selected.requester_email || '-'}`}
+                  : selected.queueType === 'ads'
+                    ? `${String(selected.package_tier || 'package').toUpperCase()} · Rp ${Number(selected.monthly_fee_idr || 0).toLocaleString('id-ID')}/bulan`
+                    : `${selected.operator_type || 'operator'} · ${selected.requester_email || '-'}`}
               </div>
+              {selected.queueType === 'ads' && (
+                <div className="text-xs text-neutral-400 mt-1">
+                  Placement: {Array.isArray(selected.placement_scope) && selected.placement_scope.length > 0 ? selected.placement_scope.join(', ') : '—'}
+                </div>
+              )}
             </div>
             <Field label="Catatan Admin">
               <textarea
