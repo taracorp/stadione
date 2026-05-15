@@ -1858,12 +1858,11 @@ const AUTH_MODAL_MODES = {
   recovery: 'recovery',
 };
 
-// Optimized timeout for faster feedback with adaptive connection detection
-// Base timeouts (will be adjusted based on connection type)
-const AUTH_REQUEST_TIMEOUT_MS = 15000; // Primary login: 15s for responsive UX
-const AUTH_FALLBACK_TIMEOUT_MS = 20000; // Fallback: 20s if primary fails
-const AUTH_OAUTH_TIMEOUT_MS = 30000; // OAuth: 30s (external services slower)
-const AUTH_FORGOT_PASSWORD_TIMEOUT_MS = 45000; // Reset password email can take longer on provider side
+// Base timeouts — generous enough for Vercel → Supabase latency
+const AUTH_REQUEST_TIMEOUT_MS = 25000; // Primary login: 25s (production latency buffer)
+const AUTH_FALLBACK_TIMEOUT_MS = 35000; // Fallback: 35s if primary fails
+const AUTH_OAUTH_TIMEOUT_MS = 30000; // OAuth: 30s (external services)
+const AUTH_FORGOT_PASSWORD_TIMEOUT_MS = 45000; // Reset password email
 
 // Track in-flight auth requests to prevent duplicates
 let authSubmitRequest = createRequestTracker();
@@ -2228,6 +2227,7 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isRetryable, setIsRetryable] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
@@ -2248,6 +2248,7 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
   const switchMode = (nextMode) => {
     setMode(nextMode);
     setError('');
+    setIsRetryable(false);
     setSuccessMessage('');
     if (nextMode !== AUTH_MODAL_MODES.register) setName('');
     if (nextMode !== AUTH_MODAL_MODES.recovery) {
@@ -2297,6 +2298,7 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
     authSubmitRequest.start();
     setError('');
+    setIsRetryable(false);
     setSuccessMessage('');
     setLoading(true);
 
@@ -2443,7 +2445,9 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
       onClose();
     } catch (err) {
       console.error('Auth error:', err);
-      setError(mapAuthErrorMessage(err));
+      const errMsg = mapAuthErrorMessage(err);
+      setError(errMsg);
+      setIsRetryable(isTimeoutError(err));
     } finally {
       setLoading(false);
       authSubmitRequest.end();
@@ -2633,8 +2637,18 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
             )}
 
             {error && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-start justify-between gap-3">
                 <p className="text-xs text-red-600 font-medium">{error}</p>
+                {isRetryable && (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="shrink-0 text-xs font-bold text-red-600 underline hover:text-red-800 disabled:opacity-50"
+                  >
+                    Coba Lagi
+                  </button>
+                )}
               </div>
             )}
 
