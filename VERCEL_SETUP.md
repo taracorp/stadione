@@ -2,6 +2,10 @@
 
 Panduan deploy Stadione ke Vercel dengan konfigurasi Supabase yang sesuai flow auth terbaru.
 
+Catatan:
+- Domain produksi aktif untuk repo ini adalah `https://stadione.vercel.app`.
+- Jangan gunakan domain project Vercel lama untuk redirect auth atau email reset password.
+
 ## 1. Import Project ke Vercel
 
 1. Buka https://vercel.com

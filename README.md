@@ -172,7 +172,7 @@ git push origin main
 # VITE_SUPABASE_ANON_KEY
 ```
 
-Lihat live preview di: https://stadione.vercel.app
+Lihat production di: https://stadione.vercel.app
 
 ## 📝 Data Format
 

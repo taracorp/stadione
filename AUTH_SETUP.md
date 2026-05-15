@@ -9,6 +9,10 @@ Stadione sekarang memakai auth flow berikut:
 - Email verification wajib untuk registrasi email/password
 - Facebook login (dinonaktifkan dari UI)
 
+Catatan produksi:
+- Domain produksi yang harus dipakai untuk redirect auth adalah `https://stadione.vercel.app`.
+- Hindari memakai subdomain project Vercel lama agar reset password tidak diarahkan ke login Vercel.
+
 ## Implementasi Saat Ini
 
 Lokasi utama implementasi ada di `stadione.jsx`:
