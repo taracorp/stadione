@@ -433,7 +433,7 @@ export async function submitQuizAnswer(userId, quizId, articleId, selectedAnswer
       pointsAwarded,
       message: isCorrect
         ? 'Jawaban benar! +1 poin'
-        : 'Jawaban salah. Trivia diselesaikan dan kesempatan hanya 1x.',
+        : 'Jawaban salah. Kesempatan trivia sudah habis (1x).',
       result: resultData?.[0]
     };
   } catch (error) {
@@ -520,30 +520,32 @@ export async function hasTriviaAttempt(userId, articleId) {
 
   try {
     const progress = await getArticleProgress(userId, articleId);
-    if (progress?.quiz_attempted) return true;
+    const progressAttempted = Boolean(progress?.quiz_attempted);
+    if (progressAttempted) return true;
 
     const { count, error } = await supabase
       .from('quiz_results')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('article_id', articleId);
+    const quizAttempted = Number(count || 0) > 0;
 
     if (error) {
       console.error('Error checking trivia attempt from quiz_results:', error.message);
-    } else if (Number(count || 0) > 0) {
+    } else if (quizAttempted) {
       return true;
     }
 
     const { count: legacyCount, error: legacyError } = await supabase
       .from('activity_log')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('reference_id', articleId)
       .in('activity_type', ['trivia_correct', 'article_read']);
 
     if (legacyError) {
       console.error('Error checking trivia attempt from legacy activity_log:', legacyError.message);
-      return false;
+      return progressAttempted || quizAttempted;
     }
 
     return Number(legacyCount || 0) > 0;

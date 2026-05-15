@@ -2155,7 +2155,7 @@ export async function fetchUserActivityHistory(userId, options = {}) {
         activity_title: 'Trivia diselesaikan',
         activity_description: row.quiz_attempted
           ? 'Trivia untuk artikel ini sudah diselesaikan'
-          : 'Progress trivia untuk artikel ini sudah diselesaikan',
+          : 'Status trivia disimpulkan dari progres baca artikel (fallback riwayat).',
         activity_metadata: { articleId: row.article_id, source: 'article_progress_fallback' },
         status: 'completed',
         is_completed: true,
