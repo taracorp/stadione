@@ -1848,7 +1848,7 @@ const AUTH_MODAL_MODES = {
   recovery: 'recovery',
 };
 
-const AUTH_REQUEST_TIMEOUT_MS = 15000;
+const AUTH_REQUEST_TIMEOUT_MS = 30000; // Increased from 15s to 30s to handle slow networks
 
 function getAuthRedirectUrl(mode) {
   if (typeof window === 'undefined') return undefined;
@@ -1929,14 +1929,18 @@ async function withAuthTimeout(promise, label = 'Auth request', timeoutMs = AUTH
 
   const timeoutPromise = new Promise((_, reject) => {
     timerId = setTimeout(() => {
-      reject(new Error(`${label} timeout setelah ${Math.round(timeoutMs / 1000)} detik.`));
+      console.warn(`${label} timeout setelah ${Math.round(timeoutMs / 1000)} detik.`);
+      reject(new Error(`${label} timeout setelah ${Math.round(timeoutMs / 1000)} detik. Periksa koneksi internet Anda.`));
     }, timeoutMs);
   });
 
   try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
+    const result = await Promise.race([promise, timeoutPromise]);
     clearTimeout(timerId);
+    return result;
+  } catch (error) {
+    clearTimeout(timerId);
+    throw error;
   }
 }
 
@@ -2172,8 +2176,10 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
       } else {
         let data;
         let signInError = null;
+        let attemptedFallback = false;
 
         try {
+          console.log('Attempting Supabase signInWithPassword...');
           const signInResult = await withAuthTimeout(supabase.auth.signInWithPassword({
             email: normalizedEmail,
             password,
@@ -2183,15 +2189,25 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
         } catch (signInTimeoutError) {
           if (!isTimeoutError(signInTimeoutError)) throw signInTimeoutError;
 
-          const fallbackResult = await withAuthTimeout(
-            signInWithPasswordFallback({ email: normalizedEmail, password }),
-            'Login fallback'
-          );
-          data = fallbackResult;
+          console.warn('Primary login timeout, attempting fallback API...');
+          attemptedFallback = true;
+          try {
+            const fallbackResult = await withAuthTimeout(
+              signInWithPasswordFallback({ email: normalizedEmail, password }),
+              'Login fallback',
+              20000 // Fallback timeout: 20s
+            );
+            data = fallbackResult;
+          } catch (fallbackError) {
+            if (isTimeoutError(fallbackError)) {
+              throw new Error('Koneksi internet lambat. Kedua metode login timeout. Silakan cek koneksi dan coba lagi.');
+            }
+            throw fallbackError;
+          }
         }
 
         if (signInError) throw signInError;
-        if (!data.user) throw new Error('Login gagal. Silakan coba lagi.');
+        if (!data || !data.user) throw new Error('Login gagal. Email atau password salah.');
 
         onAuth(mapAuthUser(data.user));
 
