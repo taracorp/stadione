@@ -8186,7 +8186,7 @@ export default function Stadione() {
 
     const route = resolveRouteStateFromLocation(window.location);
     const routeId = normalizeRouteId(route.detailId);
-    if (!routeId) {
+    if (!routeId || !isValidCommunityRouteId(routeId)) {
       goTo('community', null, { replaceHistory: true, scroll: false });
       return;
     }
