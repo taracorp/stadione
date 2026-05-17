@@ -4557,6 +4557,43 @@ const VERIFIED_MEMBER_REQUIRED_PAGES = new Set([
 
 const SPORT_OPTIONS = ['Sepakbola','Futsal','Badminton','Basket','Voli','Renang','Padel','Tennis','Tenis Meja','Bulu Tangkis','Rugby','Atletik','Panahan','Tinju','Pencak Silat','Karate','Taekwondo','Esports','Lainnya'];
 const LEVEL_OPTIONS = ['Pemula','Amatir','Semi-Pro','Profesional'];
+
+// Posisi per olahraga. null = olahraga individual tanpa posisi regu.
+const SPORT_POSITIONS = {
+  'Sepakbola':    ['Penjaga Gawang','Bek Kanan','Bek Kiri','Bek Tengah','Libero / Sweeper','Gelandang Bertahan','Gelandang Tengah','Gelandang Serang','Sayap Kanan','Sayap Kiri','Penyerang / Striker'],
+  'Futsal':       ['Penjaga Gawang','Fixo / Anchor','Flank Kanan','Flank Kiri','Pivot'],
+  'Basket':       ['Point Guard (PG)','Shooting Guard (SG)','Small Forward (SF)','Power Forward (PF)','Center (C)'],
+  'Voli':         ['Setter','Libero','Outside Hitter','Opposite Hitter','Middle Blocker'],
+  'Rugby':        ['Hooker','Prop','Lock','Flanker','Number 8','Scrum-half','Fly-half','Centre','Wing','Full-back'],
+  'Badminton':    ['Tunggal Putra','Tunggal Putri','Ganda Putra','Ganda Putri','Ganda Campuran'],
+  'Bulu Tangkis': ['Tunggal Putra','Tunggal Putri','Ganda Putra','Ganda Putri','Ganda Campuran'],
+  'Atletik':      ['Sprint (100m\u2013400m)','Lari Menengah (800m\u20131500m)','Lari Jauh (5000m+)','Maraton','Lompat Jauh','Lompat Tinggi','Lompat Galah','Lempar Lembing','Tolak Peluru','Lempar Cakram','Lontar Martil','Jalan Cepat','Triathlon'],
+  'Renang':       ['Gaya Bebas','Gaya Punggung','Gaya Dada','Gaya Kupu-kupu','Gaya Ganti Perorangan'],
+  'Pencak Silat': ['Tanding','Seni Tunggal','Seni Ganda','Seni Beregu'],
+  'Karate':       ['Kata','Kumite'],
+  'Taekwondo':    ['Poomsae (Kata)','Kyorugi (Sparring)'],
+  'Esports':      null,
+  'Tinju':        null,
+  'Tennis':       null,
+  'Tenis Meja':   null,
+  'Panahan':      null,
+  'Padel':        null,
+  'Lainnya':      null,
+};
+
+const ESPORTS_GAMES = {
+  'Mobile Legends: Bang Bang': ['Gold Laner','EXP Laner','Mid Laner','Roamer','Jungler','Hyper Carry'],
+  'PUBG Mobile':               ['Fragger','Entry Fragger','Sniper','Support','IGL (In-Game Leader)'],
+  'Free Fire':                 ['Fragger','Sniper','Support','Rush','IGL'],
+  'Valorant':                  ['Duelist','Controller','Initiator','Sentinel','IGL'],
+  'League of Legends':         ['Top Laner','Jungler','Mid Laner','ADC / Bot','Support'],
+  'Dota 2':                    ['Carry (Pos 1)','Midlaner (Pos 2)','Offlaner (Pos 3)','Soft Support (Pos 4)','Hard Support (Pos 5)'],
+  'Honor of Kings':            ['Gold Laner','EXP Laner','Mid Laner','Roamer','Jungler'],
+  'Clash Royale':              ['Arena Player','2v2 Player'],
+  'Clash of Clans':            ['Leader','Co-Leader','Elder','Member'],
+  'eFootball / FIFA':          ['Tidak ada posisi khusus'],
+  'Game Lainnya':              [],
+};
 const POSITION_FOOTBALL = ['Penjaga Gawang','Bek Kanan','Bek Kiri','Bek Tengah','Gelandang Bertahan','Gelandang','Gelandang Serang','Sayap Kanan','Sayap Kiri','Penyerang'];
 const DOMINANT_FOOT = ['Kanan','Kiri','Keduanya'];
 const DOMINANT_HAND = ['Kanan','Kiri','Keduanya'];
@@ -4621,6 +4658,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     jerseyNumber: rawMeta.jersey_number || '',
     jerseyName: rawMeta.jersey_name || '',
     playLevel: rawMeta.play_level || '',
+    esportsGame: rawMeta.esports_game || '',
     // Level 3 – Social
     instagram: rawMeta.instagram || '',
     tiktok: rawMeta.tiktok || '',
@@ -4656,6 +4694,8 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
       const autoPostal = ((WNI_REGION_DATA[next.province] || {})[next.city] || {})[value] || '';
       if (autoPostal) next.postalCode = autoPostal;
     }
+    if (key === 'mainSport') { next.mainPosition = ''; next.secondPosition = ''; next.esportsGame = ''; }
+    if (key === 'esportsGame') { next.mainPosition = ''; next.secondPosition = ''; }
     return next;
   });
 
@@ -4697,6 +4737,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           main_sport: ep.mainSport,
           main_position: ep.mainPosition,
           second_position: ep.secondPosition,
+          esports_game: ep.esportsGame,
           height: ep.height,
           weight: ep.weight,
           dominant_foot: ep.dominantFoot,
@@ -5758,6 +5799,63 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                         className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Gelandang" maxLength={40} />
                     </div>
                   </div>
+                  {/* Dynamic position section */}
+                  {ep.mainSport === 'Esports' ? (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Game / Judul</label>
+                        <select value={ep.esportsGame} onChange={e => updateEp('esportsGame', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                          <option value="">— Pilih Game —</option>
+                          {Object.keys(ESPORTS_GAMES).map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      </div>
+                      {ep.esportsGame && (ESPORTS_GAMES[ep.esportsGame] || []).length > 0 && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Role Utama</label>
+                            <select value={ep.mainPosition} onChange={e => updateEp('mainPosition', e.target.value)}
+                              className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                              <option value="">— Pilih Role —</option>
+                              {(ESPORTS_GAMES[ep.esportsGame] || []).map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Role Sekunder</label>
+                            <select value={ep.secondPosition} onChange={e => updateEp('secondPosition', e.target.value)}
+                              className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                              <option value="">— Pilih Role —</option>
+                              {(ESPORTS_GAMES[ep.esportsGame] || []).filter(r => r !== ep.mainPosition).map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : SPORT_POSITIONS[ep.mainSport] !== undefined && SPORT_POSITIONS[ep.mainSport] !== null ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Utama</label>
+                        <select value={ep.mainPosition} onChange={e => updateEp('mainPosition', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                          <option value="">— Pilih Posisi —</option>
+                          {(SPORT_POSITIONS[ep.mainSport] || []).map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Kedua</label>
+                        <select value={ep.secondPosition} onChange={e => updateEp('secondPosition', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                          <option value="">— Pilih Posisi —</option>
+                          {(SPORT_POSITIONS[ep.mainSport] || []).filter(p => p !== ep.mainPosition).map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  ) : ep.mainSport ? (
+                    <div className="rounded-xl bg-neutral-50 border border-neutral-200 px-4 py-3 text-sm text-neutral-500">
+                      {ep.mainSport} adalah olahraga individual — tidak ada pilihan posisi regu.
+                    </div>
+                  ) : null}
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tinggi Badan (cm)</label>
