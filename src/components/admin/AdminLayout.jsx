@@ -195,7 +195,7 @@ export const textareaCls = `${inputCls} resize-none`;
 export const selectCls = `${inputCls} appearance-none cursor-pointer`;
 
 /** Primary action button */
-export function ActionButton({ onClick, loading, disabled, children, variant = 'primary', size = 'md' }) {
+export function ActionButton({ onClick, loading, disabled, children, variant = 'primary', size = 'md', type = 'button' }) {
   const sizes = { sm: 'px-4 py-2 text-xs', md: 'px-5 py-2.5 text-sm', lg: 'px-6 py-3 text-base' };
   const variants = {
     primary: 'bg-neutral-900 text-white hover:bg-neutral-800',
@@ -205,6 +205,7 @@ export function ActionButton({ onClick, loading, disabled, children, variant = '
   };
   return (
     <button
+      type={type}
       onClick={onClick}
       disabled={disabled || loading}
       className={`inline-flex items-center gap-2 rounded-2xl font-bold transition disabled:opacity-50 disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]}`}

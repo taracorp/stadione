@@ -346,6 +346,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
 
       const finalPrice = Math.max(0, afterDiscount - bonusDeduction);
       let amount = finalPrice;
+      const isVoucherCovered = amount === 0;
 
       // Validate split payment
       if (paymentMethod === 'split') {
@@ -369,12 +370,15 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
           booking_id: bookingData.id,
           shift_id: activeShift.id,
           amount,
-          method: amount === 0 ? 'cash' : paymentMethod,
+          method: isVoucherCovered ? 'voucher_full' : paymentMethod,
           split_cash: paymentMethod === 'split' ? parseFloat(walkInForm.splitCash || 0) : null,
           split_qris: paymentMethod === 'split' ? parseFloat(walkInForm.splitQris || 0) : null,
           split_transfer: paymentMethod === 'split' ? parseFloat(walkInForm.splitTransfer || 0) : null,
           status: 'confirmed',
           processed_by: userData.user.id,
+          notes: isVoucherCovered
+            ? `Full coverage by discount/benefit at ${new Date().toISOString()}`
+            : null,
         })
         .select();
 
@@ -466,7 +470,7 @@ const VenuePOSPage = ({ venueId: propVenueId }) => {
         invoiceNumber,
         booking: bookingData,
         selectedCourt: courts.find(c => c.id === walkInForm.courtId) || null,
-        paymentMethod: paymentMethod === 'split' ? 'split' : (amount === 0 ? 'cash' : paymentMethod),
+        paymentMethod: paymentMethod === 'split' ? 'split' : (isVoucherCovered ? 'voucher_full' : paymentMethod),
         finalPrice,
         bonusDeduction,
         membershipDiscount,

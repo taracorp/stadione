@@ -13,6 +13,7 @@ import {
   BarChart3,
   Settings,
   Trophy,
+  Tag,
   ChevronRight,
   Building2,
   MapPin,
@@ -35,6 +36,7 @@ const VenueAdsPage = lazy(() => import('./venue/VenueAdsPage.jsx'));
 const VenueFinancePage = lazy(() => import('./venue/VenueFinancePage.jsx'));
 const VenueSettingsPage = lazy(() => import('./venue/VenueSettingsPage.jsx'));
 const VenueTournamentReservationPage = lazy(() => import('./venue/VenueTournamentReservationPage.jsx'));
+const VenuePromoPage = lazy(() => import('./venue/VenuePromoPage.jsx'));
 
 // ── Navigation items ──────────────────────────────────────────────────────────
 const NAV_ITEMS = [
@@ -49,6 +51,7 @@ const NAV_ITEMS = [
   { key: 'staff',        label: 'Staf',        icon: UserCog,         group: 'people' },
   { key: 'maintenance',  label: 'Maintenance', icon: Wrench,          group: 'facility' },
   { key: 'ads',          label: 'Promosi',     icon: Megaphone,       group: 'growth' },
+  { key: 'promo',        label: 'Kode Promo',  icon: Tag,             group: 'growth' },
   { key: 'finance',      label: 'Keuangan',    icon: BarChart3,       group: 'growth' },
   { key: 'settings',     label: 'Pengaturan',  icon: Settings,        group: 'config' },
 ];
@@ -215,6 +218,7 @@ export default function VenueWorkspacePage({ auth, onBack, onNav: parentNav }) {
       case 'maintenance': return <VenueMaintenancePage {...sharedProps} />;
       case 'ads':         return <VenueAdsPage {...sharedProps} />;
       case 'finance':     return <VenueFinancePage {...sharedProps} />;
+      case 'promo':        return <VenuePromoPage {...sharedProps} />;
       case 'settings':    return <VenueSettingsPage {...sharedProps} />;
       default:            return <ComingSoonPage label={activeLabel} />;
     }

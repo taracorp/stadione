@@ -183,10 +183,15 @@ export async function saveDokuVenueConfig(venueId, config = {}) {
 export async function initiateDokuPayment(bookingId, venueId, payload = {}) {
   if (!isSupabaseReady()) return { error: 'Supabase belum dikonfigurasi.' };
 
+  const amount = Number(payload.amount || 0);
+  if (amount < 1000) {
+    return { error: 'Minimum pembayaran DOKU adalah IDR 1.000.' };
+  }
+
   const requestBody = {
     booking_id: bookingId,
     venue_id: venueId,
-    amount: Number(payload.amount || 0),
+    amount,
     currency: payload.currency || 'IDR',
     customer_name: payload.customer_name || null,
     customer_phone: payload.customer_phone || null,
@@ -1481,38 +1486,245 @@ export async function fetchCoachDetail(coachId) {
 }
 
 // ========== COMMUNITIES ==========
-export async function fetchCommunities() {
+function deriveCommunityBadges(community = {}) {
+  const badges = [];
+
+  if (community.verified) badges.push('Verified');
+
+  const skillLevel = String(community.skill_level || '').toLowerCase();
+  const tagline = String(community.tagline || '').toLowerCase();
+  const activityLevel = String(community.activity_level || '').toLowerCase();
+  const communityType = String(community.community_type || '').toLowerCase();
+  const membersCount = Number(community.members_count || 0);
+
+  if (skillLevel.includes('beginner') || tagline.includes('beginner')) badges.push('Beginner Friendly');
+  if (activityLevel === 'very high' || activityLevel === 'high' || membersCount >= 180) badges.push('Trending');
+  if (activityLevel === 'very high' || membersCount >= 250) badges.push('Most Active');
+  if (communityType.includes('women')) badges.push('Women Only');
+
+  return Array.from(new Set(badges));
+}
+
+function mapCommunityTime(event = {}) {
+  const source = `${event?.time_label || ''} ${event?.title || ''}`.toLowerCase();
+  if (source.includes('morning') || source.includes('pagi') || source.includes('06:') || source.includes('07:')) return 'Morning';
+  if (source.includes('afternoon') || source.includes('siang') || source.includes('14:') || source.includes('15:')) return 'Afternoon';
+  if (source.includes('evening') || source.includes('malam') || source.includes('19:') || source.includes('20:')) return 'Evening';
+  if (source.includes('sabtu') || source.includes('minggu') || source.includes('weekend')) return 'Weekend';
+  return 'Weekend';
+}
+
+function normalizeCommunitySummary(community = {}, extras = {}) {
+  const latestEvent = extras.latestEvent || null;
+  const feedPosts = extras.feedPosts || [];
+  const memberships = extras.memberships || [];
+  const isJoined = Boolean(extras.isJoined);
+  const isBookmarked = Boolean(extras.isBookmarked);
+  const badges = deriveCommunityBadges(community);
+
+  return {
+    ...community,
+    district: community.district || community.city,
+    badges,
+    latestEvent,
+    latestFeedPost: feedPosts[0] || null,
+    feedPosts,
+    events: extras.events || [],
+    recentMembers: memberships.slice(0, 6),
+    membershipCount: Number(community.members_count || memberships.length || 0),
+    isJoined,
+    isBookmarked,
+    recommendationReason: extras.recommendationReason || '',
+    recommendationScore: Number(extras.recommendationScore || 0),
+    activity_time: community.activity_time || mapCommunityTime(latestEvent),
+  };
+}
+
+export async function fetchCommunities(options = {}) {
   if (!isSupabaseReady()) {
     console.warn('Supabase client not configured: fetchCommunities returning fallback empty array.');
     return [];
   }
 
+  const { userId = null, limit = null } = options;
+
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('sport_communities')
-      .select('*')
+      .select('id,name,sport,city,province,members_count,activity_level,skill_level,community_type,tagline,verified,created_at,updated_at')
       .order('members_count', { ascending: false });
 
+    if (limit) query = query.limit(limit);
+
+    const { data, error } = await query;
+
     if (error) throw error;
-    return data || [];
+    const communities = data || [];
+    if (communities.length === 0) return [];
+
+    const communityIds = communities.map((item) => item.id);
+
+    const [eventsResponse, feedResponse, membershipsResponse, bookmarksResponse] = await Promise.all([
+      supabase
+        .from('community_events')
+        .select('id,community_id,title,description,event_type,status,event_date,time_label,location,attendees_count,created_at')
+        .in('community_id', communityIds)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('community_feed_posts')
+        .select('id,community_id,author_name,author_role,content,likes_count,comments_count,created_at')
+        .in('community_id', communityIds)
+        .order('created_at', { ascending: false }),
+      userId
+        ? supabase
+            .from('community_memberships')
+            .select('community_id,user_id,joined_at')
+            .eq('user_id', userId)
+            .in('community_id', communityIds)
+            .order('joined_at', { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+      userId
+        ? supabase
+            .from('community_bookmarks')
+            .select('community_id,created_at')
+            .eq('user_id', userId)
+            .in('community_id', communityIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (eventsResponse.error) throw eventsResponse.error;
+    if (feedResponse.error) throw feedResponse.error;
+    if (membershipsResponse.error) throw membershipsResponse.error;
+    if (bookmarksResponse?.error && !isMissingColumnError(bookmarksResponse.error, 'community_bookmarks')) {
+      throw bookmarksResponse.error;
+    }
+
+    const eventsByCommunity = new Map();
+    const feedByCommunity = new Map();
+    const bookmarkIds = new Set((bookmarksResponse?.data || []).map((item) => item.community_id));
+    const joinedIds = new Set((membershipsResponse?.data || []).map((item) => item.community_id));
+
+    (eventsResponse.data || []).forEach((event) => {
+      if (!eventsByCommunity.has(event.community_id)) eventsByCommunity.set(event.community_id, []);
+      eventsByCommunity.get(event.community_id).push(event);
+    });
+
+    (feedResponse.data || []).forEach((post) => {
+      if (!feedByCommunity.has(post.community_id)) feedByCommunity.set(post.community_id, []);
+      feedByCommunity.get(post.community_id).push(post);
+    });
+
+    return communities.map((community) => {
+      const events = eventsByCommunity.get(community.id) || [];
+      const feedPosts = feedByCommunity.get(community.id) || [];
+      return normalizeCommunitySummary(community, {
+        latestEvent: events[0] || null,
+        events: events.slice(0, 3),
+        feedPosts: feedPosts.slice(0, 3),
+        memberships: [],
+        isJoined: joinedIds.has(community.id),
+        isBookmarked: bookmarkIds.has(community.id),
+      });
+    });
   } catch (err) {
     console.error('Error fetching communities:', err.message);
     return [];
   }
 }
 
-export async function fetchCommunityDetail(communityId) {
+export async function fetchCommunityDetail(communityId, options = {}) {
   if (!isSupabaseReady() || !communityId) return null;
+
+  const { userId = null } = options;
 
   try {
     const { data, error } = await supabase
       .from('sport_communities')
-      .select('*')
+      .select('id,name,sport,city,province,members_count,activity_level,skill_level,community_type,tagline,verified,created_at,updated_at')
       .eq('id', communityId)
       .single();
 
     if (error) throw error;
-    return data || null;
+
+    const [eventsResponse, feedResponse, commentsResponse, likesResponse, attendanceResponse, membershipsResponse, bookmarksResponse, relatedResponse] = await Promise.all([
+      fetchCommunityEvents(communityId),
+      fetchCommunityFeedPosts(communityId),
+      fetchCommunityFeedComments(communityId),
+      userId ? fetchUserCommunityFeedLikes(userId, communityId) : Promise.resolve([]),
+      userId ? fetchUserCommunityEventAttendance(userId, communityId) : Promise.resolve([]),
+      userId
+        ? supabase
+            .from('community_memberships')
+            .select('community_id,user_id,joined_at')
+            .eq('community_id', communityId)
+            .eq('user_id', userId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      userId
+        ? supabase
+            .from('community_bookmarks')
+            .select('community_id')
+            .eq('user_id', userId)
+            .eq('community_id', communityId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      supabase
+        .from('sport_communities')
+        .select('id,name,sport,city,province,members_count,activity_level,skill_level,community_type,tagline,verified,created_at,updated_at')
+        .neq('id', communityId)
+        .order('members_count', { ascending: false })
+        .limit(12),
+    ]);
+
+    if (membershipsResponse.error) throw membershipsResponse.error;
+    if (bookmarksResponse?.error && !isMissingColumnError(bookmarksResponse.error, 'community_bookmarks')) {
+      throw bookmarksResponse.error;
+    }
+    if (relatedResponse.error) throw relatedResponse.error;
+
+    const commentsByPostId = new Map();
+    (commentsResponse || []).forEach((comment) => {
+      if (!commentsByPostId.has(comment.post_id)) commentsByPostId.set(comment.post_id, []);
+      commentsByPostId.get(comment.post_id).push(comment);
+    });
+
+    const likedPostIds = new Set((likesResponse || []).map((item) => item.post_id));
+    const attendedEventIds = new Set((attendanceResponse || []).map((item) => item.event_id));
+
+    const relatedCommunities = (relatedResponse.data || [])
+      .filter((community) => community.sport === data.sport || community.city === data.city)
+      .slice(0, 4)
+      .map((community, index) => normalizeCommunitySummary(community, {
+      memberships: [],
+      feedPosts: [],
+      events: [],
+      latestEvent: null,
+      isJoined: false,
+      isBookmarked: false,
+      recommendationScore: Math.max(0, 10 - index),
+      recommendationReason: community.sport === data.sport ? 'Olahraga yang sama' : 'Dekat kota yang sama',
+      }));
+
+    const detail = normalizeCommunitySummary(data, {
+      latestEvent: eventsResponse[0] || null,
+      events: (eventsResponse || []).map((event) => ({
+        ...event,
+        isAttending: attendedEventIds.has(event.id),
+      })),
+      feedPosts: (feedResponse || []).map((post) => ({
+        ...post,
+        comments: commentsByPostId.get(post.id) || [],
+        isLiked: likedPostIds.has(post.id),
+      })),
+      memberships: [],
+      isJoined: Boolean(membershipsResponse?.data),
+      isBookmarked: Boolean(bookmarksResponse?.data),
+    });
+
+    return {
+      ...detail,
+      relatedCommunities,
+    };
   } catch (err) {
     console.error('Error fetching community detail:', err.message);
     return null;
@@ -1543,6 +1755,8 @@ export async function joinCommunity(userId, communityId) {
   }
 
   try {
+    const community = await fetchCommunityDetail(communityId, { userId });
+
     const { data: existingMembership, error: existingError } = await supabase
       .from('community_memberships')
       .select('id')
@@ -1566,10 +1780,253 @@ export async function joinCommunity(userId, communityId) {
       .single();
 
     if (error) throw error;
+
+    if (community?.id) {
+      await supabase
+        .from('sport_communities')
+        .update({
+          members_count: Math.max(1, Number(community.membershipCount || community.members_count || 0) + 1),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', communityId);
+
+      const membershipLogPayload = {
+        user_id: userId,
+        community_id: communityId,
+        community_name: community.name,
+        sport: community.sport,
+        joined_date: new Date().toISOString(),
+        status: 'active',
+      };
+
+      const { error: membershipLogError } = await supabase
+        .from('user_community_memberships_log')
+        .insert(membershipLogPayload);
+
+      if (membershipLogError && !isMissingColumnError(membershipLogError, 'user_community_memberships_log')) {
+        console.warn('Community membership log insert warning:', membershipLogError.message);
+      }
+
+      await recordActivityToLog(userId, {
+        type: 'community_join',
+        category: community.sport,
+        title: `Gabung komunitas: ${community.name}`,
+        description: `Bergabung ke komunitas ${community.name} di ${community.city}`,
+        metadata: {
+          communityId: community.id,
+          communityName: community.name,
+          city: community.city,
+          province: community.province,
+          sport: community.sport,
+        },
+        status: 'active',
+      });
+    }
+
     return { success: true, data, message: 'Berhasil bergabung ke komunitas.' };
   } catch (err) {
     console.error('Error joining community:', err.message);
     return { success: false, message: err.message || 'Gagal bergabung ke komunitas.' };
+  }
+}
+
+export async function fetchCommunityBookmarks(userId) {
+  if (!isSupabaseReady() || !userId) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('community_bookmarks')
+      .select('id,community_id,created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      if (isMissingColumnError(error, 'community_bookmarks')) return [];
+      throw error;
+    }
+
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching community bookmarks:', err.message);
+    return [];
+  }
+}
+
+export async function toggleCommunityBookmark(userId, community) {
+  if (!isSupabaseReady() || !userId || !community?.id) {
+    return { success: false, message: 'User atau komunitas tidak valid.' };
+  }
+
+  try {
+    const { data: existingBookmark, error: existingError } = await supabase
+      .from('community_bookmarks')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('community_id', community.id)
+      .maybeSingle();
+
+    if (existingError) {
+      if (isMissingColumnError(existingError, 'community_bookmarks')) {
+        return { success: false, message: 'Tabel bookmark komunitas belum tersedia. Jalankan migrasi bookmark komunitas.' };
+      }
+      throw existingError;
+    }
+
+    if (existingBookmark?.id) {
+      const { error } = await supabase
+        .from('community_bookmarks')
+        .delete()
+        .eq('id', existingBookmark.id);
+
+      if (error) throw error;
+      return { success: true, bookmarked: false, message: 'Bookmark komunitas dihapus.' };
+    }
+
+    const { error } = await supabase
+      .from('community_bookmarks')
+      .insert({
+        user_id: userId,
+        community_id: community.id,
+      });
+
+    if (error) {
+      if (isMissingColumnError(error, 'community_bookmarks')) {
+        return { success: false, message: 'Tabel bookmark komunitas belum tersedia. Jalankan migrasi bookmark komunitas.' };
+      }
+      throw error;
+    }
+
+    await recordActivityToLog(userId, {
+      type: 'community_bookmark',
+      category: community.sport,
+      title: `Bookmark komunitas: ${community.name}`,
+      description: `Menyimpan komunitas ${community.name} untuk dipantau nanti.`,
+      metadata: {
+        communityId: community.id,
+        communityName: community.name,
+        city: community.city,
+      },
+      status: 'active',
+    });
+
+    return { success: true, bookmarked: true, message: 'Komunitas disimpan ke bookmark.' };
+  } catch (err) {
+    console.error('Error toggling community bookmark:', err.message);
+    return { success: false, message: err.message || 'Gagal menyimpan bookmark komunitas.' };
+  }
+}
+
+export async function saveCommunityRecommendationFeedback(userId, communityId, verdict = 'accepted', metadata = {}) {
+  if (!isSupabaseReady() || !userId || !communityId) {
+    return { success: false, message: 'User atau komunitas tidak valid.' };
+  }
+
+  try {
+    const { error } = await supabase
+      .from('community_recommendation_feedback')
+      .upsert({
+        user_id: userId,
+        community_id: communityId,
+        verdict,
+        source: metadata.source || 'community_discovery',
+        reason: metadata.reason || null,
+        metadata,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,community_id' });
+
+    if (error) {
+      if (isMissingColumnError(error, 'community_recommendation_feedback')) {
+        return { success: false, message: 'Tabel feedback rekomendasi komunitas belum tersedia. Jalankan migrasi recommendation feedback.' };
+      }
+      throw error;
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error saving community recommendation feedback:', err.message);
+    return { success: false, message: err.message || 'Gagal menyimpan feedback rekomendasi komunitas.' };
+  }
+}
+
+export async function fetchRecommendedCommunities(userId, options = {}) {
+  const { limit = 3, excludeCommunityId = null } = options;
+  const communities = await fetchCommunities({ userId });
+  if (communities.length === 0) return [];
+
+  if (!userId) {
+    return communities
+      .filter((community) => community.id !== excludeCommunityId)
+      .sort((a, b) => Number(b.membershipCount || 0) - Number(a.membershipCount || 0))
+      .slice(0, limit)
+      .map((community, index) => ({
+        ...community,
+        recommendationScore: 100 - index,
+        recommendationReason: community.badges.includes('Beginner Friendly') ? 'Beginner Friendly' : 'Komunitas aktif dan ramai',
+      }));
+  }
+
+  try {
+    const [bookmarks, memberships, attendanceRows, feedbackRows] = await Promise.all([
+      fetchCommunityBookmarks(userId),
+      fetchUserCommunityMemberships(userId),
+      fetchUserCommunityEventAttendance(userId),
+      supabase
+        .from('community_recommendation_feedback')
+        .select('community_id,verdict')
+        .eq('user_id', userId),
+    ]);
+
+    const bookmarkedIds = new Set((bookmarks || []).map((item) => item.community_id));
+    const joinedIds = new Set((memberships || []).map((item) => item.community_id));
+    const attendedIds = new Set((attendanceRows || []).map((item) => item.community_id));
+    const dismissedIds = new Set(
+      ((feedbackRows?.error && isMissingColumnError(feedbackRows.error, 'community_recommendation_feedback')) ? [] : (feedbackRows?.data || []))
+        .filter((item) => item.verdict === 'dismissed')
+        .map((item) => item.community_id)
+    );
+
+    const signalIds = Array.from(new Set([...bookmarkedIds, ...joinedIds, ...attendedIds]));
+    const signalCommunities = communities.filter((community) => signalIds.includes(community.id));
+    const preferredSports = new Set(signalCommunities.map((community) => community.sport));
+    const preferredCities = new Set(signalCommunities.map((community) => community.city));
+
+    return communities
+      .filter((community) => community.id !== excludeCommunityId)
+      .filter((community) => !joinedIds.has(community.id))
+      .filter((community) => !bookmarkedIds.has(community.id))
+      .filter((community) => !dismissedIds.has(community.id))
+      .map((community) => {
+        let recommendationScore = 0;
+        const reasons = [];
+
+        if (preferredSports.has(community.sport)) {
+          recommendationScore += 4;
+          reasons.push(`satu olahraga dengan minat Anda: ${community.sport}`);
+        }
+        if (preferredCities.has(community.city)) {
+          recommendationScore += 3;
+          reasons.push(`masih di kota ${community.city}`);
+        }
+        if (attendedIds.has(community.id)) {
+          recommendationScore += 2;
+          reasons.push('Anda pernah hadir di event komunitas ini');
+        }
+        if (community.badges.includes('Verified')) recommendationScore += 2;
+        if (community.badges.includes('Most Active')) recommendationScore += 2;
+        if (community.badges.includes('Beginner Friendly')) recommendationScore += 1;
+        recommendationScore += Math.min(3, Math.round(Number(community.membershipCount || 0) / 200));
+
+        return {
+          ...community,
+          recommendationScore,
+          recommendationReason: reasons[0] || 'aktif dan relevan dengan pola komunitas Anda',
+        };
+      })
+      .sort((a, b) => b.recommendationScore - a.recommendationScore)
+      .slice(0, limit);
+  } catch (err) {
+    console.error('Error fetching recommended communities:', err.message);
+    return communities.slice(0, limit);
   }
 }
 
@@ -1591,6 +2048,248 @@ export async function fetchCommunityFeedPosts(communityId) {
   }
 }
 
+export async function fetchCommunityFeedComments(communityId) {
+  if (!isSupabaseReady() || !communityId) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('community_feed_comments')
+      .select('*')
+      .eq('community_id', communityId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      if (isMissingColumnError(error, 'community_feed_comments')) return [];
+      throw error;
+    }
+
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching community feed comments:', err.message);
+    return [];
+  }
+}
+
+export async function fetchUserCommunityFeedLikes(userId, communityId) {
+  if (!isSupabaseReady() || !userId || !communityId) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('community_feed_likes')
+      .select('post_id, community_id')
+      .eq('user_id', userId)
+      .eq('community_id', communityId);
+
+    if (error) {
+      if (isMissingColumnError(error, 'community_feed_likes')) return [];
+      throw error;
+    }
+
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching user community feed likes:', err.message);
+    return [];
+  }
+}
+
+export async function createCommunityFeedComment({ communityId, postId, userId, authorName, authorRole = 'member', content }) {
+  if (!isSupabaseReady()) {
+    return { success: false, message: 'Supabase belum dikonfigurasi.' };
+  }
+
+  const normalizedContent = String(content || '').trim();
+  const normalizedAuthor = String(authorName || '').trim();
+
+  if (!communityId || !postId || !userId || !normalizedContent || !normalizedAuthor) {
+    return { success: false, message: 'Data komentar belum lengkap.' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('community_feed_comments')
+      .insert({
+        community_id: communityId,
+        post_id: postId,
+        user_id: userId,
+        author_name: normalizedAuthor,
+        author_role: authorRole,
+        content: normalizedContent,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (isRlsDeniedError(error)) {
+        return { success: false, message: 'Anda harus bergabung ke komunitas ini sebelum berkomentar.' };
+      }
+      if (isMissingColumnError(error, 'community_feed_comments')) {
+        return { success: false, message: 'Tabel komentar komunitas belum tersedia.' };
+      }
+      throw error;
+    }
+
+    const { data: post } = await supabase
+      .from('community_feed_posts')
+      .select('comments_count')
+      .eq('id', postId)
+      .maybeSingle();
+
+    await supabase
+      .from('community_feed_posts')
+      .update({ comments_count: Number(post?.comments_count || 0) + 1 })
+      .eq('id', postId);
+
+    await recordActivityToLog(userId, {
+      type: 'community_comment',
+      category: 'community_feed',
+      title: 'Komentar komunitas baru',
+      description: `Menambahkan komentar baru pada post komunitas #${postId}`,
+      metadata: {
+        communityId,
+        postId,
+        preview: normalizedContent.slice(0, 120),
+      },
+      status: 'active',
+    });
+
+    return { success: true, data, message: 'Komentar berhasil ditambahkan.' };
+  } catch (err) {
+    console.error('Error creating community feed comment:', err.message);
+    return { success: false, message: err.message || 'Gagal menambahkan komentar.' };
+  }
+}
+
+export async function toggleCommunityFeedLike({ communityId, postId, userId }) {
+  if (!isSupabaseReady() || !communityId || !postId || !userId) {
+    return { success: false, message: 'Data like belum lengkap.' };
+  }
+
+  try {
+    const { data: existingLike, error: existingError } = await supabase
+      .from('community_feed_likes')
+      .select('id')
+      .eq('community_id', communityId)
+      .eq('post_id', postId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (existingError) {
+      if (isMissingColumnError(existingError, 'community_feed_likes')) {
+        return { success: false, message: 'Tabel like komunitas belum tersedia.' };
+      }
+      throw existingError;
+    }
+
+    const { data: post } = await supabase
+      .from('community_feed_posts')
+      .select('likes_count')
+      .eq('id', postId)
+      .maybeSingle();
+
+    if (existingLike?.id) {
+      const { error } = await supabase
+        .from('community_feed_likes')
+        .delete()
+        .eq('id', existingLike.id);
+
+      if (error) throw error;
+
+      await supabase
+        .from('community_feed_posts')
+        .update({ likes_count: Math.max(0, Number(post?.likes_count || 0) - 1) })
+        .eq('id', postId);
+
+      return { success: true, liked: false, message: 'Like dihapus.' };
+    }
+
+    const { error } = await supabase
+      .from('community_feed_likes')
+      .insert({
+        community_id: communityId,
+        post_id: postId,
+        user_id: userId,
+      });
+
+    if (error) {
+      if (isRlsDeniedError(error)) {
+        return { success: false, message: 'Anda harus bergabung ke komunitas ini sebelum memberi like.' };
+      }
+      throw error;
+    }
+
+    await supabase
+      .from('community_feed_posts')
+      .update({ likes_count: Number(post?.likes_count || 0) + 1 })
+      .eq('id', postId);
+
+    await recordActivityToLog(userId, {
+      type: 'community_like',
+      category: 'community_feed',
+      title: 'Menyukai post komunitas',
+      description: `Memberi like pada post komunitas #${postId}`,
+      metadata: { communityId, postId },
+      status: 'active',
+    });
+
+    return { success: true, liked: true, message: 'Like tersimpan.' };
+  } catch (err) {
+    console.error('Error toggling community feed like:', err.message);
+    return { success: false, message: err.message || 'Gagal memproses like.' };
+  }
+}
+
+export async function createCommunityFeedPost({ communityId, userId, authorName, authorRole = 'member', content }) {
+  if (!isSupabaseReady()) {
+    return { success: false, message: 'Supabase belum dikonfigurasi.' };
+  }
+
+  const normalizedContent = String(content || '').trim();
+  const normalizedAuthor = String(authorName || '').trim();
+
+  if (!communityId || !userId || !normalizedContent || !normalizedAuthor) {
+    return { success: false, message: 'Data post komunitas belum lengkap.' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('community_feed_posts')
+      .insert({
+        community_id: communityId,
+        author_name: normalizedAuthor,
+        author_role: authorRole,
+        content: normalizedContent,
+        likes_count: 0,
+        comments_count: 0,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (isRlsDeniedError(error)) {
+        return { success: false, message: 'Anda harus bergabung ke komunitas ini sebelum membuat post.' };
+      }
+      throw error;
+    }
+
+    await recordActivityToLog(userId, {
+      type: 'community_post',
+      category: 'community_feed',
+      title: `Post komunitas baru`,
+      description: `Membuat post baru di komunitas #${communityId}`,
+      metadata: {
+        communityId,
+        preview: normalizedContent.slice(0, 140),
+      },
+      status: 'active',
+    });
+
+    return { success: true, data, message: 'Post komunitas berhasil dipublikasikan.' };
+  } catch (err) {
+    console.error('Error creating community feed post:', err.message);
+    return { success: false, message: err.message || 'Gagal membuat post komunitas.' };
+  }
+}
+
 export async function fetchCommunityEvents(communityId) {
   if (!isSupabaseReady() || !communityId) return [];
 
@@ -1609,6 +2308,111 @@ export async function fetchCommunityEvents(communityId) {
   }
 }
 
+export async function fetchUserCommunityEventAttendance(userId, communityId = null) {
+  if (!isSupabaseReady() || !userId) return [];
+
+  try {
+    let query = supabase
+      .from('community_event_attendance')
+      .select('community_id,event_id,status,created_at')
+      .eq('user_id', userId);
+
+    if (communityId) query = query.eq('community_id', communityId);
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      if (isMissingColumnError(error, 'community_event_attendance')) return [];
+      throw error;
+    }
+
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching community event attendance:', err.message);
+    return [];
+  }
+}
+
+export async function toggleCommunityEventAttendance({ community, event, userId }) {
+  if (!isSupabaseReady() || !community?.id || !event?.id || !userId) {
+    return { success: false, message: 'Data attendance belum lengkap.' };
+  }
+
+  try {
+    const { data: existingAttendance, error: existingError } = await supabase
+      .from('community_event_attendance')
+      .select('id,status')
+      .eq('community_id', community.id)
+      .eq('event_id', event.id)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (existingError) {
+      if (isMissingColumnError(existingError, 'community_event_attendance')) {
+        return { success: false, message: 'Tabel attendance event komunitas belum tersedia.' };
+      }
+      throw existingError;
+    }
+
+    if (existingAttendance?.id) {
+      const { error } = await supabase
+        .from('community_event_attendance')
+        .delete()
+        .eq('id', existingAttendance.id);
+
+      if (error) throw error;
+
+      await supabase
+        .from('community_events')
+        .update({ attendees_count: Math.max(0, Number(event.attendees_count || 0) - 1) })
+        .eq('id', event.id);
+
+      return { success: true, attending: false, message: 'Kehadiran event dibatalkan.' };
+    }
+
+    const { error } = await supabase
+      .from('community_event_attendance')
+      .insert({
+        community_id: community.id,
+        event_id: event.id,
+        user_id: userId,
+        status: 'attending',
+      });
+
+    if (error) {
+      if (isRlsDeniedError(error)) {
+        return { success: false, message: 'Anda harus bergabung ke komunitas ini sebelum join event.' };
+      }
+      throw error;
+    }
+
+    await supabase
+      .from('community_events')
+      .update({ attendees_count: Number(event.attendees_count || 0) + 1 })
+      .eq('id', event.id);
+
+    await recordActivityToLog(userId, {
+      type: 'community_event_attendance',
+      category: community.sport,
+      title: `Join event komunitas: ${event.title}`,
+      description: `Menandai hadir untuk event ${event.title} di komunitas ${community.name}`,
+      metadata: {
+        communityId: community.id,
+        communityName: community.name,
+        eventId: event.id,
+        eventTitle: event.title,
+        city: community.city,
+      },
+      status: 'active',
+    });
+
+    return { success: true, attending: true, message: 'Anda tercatat hadir di event ini.' };
+  } catch (err) {
+    console.error('Error toggling community event attendance:', err.message);
+    return { success: false, message: err.message || 'Gagal memproses attendance event.' };
+  }
+}
+
 export async function fetchCommunityChatMessages(communityId) {
   if (!isSupabaseReady() || !communityId) return [];
 
@@ -1624,6 +2428,44 @@ export async function fetchCommunityChatMessages(communityId) {
   } catch (err) {
     console.error('Error fetching community chat messages:', err.message);
     return [];
+  }
+}
+
+export async function createCommunityChatMessage({ communityId, userId, senderName, senderRole = 'member', message }) {
+  if (!isSupabaseReady()) {
+    return { success: false, message: 'Supabase belum dikonfigurasi.' };
+  }
+
+  const normalizedMessage = String(message || '').trim();
+  const normalizedSender = String(senderName || '').trim();
+
+  if (!communityId || !userId || !normalizedMessage || !normalizedSender) {
+    return { success: false, message: 'Pesan chat belum lengkap.' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('community_chat_messages')
+      .insert({
+        community_id: communityId,
+        sender_name: normalizedSender,
+        sender_role: senderRole,
+        message: normalizedMessage,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (isRlsDeniedError(error)) {
+        return { success: false, message: 'Anda harus bergabung ke komunitas ini sebelum mengirim chat.' };
+      }
+      throw error;
+    }
+
+    return { success: true, data, message: 'Pesan terkirim.' };
+  } catch (err) {
+    console.error('Error creating community chat message:', err.message);
+    return { success: false, message: err.message || 'Gagal mengirim chat komunitas.' };
   }
 }
 
@@ -2116,6 +2958,33 @@ export async function fetchCurrentUserActiveContext() {
     return data || null;
   } catch (err) {
     console.error('Error fetching current user active context:', err.message);
+    return null;
+  }
+}
+
+export async function fetchCurrentUserModerationStatus() {
+  if (!isSupabaseReady()) {
+    console.warn('Supabase client not configured: fetchCurrentUserModerationStatus returning null.');
+    return null;
+  }
+
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+
+    const userId = authData?.user?.id;
+    if (!userId) return null;
+
+    const { data, error } = await supabase
+      .from('user_moderation')
+      .select('is_blocked, is_disabled, moderation_reason, updated_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  } catch (err) {
+    console.error('Error fetching current user moderation status:', err.message);
     return null;
   }
 }
@@ -2838,6 +3707,9 @@ export async function recordVenueBooking(userId, payload) {
       bookingTime: payload.bookingTime,
       paymentMethod: payload.paymentMethod,
       totalPaid: payload.totalPaid,
+      voucherCode: payload.voucherCode || null,
+      voucherDiscount: Number(payload.voucherDiscount || 0),
+      voucherCovered: Boolean(payload.voucherCovered),
     },
     status: 'active',
   };

@@ -24,12 +24,56 @@ const Modal = ({ open, onClose, title, children }) => {
 };
 
 export default function DokuPaymentModal({ open, onClose, booking, venueId, onSuccess, onError }) {
+  const MIN_DOKU_AMOUNT = 1000;
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState('');
   const [transaction, setTransaction] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState(null);
+
+  const normalizeErrorMessage = (input) => {
+    if (!input) return '';
+
+    const safe = (value) => {
+      const text = String(value || '').trim();
+      if (!text || text === '[object Object]') return '';
+      if (text.includes('[object Object]')) {
+        const normalized = text.toLowerCase().replace(/\s+/g, '');
+        if (normalized.includes('"error":"[objectobject]"') || normalized.includes("'error':'[objectobject]'")) {
+          return '';
+        }
+      }
+      return text;
+    };
+
+    if (typeof input === 'string') return safe(input);
+    if (input instanceof Error) {
+      const directMessage = safe(input.message);
+      if (directMessage) return directMessage;
+      return normalizeErrorMessage(input.cause || input.error || input.details || input.hint);
+    }
+
+    if (Array.isArray(input)) {
+      return input.map((item) => normalizeErrorMessage(item)).filter(Boolean).join(', ');
+    }
+
+    if (typeof input === 'object') {
+      const nested =
+        normalizeErrorMessage(input.error) ||
+        normalizeErrorMessage(input.message) ||
+        normalizeErrorMessage(input.details) ||
+        normalizeErrorMessage(input.hint);
+      if (nested) return nested;
+      try {
+        return safe(JSON.stringify(input));
+      } catch {
+        return '';
+      }
+    }
+
+    return safe(input);
+  };
 
   const amount = useMemo(() => {
     if (!booking) return 0;
@@ -74,7 +118,7 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
         ]);
 
         if (configResponse.error) {
-          setError(configResponse.error);
+          setError(normalizeErrorMessage(configResponse.error) || 'Gagal memuat konfigurasi DOKU.');
           setStatusMessage('Konfigurasi DOKU tidak ditemukan atau belum aktif.');
           return;
         }
@@ -106,7 +150,7 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
         setStatusMessage('Konfigurasi DOKU siap. Klik tombol untuk memulai checkout.');
       } catch (err) {
         console.error('Doku config load failed:', err);
-        setError(err.message || 'Gagal memuat konfigurasi DOKU');
+        setError(normalizeErrorMessage(err) || 'Gagal memuat konfigurasi DOKU');
         setStatusMessage('Gagal memuat konfigurasi DOKU.');
       }
     };
@@ -156,6 +200,12 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
       return;
     }
 
+    if (Number(amount || 0) < MIN_DOKU_AMOUNT) {
+      setError('Minimum pembayaran DOKU adalah IDR 1.000.');
+      setStatusMessage('Minimum pembayaran DOKU adalah IDR 1.000.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -180,9 +230,10 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
         window.open(resolvedCheckoutUrl, '_blank');
       }
     } catch (err) {
-      setError(err.message || 'Gagal memulai pembayaran DOKU.');
+      const normalizedError = normalizeErrorMessage(err) || 'Gagal memulai pembayaran DOKU.';
+      setError(normalizedError);
       setStatusMessage('Gagal memulai pembayaran DOKU.');
-      onError?.({ message: err.message });
+      onError?.({ message: normalizedError });
     } finally {
       setLoading(false);
     }
@@ -203,7 +254,7 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
     setStatusMessage('Memeriksa status transaksi...');
     const response = await fetchDokuTransactionByBooking(booking.id);
     if (response.error) {
-      setError(response.error);
+      setError(normalizeErrorMessage(response.error) || 'Gagal memuat status transaksi DOKU.');
       return;
     }
 
@@ -268,7 +319,7 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
             <button
               type="button"
               onClick={handleStartCheckout}
-              disabled={loading || !configValidation.ready}
+              disabled={loading || !configValidation.ready || Number(amount || 0) < MIN_DOKU_AMOUNT}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 text-white py-3 px-4 text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
             >
               <ExternalLink size={16} />
@@ -282,6 +333,12 @@ export default function DokuPaymentModal({ open, onClose, booking, venueId, onSu
               <RefreshCcw size={16} /> Perbarui Status
             </button>
           </div>
+
+          {Number(amount || 0) < MIN_DOKU_AMOUNT && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+              Minimum pembayaran DOKU adalah IDR 1.000.
+            </div>
+          )}
 
           <button
             type="button"

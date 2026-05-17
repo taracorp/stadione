@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Trophy, Users2, Newspaper, Activity, ShieldCheck, TrendingUp, Sparkles, BarChart3 } from 'lucide-react';
+import { Users, Trophy, Users2, Newspaper, Activity, ShieldCheck, TrendingUp, Sparkles, BarChart3, Tag, UserCog } from 'lucide-react';
 import AdminLayout, { StatCard, EmptyState } from '../AdminLayout.jsx';
 import { supabase } from '../../../config/supabase.js';
 
@@ -50,6 +50,9 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
     { label: 'Moderasi', kicker: 'Platform', icon: ShieldCheck, onClick: () => onNav('moderation') },
     { label: 'Analytics', kicker: 'Platform', icon: TrendingUp, onClick: () => onNav('analytics') },
     { label: 'Verifikasi', kicker: 'Platform', icon: Sparkles, onClick: () => onNav('admin-verification-queue') },
+    { label: 'User Management', kicker: 'Platform', icon: UserCog, onClick: () => onNav('user-management') },
+    { label: 'Promo Platform', kicker: 'Platform', icon: Tag, onClick: () => onNav('platform-promo') },
+    { label: 'Promo Sponsor', kicker: 'Platform', icon: Tag, onClick: () => onNav('sponsor-promo') },
   ];
 
   const activityTypeMap = {
@@ -150,6 +153,8 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
                 { label: 'Moderasi Konten', sub: 'Tinjau laporan masuk', onClick: () => onNav('moderation'), icon: ShieldCheck },
                 { label: 'Platform Analytics', sub: 'Lihat metrik platform', onClick: () => onNav('analytics'), icon: TrendingUp },
                 { label: 'Verifikasi Operator', sub: 'Queue approval', onClick: () => onNav('admin-verification-queue'), icon: Sparkles },
+                { label: 'Promo Platform', sub: 'Buat & kelola promo Stadione', onClick: () => onNav('platform-promo'), icon: Tag },
+                { label: 'Promo Sponsor', sub: 'Kelola saldo & promo sponsor', onClick: () => onNav('sponsor-promo'), icon: Tag },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
