@@ -4,6 +4,7 @@ export const APP_PERMISSIONS = Object.freeze({
   PLATFORM_ALL: 'platform.all',
   ANALYTICS_GLOBAL_READ: 'analytics.global.read',
   AUDIT_READ: 'audit.read',
+  USERS_ROLE_MANAGE: 'users.role.manage',
   USERS_MODERATE: 'users.moderate',
   NEWS_CREATE: 'news.create',
   NEWS_EDIT: 'news.edit',
@@ -35,8 +36,6 @@ export const ROLE_GROUPS = Object.freeze({
     'internal_admin',
     'reporter',
     'news_reporter_admin',
-    'tournament_host',
-    'tournament_host_admin',
     'registration_admin',
     'verification_admin',
     'finance_admin',
@@ -74,10 +73,15 @@ export const PAGE_ACCESS = Object.freeze({
   },
   analytics: {
     console: 'platform',
-    roles: ['super_admin', 'platform_admin', 'internal_admin', 'tournament_host', 'tournament_host_admin', 'finance_admin', 'moderator', 'admin'],
+    roles: ['super_admin', 'platform_admin', 'internal_admin', 'finance_admin', 'moderator', 'admin'],
     permissions: [APP_PERMISSIONS.ANALYTICS_GLOBAL_READ, APP_PERMISSIONS.AUDIT_READ, APP_PERMISSIONS.PAYMENT_VERIFY],
   },
   'admin-verification-queue': { console: 'platform', permissions: [APP_PERMISSIONS.OPERATOR_VERIFY] },
+  'user-management': {
+    console: 'platform',
+    roles: ['super_admin', 'platform_admin', 'internal_admin', 'admin'],
+    permissions: [APP_PERMISSIONS.USERS_ROLE_MANAGE, APP_PERMISSIONS.USERS_MODERATE],
+  },
   'workspace-console': { console: 'workspace' },
   'community-manager': {
     console: 'workspace',
@@ -274,6 +278,17 @@ export function canAccessFeature(userPermissions = [], featureKey) {
 
 export function deriveConsoleAccess(userRoles = [], userPermissions = []) {
   const normalizedRoles = normalizeRoles(userRoles);
+  const hasUniversalAccess = hasAnyRole(normalizedRoles, ['super_admin'])
+    || hasAnyPermission(userPermissions, [APP_PERMISSIONS.PLATFORM_ALL]);
+
+  if (hasUniversalAccess) {
+    return {
+      platform: true,
+      workspace: true,
+      official: true,
+    };
+  }
+
   return {
     platform: hasAnyRole(normalizedRoles, ROLE_GROUPS.platform)
       || hasAnyPermission(userPermissions, [
@@ -291,6 +306,12 @@ export function canAccessAdminPage(pageKey, userRoles = [], userPermissions = []
   if (!pageRule) return false;
 
   const normalizedRoles = normalizeRoles(userRoles);
+  const hasUniversalAccess = hasAnyRole(normalizedRoles, ['super_admin'])
+    || hasAnyPermission(userPermissions, [APP_PERMISSIONS.PLATFORM_ALL]);
+  if (hasUniversalAccess) {
+    return true;
+  }
+
   const consoleAccess = deriveConsoleAccess(normalizedRoles, userPermissions);
   if (pageRule.console && !consoleAccess[pageRule.console]) {
     return false;

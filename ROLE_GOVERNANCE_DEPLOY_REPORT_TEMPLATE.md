@@ -55,6 +55,13 @@ ORDER BY ur.role;
 - admin-verification-queue (platform_admin): PASS / FAIL
 - workspace manager pages (tournament_host/venue_partner): PASS / FAIL
 
+4. User Management - create user (super admin only)
+- Form tambah user manual tampil untuk super admin: PASS / FAIL
+- Submit create user oleh super admin berhasil: PASS / FAIL
+- Form tambah user manual tersembunyi untuk non-super-admin: PASS / FAIL
+- RPC admin_create_user_account untuk non-super-admin ditolak Unauthorized: PASS / FAIL
+- Query guard check function (super_admin only) menghasilkan OK: PASS / FAIL
+
 ## Verifikasi Aplikasi
 1. Login super admin berhasil: PASS / FAIL
 2. Platform Console terbuka: PASS / FAIL
@@ -63,6 +70,7 @@ ORDER BY ur.role;
 5. Analytics terbuka sesuai role: PASS / FAIL
 6. Verification Queue terbuka sesuai role: PASS / FAIL
 7. Forbidden state tampil normal untuk akses tidak berizin: PASS / FAIL
+8. User Management create user hanya untuk super admin: PASS / FAIL
 
 ## Insiden dan Mitigasi
 - Ada insiden saat deploy: YA / TIDAK

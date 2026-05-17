@@ -14,6 +14,7 @@
 Notes:
 1. Role model bersifat additive: satu user bisa punya banyak role.
 2. Canonical role diprioritaskan untuk rule baru, legacy role dipertahankan untuk kompatibilitas.
+3. Untuk halaman workspace dan official tertentu, aplikasi menambahkan prasyarat Verified Member; jika belum verified maka expected state adalah `Verified Member Diperlukan`.
 
 ## Permission Catalog per Modul
 
