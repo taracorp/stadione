@@ -634,6 +634,7 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onCart, onSwitchCo
 // ============ HOME ============
 const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
   const safeNews = Array.isArray(news) ? news : [];
+  const safeTournaments = Array.isArray(tournaments) ? tournaments : [];
   const features = [
     { id: 'booking', label: 'BOOKING LAPANGAN', desc: 'Sepakbola, futsal, renang, padel — pesan slot dalam hitungan detik.', count: '500+ Venue', icon: MapPin },
     { id: 'tournament', label: 'TURNAMEN & LIGA', desc: 'Buat turnamen sendiri atau ikut liga dengan klasemen otomatis.', count: '120+ Aktif', icon: Trophy },
@@ -641,9 +642,10 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
     { id: 'news', label: 'BERITA & MEDIA', desc: 'Berita olahraga Indonesia, eksklusif & dipercepat.', count: '24/7 Update', icon: Newspaper },
     { id: 'training', label: 'PELATIHAN', desc: 'Booking pelatih profesional bersertifikasi nasional.', count: '300+ Pelatih', icon: Dumbbell },
   ];
-  const registrationReadyTournaments = (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS)
+  const registrationReadyTournaments = safeTournaments
     .filter((item) => String(item.status || '').toLowerCase() === 'pendaftaran')
     .slice(0, 2);
+  const featuredTournaments = safeTournaments.slice(0, 3);
 
   return (
     <div>
@@ -792,7 +794,7 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
             </button>
           </div>
           <div className="grid md:grid-cols-3 gap-4">
-            {(tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS).slice(0, 3).map((t) => {
+            {featuredTournaments.length > 0 ? featuredTournaments.map((t) => {
               const Icon = sportIcon(t.sport);
               return (
                 <button
@@ -820,7 +822,11 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
                   </div>
                 </button>
               );
-            })}
+            }) : (
+              <div className="md:col-span-3 rounded-2xl border border-neutral-700 bg-neutral-800 p-6 text-sm text-neutral-300">
+                Belum ada turnamen publik untuk ditampilkan.
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -879,7 +885,9 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
 // ============ BOOKING ============
 const BookingPage = ({ onSelect, venues }) => {
   const [filter, setFilter] = useState('Semua');
-  const filtered = filter === 'Semua' ? (venues && venues.length > 0 ? venues : VENUES) : (venues && venues.length > 0 ? venues : VENUES).filter(v => v.sport === filter);
+  const safeVenues = Array.isArray(venues) ? venues : [];
+  const sportFilters = ['Semua', ...new Set(safeVenues.map((venue) => venue.sport).filter(Boolean))];
+  const filtered = filter === 'Semua' ? safeVenues : safeVenues.filter(v => v.sport === filter);
 
   return (
     <div>
@@ -893,7 +901,7 @@ const BookingPage = ({ onSelect, venues }) => {
       <div className="border-b border-neutral-300 bg-white sticky top-16 z-40">
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 flex items-center gap-3 flex-wrap">
           <Filter size={16} className="text-neutral-500" />
-          {SPORTS_BOOK.map(s => (
+          {sportFilters.map(s => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -948,6 +956,11 @@ const BookingPage = ({ onSelect, venues }) => {
               </div>
             </button>
           ))}
+          {filtered.length === 0 && (
+            <div className="md:col-span-2 lg:col-span-3 rounded-2xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+              Belum ada data venue untuk filter ini.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1072,7 +1085,9 @@ const BookingDetail = ({ venue, onBack, onPay }) => {
 // ============ TOURNAMENT ============
 const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
   const [filter, setFilter] = useState('Semua');
-  const filtered = filter === 'Semua' ? (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS) : (tournaments && tournaments.length > 0 ? tournaments : TOURNAMENTS).filter(t => t.sport === filter);
+  const safeTournaments = Array.isArray(tournaments) ? tournaments : [];
+  const sportFilters = ['Semua', ...new Set(safeTournaments.map((item) => item.sport).filter(Boolean))];
+  const filtered = filter === 'Semua' ? safeTournaments : safeTournaments.filter(t => t.sport === filter);
   const quickRegistrationCount = filtered.filter((item) => String(item.status || '').toLowerCase() === 'pendaftaran').length;
 
   return (
@@ -1091,7 +1106,7 @@ const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
       <div className="border-b border-neutral-300 bg-white sticky top-16 z-40">
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 flex items-center gap-3 overflow-x-auto">
           <Filter size={16} className="text-neutral-500 shrink-0" />
-          {SPORTS_TOURNEY.map(s => (
+          {sportFilters.map(s => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -1164,6 +1179,11 @@ const TournamentPage = ({ onSelect, onCreate, tournaments }) => {
             );
           })}
         </div>
+          {filtered.length === 0 && (
+            <div className="md:col-span-2 lg:col-span-3 rounded-2xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+              Belum ada turnamen untuk filter ini.
+            </div>
+          )}
 
         {/* Create Tournament CTA */}
         <div className="mt-12 bg-neutral-900 text-white rounded-2xl p-8 lg:p-12 grid lg:grid-cols-2 gap-8 items-center">
@@ -6936,7 +6956,7 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 
 // ============ CHAT ============
 const ChatPage = ({ initialChatId, onBack, chats: initialChats }) => {
-  const defaultChats = initialChats && initialChats.length > 0 ? initialChats : CHATS;
+  const defaultChats = Array.isArray(initialChats) ? initialChats : [];
   const [activeId, setActiveId] = useState(initialChatId || defaultChats[0]?.id);
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
@@ -7004,6 +7024,11 @@ const ChatPage = ({ initialChatId, onBack, chats: initialChats }) => {
                 </div>
               </button>
             ))}
+            {filtered.length === 0 && (
+              <div className="p-4 text-sm text-neutral-500">
+                Belum ada chat yang tersedia.
+              </div>
+            )}
           </div>
         </aside>
 
@@ -7060,6 +7085,11 @@ const ChatPage = ({ initialChatId, onBack, chats: initialChats }) => {
                 </div>
               </div>
             </>
+          )}
+          {!active && (
+            <div className="flex-1 flex items-center justify-center px-6 text-sm text-neutral-500">
+              Pilih percakapan ketika data chat sudah tersedia.
+            </div>
           )}
         </section>
       </div>

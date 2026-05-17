@@ -6,7 +6,6 @@ import {
   COMMUNITY_ACTIVITY_TYPES,
   COMMUNITY_CATEGORY_GROUPS,
   COMMUNITY_DISCOVERY_SECTIONS,
-  COMMUNITY_FALLBACK_DATA,
   COMMUNITY_LEVELS,
   COMMUNITY_SPORT_FILTERS,
   COMMUNITY_STATUSES,
@@ -107,7 +106,7 @@ export default function CommunityDiscoveryPage({ auth, openAuth, onSelectCommuni
 
   const communitySource = useMemo(() => {
     const liveCommunities = (communities || []).map((item, index) => normalizeCommunityRecord(item, index));
-    return liveCommunities.length > 0 ? liveCommunities : COMMUNITY_FALLBACK_DATA;
+    return liveCommunities;
   }, [communities]);
 
   const provinces = useMemo(() => ['all', ...new Set(communitySource.map((item) => item.province))], [communitySource]);
