@@ -5376,7 +5376,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           </div>
         </div>
 
-        {auth && operationalActions.length > 0 && (
+        {auth && operationalActions.length > 0 && !(auth?.roles || []).includes('super_admin') && (
           <div className="rounded-3xl border border-neutral-200 bg-white p-8">
             <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
               <div>
@@ -5416,7 +5416,47 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           </div>
         )}
 
-        {auth && consoleItems.length > 0 && (
+        {auth && (auth?.roles || []).includes('super_admin') && consoleItems.length > 0 && (
+          <div className="rounded-3xl border border-neutral-900 bg-neutral-950 p-8">
+            <div className="flex items-start justify-between gap-6 flex-wrap mb-6">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-neutral-400 mb-2">Super Admin</div>
+                <h2 className="font-display text-2xl text-white mb-2">Control Tower</h2>
+                <p className="text-sm text-neutral-400 max-w-md">Kelola seluruh platform — user, verifikasi, workspace, konten, dan monitoring — dari satu panel terpadu.</p>
+              </div>
+              <button
+                onClick={() => onNav('platform-console')}
+                className="shrink-0 px-6 py-3 rounded-2xl bg-[#E11D2E] text-white text-sm font-bold hover:bg-[#c0162c] transition"
+              >
+                Buka Control Tower →
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-3">
+              {consoleItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => onNav(item.key)}
+                    className="rounded-2xl border border-neutral-700 bg-neutral-900 p-4 text-left hover:border-neutral-500 transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-neutral-700 text-white flex items-center justify-center shrink-0">
+                        <Icon size={14} />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-white">{item.title}</div>
+                        <p className="text-xs text-neutral-400 leading-relaxed mt-0.5">{item.sub}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {auth && consoleItems.length > 0 && !(auth?.roles || []).includes('super_admin') && (
           <div className="rounded-3xl border border-neutral-200 bg-white p-8">
             <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
               <div>
