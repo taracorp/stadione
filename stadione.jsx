@@ -31,7 +31,7 @@ import {
   QuizResultToast
 } from './src/components/GamificationUI.jsx';
 import { registerTournamentPlayer, submitGeneratedQuizAttempt, hasTriviaAttempt } from './src/services/gamificationService.js';
-import { fetchCurrentUserActiveContext, fetchCurrentUserModerationStatus, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
+import { fetchCurrentUserActiveContext, fetchCurrentUserModerationStatus, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, sendEInvoiceEmail, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
 import { fetchRegistrationWorkspaceContext } from './src/services/registrationService.js';
 import { canAccessAdminPage, deriveConsoleAccess, getOfficialMatchCapabilities, PAGE_ACCESS } from './src/utils/permissions.js';
 import { getUserRoleBadges, normalizeRoles } from './src/utils/roles.js';
@@ -5271,7 +5271,29 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
 };
 
 // ============ PAYMENT ============
-const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemoveItem, onBack }) => {
+const buildInvoiceNumber = (activity, index = 0) => {
+  const date = new Date(activity?.activity_date || activity?.created_at || Date.now());
+  const datePart = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+  const fallbackSeed = String(activity?.id || `${date.getTime()}-${index}`)
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(-6)
+    .toUpperCase();
+  return `EINV-${datePart}-${fallbackSeed || String(index + 1).padStart(3, '0')}`;
+};
+
+const CartPage = ({
+  auth,
+  cartItems,
+  transactionHistory,
+  invoiceEntries,
+  sendingInvoice,
+  invoiceNotice,
+  onCheckoutItem,
+  onRemoveItem,
+  onSendSingleInvoice,
+  onSendAllInvoices,
+  onBack,
+}) => {
   const [activeTab, setActiveTab] = useState('cart');
 
   const totalCartAmount = useMemo(() => {
@@ -5311,7 +5333,7 @@ const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemov
               onClick={() => setActiveTab('history')}
               className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'history' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:text-neutral-900'}`}
             >
-              Riwayat Transaksi ({transactionHistory.length})
+              Riwayat & E-Invoice ({transactionHistory.length})
             </button>
           </div>
 
@@ -5371,6 +5393,26 @@ const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemov
             </div>
           ) : (
             <div>
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-neutral-500">E-Invoice</div>
+                  <div className="text-sm text-neutral-600">Total {invoiceEntries.length} invoice siap kirim ke email {auth?.email || 'user'}.</div>
+                </div>
+                <button
+                  onClick={onSendAllInvoices}
+                  disabled={sendingInvoice || invoiceEntries.length === 0}
+                  className="px-4 py-2 rounded-full text-sm font-bold text-white disabled:opacity-50"
+                  style={{ background: '#E11D2E' }}
+                >
+                  {sendingInvoice ? 'Mengirim...' : 'Kirim Semua E-Invoice'}
+                </button>
+              </div>
+              {invoiceNotice && (
+                <div className={`mb-4 rounded-2xl border px-4 py-3 text-sm ${invoiceNotice.type === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                  {invoiceNotice.message}
+                </div>
+              )}
+
               {transactionHistory.length > 0 ? (
                 <div className="space-y-3">
                   {transactionHistory.map((activity, index) => {
@@ -5378,6 +5420,7 @@ const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemov
                     const totalPaid = Number(metadata.totalPaid || metadata.amount || metadata.transactionAmount || 0);
                     const paymentMethod = metadata.paymentMethod || metadata.method || '-';
                     const dateValue = activity.activity_date || activity.created_at;
+                    const invoiceNumber = buildInvoiceNumber(activity, index);
 
                     return (
                       <div key={activity.id || `${activity.activity_type}-${index}`} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
@@ -5386,6 +5429,7 @@ const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemov
                             <div className="text-xs uppercase tracking-[0.18em] text-neutral-500 mb-1">Transaksi</div>
                             <div className="font-bold text-neutral-900">{activity.activity_title || 'Transaksi'}</div>
                             <div className="text-sm text-neutral-500 mt-1">{activity.activity_description || 'Riwayat transaksi checkout pengguna'}</div>
+                            <div className="text-xs font-semibold text-neutral-700 mt-2">No Invoice: {invoiceNumber}</div>
                             <div className="text-xs text-neutral-400 mt-2">{new Date(dateValue || Date.now()).toLocaleString('id-ID')}</div>
                           </div>
                           <div className="text-right shrink-0">
@@ -5393,6 +5437,13 @@ const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemov
                             <div className="text-sm font-bold text-neutral-700">{String(paymentMethod).replace(/_/g, ' ')}</div>
                             <div className="text-xs text-neutral-500 mt-2">Total</div>
                             <div className="font-bold text-neutral-900">{totalPaid > 0 ? formatRupiah(totalPaid) : '-'}</div>
+                            <button
+                              onClick={() => onSendSingleInvoice(activity, index)}
+                              disabled={sendingInvoice || totalPaid <= 0}
+                              className="mt-3 px-3 py-1.5 rounded-full text-xs font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-500 disabled:opacity-50"
+                            >
+                              Kirim E-Invoice
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -5402,8 +5453,8 @@ const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemov
               ) : (
                 <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
                   <Wallet size={24} className="mx-auto mb-3 text-neutral-400" />
-                  <div className="font-bold text-neutral-800 mb-1">Belum ada riwayat transaksi</div>
-                  <div className="text-sm text-neutral-500">Setelah checkout berhasil, riwayat transaksi akan tampil otomatis di sini.</div>
+                  <div className="font-bold text-neutral-800 mb-1">Belum ada riwayat transaksi sukses</div>
+                  <div className="text-sm text-neutral-500">Setelah checkout berhasil, riwayat transaksi dan e-invoice akan tampil otomatis di sini.</div>
                 </div>
               )}
             </div>
@@ -6328,6 +6379,8 @@ export default function Stadione() {
   const [communityNotifications, setCommunityNotifications] = useState([]);
   const [communityUnreadById, setCommunityUnreadById] = useState({});
   const [cartItems, setCartItems] = useState([]);
+  const [sendingInvoice, setSendingInvoice] = useState(false);
+  const [invoiceNotice, setInvoiceNotice] = useState(null);
 
   // Auth state
   const [auth, setAuth] = useState(null);
@@ -6592,10 +6645,27 @@ export default function Stadione() {
         const type = String(item?.activity_type || '').toLowerCase();
         const metadata = item?.activity_metadata || {};
         const amount = Number(metadata.totalPaid || metadata.amount || metadata.transactionAmount || 0);
-        return type === 'venue_booking' || type === 'transaction' || amount > 0;
+        return (type === 'venue_booking' || type === 'transaction' || amount > 0) && amount > 0;
       })
       .sort((a, b) => new Date(b.activity_date || b.created_at || 0).getTime() - new Date(a.activity_date || a.created_at || 0).getTime());
   }, [activities]);
+  const invoiceEntries = useMemo(() => {
+    return transactionHistory.map((activity, index) => {
+      const metadata = activity?.activity_metadata || {};
+      const totalPaid = Number(metadata.totalPaid || metadata.amount || metadata.transactionAmount || 0);
+      return {
+        invoiceNumber: buildInvoiceNumber(activity, index),
+        issuedAt: activity.activity_date || activity.created_at || new Date().toISOString(),
+        title: activity.activity_title || 'Transaksi',
+        description: activity.activity_description || 'Riwayat transaksi checkout pengguna',
+        paymentMethod: metadata.paymentMethod || metadata.method || '-',
+        amount: totalPaid,
+        customerName: auth?.name || 'User Stadione',
+        customerEmail: auth?.email || '',
+        customerId: auth?.id || null,
+      };
+    });
+  }, [auth?.email, auth?.id, auth?.name, transactionHistory]);
   
   // Fallback to hardcoded data if Supabase is not available
   const VENUES_DATA = venues.length > 0 ? venues : [];
@@ -6662,6 +6732,86 @@ export default function Stadione() {
       ...item.payload,
       sourceCartItemId: item.id,
     }, { returnTo: 'cart' });
+  };
+
+  const sendInvoicePayload = async (invoice) => {
+    if (!auth?.email) {
+      setInvoiceNotice({ type: 'error', message: 'Email user belum tersedia. Silakan login ulang dan pastikan profil memiliki email valid.' });
+      return { error: 'missing_email' };
+    }
+
+    return sendEInvoiceEmail({
+      toEmail: auth.email,
+      recipientName: auth.name,
+      invoice,
+    });
+  };
+
+  const handleSendSingleInvoice = async (activity, index) => {
+    const metadata = activity?.activity_metadata || {};
+    const amount = Number(metadata.totalPaid || metadata.amount || metadata.transactionAmount || 0);
+    if (amount <= 0) {
+      setInvoiceNotice({ type: 'error', message: 'Invoice hanya tersedia untuk transaksi dengan nominal berhasil.' });
+      return;
+    }
+
+    const invoice = {
+      invoiceNumber: buildInvoiceNumber(activity, index),
+      issuedAt: activity.activity_date || activity.created_at || new Date().toISOString(),
+      title: activity.activity_title || 'Transaksi',
+      description: activity.activity_description || 'Riwayat transaksi checkout pengguna',
+      paymentMethod: metadata.paymentMethod || metadata.method || '-',
+      amount,
+      customerName: auth?.name || 'User Stadione',
+      customerEmail: auth?.email || '',
+      customerId: auth?.id || null,
+    };
+
+    setSendingInvoice(true);
+    setInvoiceNotice(null);
+    const result = await sendInvoicePayload(invoice);
+    if (result?.error) {
+      setInvoiceNotice({ type: 'error', message: `Gagal kirim e-invoice ${invoice.invoiceNumber}: ${result.error}` });
+    } else {
+      setInvoiceNotice({ type: 'success', message: `E-invoice ${invoice.invoiceNumber} berhasil dikirim ke ${auth.email}.` });
+    }
+    setSendingInvoice(false);
+  };
+
+  const handleSendAllInvoices = async () => {
+    if (invoiceEntries.length === 0) {
+      setInvoiceNotice({ type: 'error', message: 'Belum ada invoice transaksi sukses untuk dikirim.' });
+      return;
+    }
+
+    setSendingInvoice(true);
+    setInvoiceNotice(null);
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const invoice of invoiceEntries) {
+      const result = await sendInvoicePayload(invoice);
+      if (result?.error) {
+        failed += 1;
+      } else {
+        sent += 1;
+      }
+    }
+
+    if (failed > 0) {
+      setInvoiceNotice({
+        type: 'error',
+        message: `Pengiriman e-invoice selesai: ${sent} berhasil, ${failed} gagal. Pastikan Edge Function dan env email sudah aktif.`,
+      });
+    } else {
+      setInvoiceNotice({
+        type: 'success',
+        message: `Semua ${sent} e-invoice berhasil dikirim ke ${auth?.email || 'email user'}.`,
+      });
+    }
+
+    setSendingInvoice(false);
   };
 
   const openAuth = (mode) => {
@@ -6959,8 +7109,13 @@ export default function Stadione() {
             auth={auth}
             cartItems={cartItems}
             transactionHistory={transactionHistory}
+            invoiceEntries={invoiceEntries}
+            sendingInvoice={sendingInvoice}
+            invoiceNotice={invoiceNotice}
             onCheckoutItem={handleCheckoutFromCart}
             onRemoveItem={(itemId) => setCartItems((prev) => prev.filter((item) => item.id !== itemId))}
+            onSendSingleInvoice={handleSendSingleInvoice}
+            onSendAllInvoices={handleSendAllInvoices}
             onBack={() => goTo('home')}
           />
         )}

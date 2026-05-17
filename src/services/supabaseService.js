@@ -335,6 +335,50 @@ export async function fetchDokuTransactionByBooking(bookingId) {
   }
 }
 
+export async function sendEInvoiceEmail(payload = {}) {
+  if (!isSupabaseReady()) {
+    return { error: 'Supabase belum dikonfigurasi.' };
+  }
+
+  const toEmail = String(payload.toEmail || '').trim();
+  const invoice = payload.invoice || null;
+
+  if (!toEmail) {
+    return { error: 'Alamat email tujuan wajib diisi.' };
+  }
+
+  if (!invoice) {
+    return { error: 'Data invoice belum tersedia.' };
+  }
+
+  try {
+    if (supabase.functions && typeof supabase.functions.invoke === 'function') {
+      const response = await supabase.functions.invoke('send-einvoice', {
+        body: {
+          toEmail,
+          recipientName: payload.recipientName || null,
+          invoice,
+        },
+      });
+
+      if (response.error) {
+        return {
+          error: response.error?.message || 'Gagal mengirim e-invoice lewat server.',
+        };
+      }
+
+      return {
+        data: response.data || { success: true },
+      };
+    }
+
+    return { error: 'Supabase Edge Functions tidak tersedia.' };
+  } catch (err) {
+    console.error('Error sending e-invoice email:', err.message);
+    return { error: err.message || 'Gagal mengirim e-invoice.' };
+  }
+}
+
 // ── Customer Favorite Courts ───────────────────────────────────────────────────
 
 export async function addCustomerFavoriteCourt(customerId, venueId, courtId) {
