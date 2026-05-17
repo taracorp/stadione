@@ -236,7 +236,7 @@ export const autoTriggerReviewForOfficial = async (registrationId) => {
       })
       .eq('id', registrationId);
 
-    // Notify host/admin
+    // Notify host/platform verifier
     console.log(`[AUTO-REVIEW] Registration ${registrationId} ready for verification`);
 
     await recordAutomationActivity({

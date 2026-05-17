@@ -6,6 +6,22 @@ Dokumen ini untuk set secret runtime Edge Function DOKU tanpa menyimpan secret d
 
 - DOKU_SECRET_KEY
 
+## Partnership Email Notifications
+
+Untuk edge function `send-partnership-notification`, set secret berikut di Supabase:
+
+- RESEND_API_KEY
+- RESEND_FROM_EMAIL
+
+Contoh tambahan via Supabase CLI:
+
+```bash
+npx supabase secrets set \
+  RESEND_API_KEY="YOUR_RESEND_API_KEY" \
+  RESEND_FROM_EMAIL="Stadione <no-reply@yourdomain.com>" \
+  --project-ref "$SUPABASE_PROJECT_REF"
+```
+
 ## Rekomendasi Tambahan
 
 - DOKU_API_KEY

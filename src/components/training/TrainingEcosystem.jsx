@@ -41,8 +41,8 @@ const canAccessTrainingSection = (section, auth) => {
       || roles.includes('academy_owner')
       || roles.includes('academy_admin')
       || roles.includes('super_admin')
-      || roles.includes('internal_admin')
-      || roles.includes('admin');
+      || roles.includes('platform_admin')
+      || roles.includes('verification_admin');
   }
 
   if (section === 'workspace') {

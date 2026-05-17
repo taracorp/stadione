@@ -592,7 +592,7 @@ export const checkRosterCompleteness = async (registrationRef) => {
 };
 
 /**
- * Review registration (Admin)
+ * Review registration (Platform)
  */
 export const reviewTournamentRegistration = async ({
   registrationId,
@@ -624,7 +624,7 @@ export const reviewTournamentRegistration = async ({
       registrationId,
       decision === 'approved' ? 'approved' : 'rejected',
       reviewerId,
-      'admin',
+      'platform_admin',
       'waiting_verification',
       newStatus,
       { admin_notes: adminNotes }
@@ -638,7 +638,7 @@ export const reviewTournamentRegistration = async ({
 };
 
 /**
- * Fetch registration review queue (Admin)
+ * Fetch registration review queue (Platform)
  */
 export const fetchRegistrationReviewQueue = async () => {
   try {
@@ -745,7 +745,7 @@ export const checkAndNotifyIncompleteRosters = async () => {
 };
 
 /**
- * Export registration data (for admin reporting)
+ * Export registration data (for platform reporting)
  */
 export const exportRegistrationData = async (tournamentId) => {
   try {

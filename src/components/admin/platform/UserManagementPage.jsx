@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Ban, KeyRound, Mail, Plus, RefreshCw, Shield, UserCog, UserPlus, UserRoundX, Users } from 'lucide-react';
 import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatCard, inputCls, selectCls } from '../AdminLayout.jsx';
 import { supabase } from '../../../config/supabase.js';
+import { getRoleDisplayName } from '../../../utils/roles.js';
 
 const DEFAULT_PAGE_SIZE = 50;
 const USER_MANAGEMENT_PREFS_KEY = 'stadione.userManagementPrefs';
@@ -17,7 +18,7 @@ const DEFAULT_CREATE_FORM = {
   email: '',
   password: '',
   confirmPassword: '',
-  role: 'general_user',
+  role: 'member',
 };
 
 const MODERATION_DISABLE_OPTIONS = [
@@ -73,11 +74,7 @@ function getInitialPrefs() {
 }
 
 function normalizeRoleLabel(role) {
-  if (!role) return '-';
-  return role
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return getRoleDisplayName(role);
 }
 
 function getModerationOptions(user) {
@@ -227,8 +224,8 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
     setCreateForm((prev) => {
       const roleExists = roles.some((role) => role.role === prev.role);
       if (roleExists) return prev;
-      const preferredRole = roles.some((role) => role.role === 'general_user')
-        ? 'general_user'
+      const preferredRole = roles.some((role) => role.role === 'member')
+        ? 'member'
         : roles[0]?.role || '';
       return { ...prev, role: preferredRole };
     });

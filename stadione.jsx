@@ -50,6 +50,7 @@ import {
 } from './src/utils/authOptimization.js';
 
 const PlatformDashboard = lazy(() => import('./src/components/admin/platform/PlatformDashboard.jsx'));
+const SuperAdminControlCenter = lazy(() => import('./src/components/admin/platform/SuperAdminControlCenter.jsx'));
 const AnalyticsPage = lazy(() => import('./src/components/admin/platform/AnalyticsPage.jsx'));
 const ModerationPage = lazy(() => import('./src/components/admin/platform/ModerationPage.jsx'));
 const NewsroomPage = lazy(() => import('./src/components/admin/platform/NewsroomPage.jsx'));
@@ -8679,7 +8680,13 @@ export default function Stadione() {
           />
         )}
         {page === 'coach-dashboard' && <CoachDashboard onBack={() => goTo('home')} auth={auth} />}
-        {page === 'platform-console' && renderAccessControlledPage('platform-console', <PlatformDashboard auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat platform console...')}
+        {page === 'platform-console' && renderAccessControlledPage(
+          'platform-console',
+          (auth?.roles || []).includes('super_admin')
+            ? <SuperAdminControlCenter auth={auth} onBack={() => goTo('profile')} onNav={goTo} />
+            : <PlatformDashboard auth={auth} onBack={() => goTo('profile')} onNav={goTo} />,
+          'Memuat platform console...'
+        )}
         {page === 'newsroom' && renderAccessControlledPage('newsroom', <NewsroomPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat newsroom...')}
         {page === 'moderation' && renderAccessControlledPage('moderation', <ModerationPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat moderation queue...')}
         {page === 'analytics' && renderAccessControlledPage('analytics', <AnalyticsPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat analytics...')}

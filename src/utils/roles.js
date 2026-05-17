@@ -1,34 +1,50 @@
 const ROLE_ALIAS_MAP = Object.freeze({
-  platform_admin: 'internal_admin',
-  moderator: 'admin',
-  reporter: 'news_reporter_admin',
-  tournament_host: 'tournament_host_admin',
+  internal_admin: 'platform_admin',
+  admin: 'moderator',
+  news_reporter_admin: 'reporter',
+  registration_admin: 'verification_admin',
+  tournament_host_admin: 'tournament_host',
+  eo_operator: 'venue_partner',
   coach_academy: 'coach',
-  assistant_referee: 'match_official',
-  timekeeper: 'match_official',
-  venue_partner: 'eo_operator',
-  member: 'general_user',
-  fans: 'general_user',
-  supporter: 'general_user',
+  general_user: 'member',
+  fans: 'member',
+  supporter: 'member',
   host: 'verified_operator',
 });
 
 const ROLE_BADGE_LABEL = Object.freeze({
   super_admin: 'Admin',
+  platform_admin: 'Platform Admin',
   internal_admin: 'Platform Admin',
+  moderator: 'Moderator',
   admin: 'Moderator',
   reviewer: 'Moderator',
+  reporter: 'Reporter',
   news_reporter_admin: 'Reporter',
+  support_admin: 'Support Admin',
   verification_admin: 'Verification Admin',
   tournament_host_admin: 'Tournament Host',
+  tournament_host: 'Tournament Host',
   registration_admin: 'Registration Admin',
   finance_admin: 'Finance Admin',
   verified_operator: 'Verified Host',
   federation_operator: 'Federation Operator',
+  venue_partner: 'Venue Partner',
   eo_operator: 'Venue Partner',
   community_host: 'Community Leader',
-  coach: 'Coach',
+  academy_operator: 'Academy Operator',
+  coach_operator: 'Coach Operator',
+  sponsor_partner: 'Sponsor Partner',
   referee: 'Licensed Referee',
+  assistant_referee: 'Assistant Referee',
+  timekeeper: 'Timekeeper',
+  lineup_operator: 'Lineup Operator',
+  venue_owner: 'Venue Owner',
+  venue_manager: 'Venue Manager',
+  cashier: 'Cashier',
+  venue_staff: 'Venue Staff',
+  team_member: 'Team Member',
+  coach: 'Coach',
   match_commissioner: 'Match Commissioner',
   match_official: 'Match Official',
   statistic_operator: 'Statistic Operator',
@@ -37,7 +53,17 @@ const ROLE_BADGE_LABEL = Object.freeze({
   manager: 'Manager',
   player: 'Player',
   general_user: 'Member',
+  member: 'Member',
 });
+
+export function getRoleDisplayName(role) {
+  const normalizedRole = normalizeRoles([role])[0];
+  if (!normalizedRole) return '-';
+  return ROLE_BADGE_LABEL[normalizedRole] || normalizedRole
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 export function normalizeRoles(roles = []) {
   if (!Array.isArray(roles)) return [];

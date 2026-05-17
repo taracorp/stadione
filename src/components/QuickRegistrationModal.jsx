@@ -370,7 +370,7 @@ export const QuickRegistrationModal = ({
                   <li>Lakukan pembayaran ke nominal unik yang sudah diberikan</li>
                   <li>Upload bukti pembayaran ke dashboard</li>
                   <li>Tambahkan anggota tim ke roster</li>
-                  <li>Tunggu verifikasi admin (maksimal 24 jam)</li>
+                  <li>Tunggu verifikasi platform (maksimal 24 jam)</li>
                 </ol>
               </div>
             </div>

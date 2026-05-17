@@ -31,18 +31,57 @@ const FALLBACK_PERMISSION_BY_ROLE = {
     PERMISSIONS.REGISTRATION_REJECT,
     PERMISSIONS.PAYMENT_VERIFY,
   ],
-  internal_admin: [
+  platform_admin: [
     PERMISSIONS.PLATFORM_ALL,
     PERMISSIONS.OPERATOR_VERIFY,
     PERMISSIONS.REGISTRATION_APPROVE,
     PERMISSIONS.REGISTRATION_REJECT,
     PERMISSIONS.PAYMENT_VERIFY,
   ],
-  reviewer: [PERMISSIONS.OPERATOR_VERIFY],
+  moderator: [PERMISSIONS.OPERATOR_VERIFY],
+  support_admin: [PERMISSIONS.OPERATOR_VERIFY],
   verification_admin: [PERMISSIONS.OPERATOR_VERIFY],
-  admin: [PERMISSIONS.OPERATOR_VERIFY],
   finance_admin: [PERMISSIONS.PAYMENT_VERIFY, PERMISSIONS.REGISTRATION_APPROVE],
+  tournament_host: [PERMISSIONS.REGISTRATION_APPROVE, PERMISSIONS.REGISTRATION_REJECT],
+  venue_partner: [PERMISSIONS.REGISTRATION_APPROVE],
 };
+
+function isSupabaseMissingRelationError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  const details = String(error?.details || '').toLowerCase();
+  const hint = String(error?.hint || '').toLowerCase();
+  return (
+    message.includes('does not exist')
+    || message.includes('relation')
+    || message.includes('schema cache')
+    || details.includes('does not exist')
+    || hint.includes('perhaps you meant')
+  );
+}
+
+function buildRoleProfilesFromRows(rows = [], sourceScope = '') {
+  return (rows || []).reduce((acc, row) => {
+    const normalizedRole = normalizeRoles([row?.role])[0];
+    if (!normalizedRole) return acc;
+
+    const roleMeta = Array.isArray(row?.app_roles)
+      ? row.app_roles[0]
+      : row?.app_roles;
+
+    const existing = acc.find((entry) => entry.role === normalizedRole);
+    if (existing) return acc;
+
+    acc.push({
+      role: normalizedRole,
+      displayName: String(roleMeta?.display_name || '').trim(),
+      parentRole: String(roleMeta?.parent_role || '').trim(),
+      hierarchyLevel: roleMeta?.hierarchy_level ?? null,
+      scopeType: String(roleMeta?.scope_type || '').trim(),
+      sourceScope,
+    });
+    return acc;
+  }, []);
+}
 
 function derivePermissionsFromRoles(roles = []) {
   const derived = new Set();
@@ -2944,31 +2983,48 @@ export async function fetchCurrentUserRoleProfiles() {
     const userId = authData?.user?.id;
     if (!userId) return [];
 
-    const { data, error } = await supabase
+    const { data: systemRoles, error: systemRolesError } = await supabase
       .from('user_roles')
       .select('role, app_roles(role, display_name, parent_role, hierarchy_level, scope_type)')
       .eq('user_id', userId);
 
-    if (error) throw error;
+    if (systemRolesError) throw systemRolesError;
 
-    const normalizedProfiles = (data || []).reduce((acc, row) => {
-      const normalizedRole = normalizeRoles([row?.role])[0];
-      if (!normalizedRole) return acc;
+    let workspaceRoles = [];
+    const { data: workspaceData, error: workspaceError } = await supabase
+      .from('user_workspace_roles')
+      .select('role, status, app_roles(role, display_name, parent_role, hierarchy_level, scope_type)')
+      .eq('user_id', userId)
+      .eq('status', 'active');
 
-      const roleMeta = Array.isArray(row?.app_roles)
-        ? row.app_roles[0]
-        : row?.app_roles;
+    if (workspaceError && !isSupabaseMissingRelationError(workspaceError)) {
+      throw workspaceError;
+    }
+    if (!workspaceError) {
+      workspaceRoles = workspaceData || [];
+    }
 
-      const existing = acc.find((entry) => entry.role === normalizedRole);
-      if (existing) return acc;
+    let activityRoles = [];
+    const { data: activityData, error: activityError } = await supabase
+      .from('user_activity_roles')
+      .select('role, status, app_roles(role, display_name, parent_role, hierarchy_level, scope_type)')
+      .eq('user_id', userId)
+      .eq('status', 'active');
 
-      acc.push({
-        role: normalizedRole,
-        displayName: String(roleMeta?.display_name || '').trim(),
-        parentRole: String(roleMeta?.parent_role || '').trim(),
-        hierarchyLevel: roleMeta?.hierarchy_level ?? null,
-        scopeType: String(roleMeta?.scope_type || '').trim(),
-      });
+    if (activityError && !isSupabaseMissingRelationError(activityError)) {
+      throw activityError;
+    }
+    if (!activityError) {
+      activityRoles = activityData || [];
+    }
+
+    const normalizedProfiles = [
+      ...buildRoleProfilesFromRows(systemRoles, 'system'),
+      ...buildRoleProfilesFromRows(workspaceRoles, 'workspace'),
+      ...buildRoleProfilesFromRows(activityRoles, 'activity'),
+    ].reduce((acc, profile) => {
+      if (acc.find((entry) => entry.role === profile.role)) return acc;
+      acc.push(profile);
       return acc;
     }, []);
 

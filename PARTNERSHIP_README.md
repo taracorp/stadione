@@ -14,16 +14,22 @@
 - ✅ **Routing Integration** - Wired in stadione.jsx with footer button
 - ✅ **Form Validation** - Client-side error checking
 - ✅ **Supabase Integration** - Secure data submission
+- ✅ **Admin Notifications** - In-app badge + unread counter for super admin
+- ✅ **Email Notifications** - Edge function for partnership submission alerts
 
 ### 2️⃣ Documentation (4 guides)
 - 📄 **PARTNERSHIP_QUICK_CHECKLIST.md** - Step-by-step deployment checklist (START HERE!)
 - 📄 **PARTNERSHIP_DEPLOYMENT.md** - Detailed testing guide (2000+ lines)
 - 📄 **PARTNERSHIP_PRODUCTION_DEPLOYMENT.md** - Production readiness & verification
 - 📄 **PARTNERSHIP_COMMAND_REFERENCE.md** - Copy-paste commands
+- 📄 **PARTNERSHIP_NOTIFICATION_RUNBOOK.md** - Single source of truth for partnership notifications
+- 📄 **PARTNERSHIP_NOTIFICATION_ONEPAGE.md** - Fastest non-technical execution guide (20-30 min)
 
 ### 3️⃣ Automation Scripts
 - 🔧 **test-partnership-deployment.sh** - Automated test suite (all tests passed ✓)
 - 🔧 **verify-partnership-deployment.sql** - SQL validation queries
+- 🔧 **supabase-admin-notifications.sql** - In-app partnership notification trigger
+- 🔧 **supabase/functions/send-partnership-notification/** - Email notification edge function
 
 ### 4️⃣ Build Artifacts
 - ✅ Build passed: 2477 modules
@@ -134,6 +140,7 @@ vite v5.4.21 building for production...
 - ✅ Admins can review all
 - ✅ XSS protection (React escaping)
 - ✅ SQL injection prevention (parameterized queries)
+- ✅ Admin notification row access is scoped to the intended admin account
 
 ### Performance
 - ✅ Bundle size optimized (18KB gzip)

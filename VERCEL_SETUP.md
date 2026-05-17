@@ -20,6 +20,7 @@ Di Vercel Project -> Settings -> Environment Variables, pastikan variabel beriku
 
 - `VITE_SUPABASE_URL` = URL project Supabase
 - `VITE_SUPABASE_ANON_KEY` = anon public key Supabase
+- `VITE_PARTNERSHIP_NOTIFICATION_EMAIL` = email tujuan notifikasi partnership baru (opsional, default super admin)
 
 Penting:
 - Isi value tanpa tanda kutip (`"` atau `'`).
@@ -33,6 +34,7 @@ Opsional kompatibilitas tambahan (karena app juga membaca prefix lain):
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
 Disarankan tetap mengisi minimal pasangan `VITE_*`.
+Untuk partnership notifications, isi `VITE_PARTNERSHIP_NOTIFICATION_EMAIL` bila ingin email tujuan berbeda dari fallback super admin.
 
 ## 3. Konfigurasi Auth Redirect (Wajib)
 

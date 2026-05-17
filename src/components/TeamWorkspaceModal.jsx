@@ -397,7 +397,7 @@ const TeamWorkspaceModal = ({
             Tutup
           </button>
           <div className="text-xs text-neutral-500">
-            Slot terjamin hingga pembayaran diverifikasi admin
+            Slot terjamin hingga pembayaran diverifikasi platform
           </div>
         </div>
       </div>

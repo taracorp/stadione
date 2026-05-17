@@ -388,7 +388,7 @@ export function getQuizDifficulty(correctAnswerPercentage) {
 
 /**
  * Batch create quizzes for articles
- * Useful for admin/seed operations
+ * Useful for platform/seed operations
  */
 export async function batchCreateQuizzes(articles) {
   if (!supabase) return [];

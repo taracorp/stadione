@@ -71,9 +71,9 @@ const CATEGORIES = [
     border: 'border-amber-200',
     text: 'text-amber-700',
     badge: 'bg-amber-100 text-amber-700',
-    title: 'Operator Tim / Akademi',
+    title: 'Tim / Akademi',
     subtitle: 'Tim & Akademi Olahraga',
-    description: 'Kelola tim kompetitif atau akademi olahraga? Daftarkan tim Anda, ikuti turnamen resmi, dan manfaatkan fitur manajemen roster & statistik pemain.',
+    description: 'Kelola tim kompetitif atau akademi olahraga? Daftarkan workspace Anda, ikuti turnamen resmi, dan manfaatkan fitur manajemen roster & statistik pemain.',
     benefits: ['Manajemen roster tim', 'Statistik pemain & match', 'Ikut turnamen resmi', 'Laporan performa'],
     cta: 'Daftar Tim/Akademi',
     tag: null,
@@ -87,11 +87,11 @@ const CATEGORIES = [
     border: 'border-rose-200',
     text: 'text-rose-700',
     badge: 'bg-rose-100 text-rose-700',
-    title: 'Event Organizer',
+    title: 'Tournament Host',
     subtitle: 'Penyelenggara Turnamen & Event',
-    description: 'EO atau federasi yang ingin menyelenggarakan turnamen resmi? Dapatkan akses ke tools manajemen turnamen profesional dan basis peserta Stadione.',
+    description: 'Tournament host atau federasi yang ingin menyelenggarakan turnamen resmi? Dapatkan akses ke tools manajemen turnamen profesional dan basis peserta Stadione.',
     benefits: ['Platform turnamen lengkap', 'Manajemen bracket & jadwal', 'Live scoring & hasil', 'Sertifikat & penghargaan digital'],
-    cta: 'Daftar sebagai EO',
+    cta: 'Daftar Tournament Host',
     tag: null,
   },
   {
@@ -264,15 +264,38 @@ function ApplicationModal({ category, auth, onClose }) {
     try {
       setSaving(true);
       const { name, email, phone, ...rest } = form;
+      const applicantName = name.trim();
+      const applicantEmail = email.trim().toLowerCase();
+      const applicantPhone = phone?.trim() || null;
+
       const { error: dbErr } = await supabase.from('partnership_applications').insert({
         type: category.key,
-        applicant_name: name.trim(),
-        applicant_email: email.trim().toLowerCase(),
-        applicant_phone: phone?.trim() || null,
+        applicant_name: applicantName,
+        applicant_email: applicantEmail,
+        applicant_phone: applicantPhone,
         applicant_user_id: auth?.id || null,
         details: rest,
       });
       if (dbErr) throw dbErr;
+
+      const notificationEmail = import.meta.env.VITE_PARTNERSHIP_NOTIFICATION_EMAIL || 'taradfworkspace@gmail.com';
+      const { error: emailErr } = await supabase.functions.invoke('send-partnership-notification', {
+        body: {
+          toEmail: notificationEmail,
+          applicantName,
+          applicantEmail,
+          applicantPhone: applicantPhone || '',
+          partnershipType: category.key,
+          partnershipLabel: category.title,
+          submittedAt: new Date().toISOString(),
+          details: { ...rest },
+        },
+      });
+
+      if (emailErr) {
+        console.warn('Partnership notification email failed:', emailErr);
+      }
+
       setDone(true);
     } catch (err) {
       setError(err.message || 'Gagal mengirim pendaftaran. Coba lagi.');

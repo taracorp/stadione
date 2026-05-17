@@ -14,17 +14,34 @@ const ACTIONS = [
 export default function WorkspaceConsolePage({ auth, onBack, onNav }) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ tournaments: 0, communities: 0, venues: 0, sponsors: 0 });
+  const [sponsorAlerts, setSponsorAlerts] = useState({ unread: 0, pending: 0 });
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        const [{ count: tournaments }, { count: communities }, { count: venues }, { count: sponsors }] = await Promise.all([
+        const results = await Promise.allSettled([
           supabase.from('tournaments').select('*', { count: 'exact', head: true }),
           supabase.from('sport_communities').select('*', { count: 'exact', head: true }),
           supabase.from('venues').select('*', { count: 'exact', head: true }),
           supabase.from('sponsors').select('*', { count: 'exact', head: true }),
+          supabase
+            .from('admin_notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('admin_user_id', auth?.id || '')
+            .eq('is_read', false),
+          supabase
+            .from('partnership_applications')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending'),
         ]);
+
+        const tournaments = results[0].status === 'fulfilled' ? results[0].value?.count : 0;
+        const communities = results[1].status === 'fulfilled' ? results[1].value?.count : 0;
+        const venues = results[2].status === 'fulfilled' ? results[2].value?.count : 0;
+        const sponsors = results[3].status === 'fulfilled' ? results[3].value?.count : 0;
+        const unread = results[4].status === 'fulfilled' ? results[4].value?.count : 0;
+        const pending = results[5].status === 'fulfilled' ? results[5].value?.count : 0;
 
         setStats({
           tournaments: tournaments || 0,
@@ -32,6 +49,7 @@ export default function WorkspaceConsolePage({ auth, onBack, onNav }) {
           venues: venues || 0,
           sponsors: sponsors || 0,
         });
+        setSponsorAlerts({ unread: unread || 0, pending: pending || 0 });
       } catch (err) {
         console.error('WorkspaceConsolePage load error:', err);
       } finally {
@@ -40,7 +58,40 @@ export default function WorkspaceConsolePage({ auth, onBack, onNav }) {
     }
 
     load();
-  }, []);
+  }, [auth?.id]);
+
+  useEffect(() => {
+    if (!auth?.id) return;
+
+    const reload = async () => {
+      try {
+        const [{ count: unread }, { count: pending }] = await Promise.all([
+          supabase
+            .from('admin_notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('admin_user_id', auth.id)
+            .eq('is_read', false),
+          supabase
+            .from('partnership_applications')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending'),
+        ]);
+        setSponsorAlerts({ unread: unread || 0, pending: pending || 0 });
+      } catch (err) {
+        console.error('WorkspaceConsolePage realtime reload error:', err);
+      }
+    };
+
+    const channel = supabase
+      .channel(`workspace_console_sponsor:${auth.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_notifications', filter: `admin_user_id=eq.${auth.id}` }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partnership_applications' }, reload)
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [auth?.id]);
 
   if (!auth?.id) {
     return (
@@ -79,12 +130,19 @@ export default function WorkspaceConsolePage({ auth, onBack, onNav }) {
       <div className="grid lg:grid-cols-2 gap-4">
         {ACTIONS.map((action) => {
           const Icon = action.icon;
+          const sponsorBadgeCount = sponsorAlerts.unread > 0 ? sponsorAlerts.unread : sponsorAlerts.pending;
+          const showSponsorBadge = action.key === 'sponsor-manager' && sponsorBadgeCount > 0;
           return (
             <button
               key={action.key}
               onClick={() => onNav(action.key)}
-              className="w-full rounded-3xl border border-neutral-200 bg-white p-6 text-left hover:border-neutral-900 transition"
+              className="relative w-full rounded-3xl border border-neutral-200 bg-white p-6 text-left hover:border-neutral-900 transition"
             >
+              {showSponsorBadge && (
+                <div className="absolute top-4 right-4 min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
+                  {sponsorBadgeCount > 99 ? '99+' : sponsorBadgeCount}
+                </div>
+              )}
               <div className="w-12 h-12 rounded-2xl bg-neutral-900 text-white flex items-center justify-center mb-4">
                 <Icon size={18} />
               </div>

@@ -89,6 +89,21 @@ WHERE event_object_table = 'partnership_applications';
 - ✅ policy_count = 3
 - ✅ trigger_name = 'trg_partnership_apps_updated_at'
 
+### STEP 2B: Deploy Partnership Notifications (5 minutes)
+
+Run the notification SQL after the partnership table is ready:
+
+1. Open Supabase SQL Editor
+2. Run `supabase-admin-notifications.sql`
+3. Verify `admin_notifications` exists and the `trg_create_notification_on_partnership` trigger is attached
+
+If you also want email alerts, deploy the Supabase edge function `send-partnership-notification` and set these variables in the Supabase project:
+
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+
+The frontend will use `VITE_PARTNERSHIP_NOTIFICATION_EMAIL` as the destination email fallback when it is set.
+
 ---
 
 ### STEP 3: Local Testing (10 minutes)

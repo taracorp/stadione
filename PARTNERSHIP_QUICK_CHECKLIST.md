@@ -39,6 +39,10 @@ cat scripts/add-partnership-applications.sql
 
 # Step D: Verify with verification script
 # Copy & run: scripts/verify-partnership-deployment.sql
+
+# Optional but recommended:
+# Run supabase-admin-notifications.sql to enable in-app admin alerts
+# Deploy send-partnership-notification edge function for email alerts
 ```
 
 **Success Indicators:**

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Star, Plus, Edit3, Trash2, Check, AlertCircle } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import AdminLayout, { StatCard, EmptyState, StatusBadge, Modal, Field, ActionButton, inputCls, textareaCls, selectCls } from '../AdminLayout.jsx';
 import { supabase } from '../../../config/supabase.js';
 
@@ -16,6 +17,7 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
   const [sponsors, setSponsors] = useState([]);
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -23,6 +25,25 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [reviewSavingId, setReviewSavingId] = useState('');
+
+  const loadNotificationCount = useCallback(async () => {
+    if (!auth?.id) {
+      setUnreadNotifications(0);
+      return;
+    }
+
+    try {
+      const { count, error } = await supabase
+        .from('admin_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('admin_user_id', auth.id)
+        .eq('is_read', false);
+
+      if (!error) setUnreadNotifications(count || 0);
+    } catch (err) {
+      console.error('Load notification count error:', err);
+    }
+  }, [auth?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,7 +73,39 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
     }
   }, [statusFilter]);
 
+  const markAllNotificationsRead = useCallback(async () => {
+    if (!auth?.id || unreadNotifications === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from('admin_notifications')
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq('admin_user_id', auth.id)
+        .eq('is_read', false);
+
+      if (!error) setUnreadNotifications(0);
+    } catch (err) {
+      console.error('Mark notification read error:', err);
+    }
+  }, [auth?.id, unreadNotifications]);
+
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => { loadNotificationCount(); }, [loadNotificationCount]);
+
+  useEffect(() => {
+    if (!auth?.id) return;
+    const channel = supabase
+      .channel(`admin_notif:${auth.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_notifications', filter: `admin_user_id=eq.${auth.id}` }, () => {
+        loadNotificationCount();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'admin_notifications', filter: `admin_user_id=eq.${auth.id}` }, () => {
+        loadNotificationCount();
+      })
+      .subscribe();
+    return () => { channel.unsubscribe(); };
+  }, [auth?.id, loadNotificationCount]);
 
   function openCreate() {
     setEditTarget(null);
@@ -156,12 +209,22 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
         <StatCard label="Total Sponsor" value={loading ? '—' : sponsors.length} icon={Star} accent="emerald" />
         <StatCard label="Kontrak Aktif" value={loading ? '—' : active} icon={Check} accent="blue" />
         <StatCard label="Segera Expired" value={loading ? '—' : expiringSoon} icon={AlertCircle} accent="amber" />
-        <div className="relative">
+        <div className="relative group">
           <StatCard label="Request Partnership" value={loading ? '—' : pendingApplications} icon={AlertCircle} accent="violet" />
           {pendingApplications > 0 && (
             <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
               {pendingApplications > 99 ? '99+' : pendingApplications}
             </div>
+          )}
+          {unreadNotifications > 0 && (
+            <button
+              type="button"
+              onClick={markAllNotificationsRead}
+              className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center animate-bounce shadow-lg"
+              title="Notifikasi admin belum dibaca. Klik untuk menandai semua sudah dibaca."
+            >
+              <Bell size={14} />
+            </button>
           )}
         </div>
       </div>

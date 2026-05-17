@@ -32,6 +32,7 @@ Ganti `your_anon_key_here` dengan kunci yang sudah dicopy.
   2. `supabase-tournament-rls.sql`
   3. `supabase-community.sql`
   4. `supabase-activity-rls-fix.sql` (wajib jika riwayat aktivitas tidak tercatat)
+  5. `supabase-admin-notifications.sql` (notifikasi partnership masuk untuk super admin)
 5. Tunggu sampai masing-masing query selesai ✓
 
 ## 4. Verifikasi Tabel
@@ -125,6 +126,21 @@ ON CONFLICT (user_id, role) DO NOTHING;
 ```
 
 Jika email tersebut belum terdaftar, buat akun dulu lewat auth flow biasa, lalu jalankan query di atas.
+
+### Notifikasi Partnership Baru
+
+Sistem partnership sekarang mengirim dua jenis notifikasi:
+
+1. In-app notification lewat tabel `admin_notifications` dan trigger di `partnership_applications`.
+2. Email notification lewat edge function `send-partnership-notification`.
+
+Untuk email notification, pastikan environment variable berikut tersedia saat deploy:
+
+```env
+VITE_PARTNERSHIP_NOTIFICATION_EMAIL=taradfworkspace@gmail.com
+```
+
+Kalau variabel ini tidak diisi, frontend akan memakai fallback ke email super admin di atas.
 
 ## Custom Hooks
 

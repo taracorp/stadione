@@ -278,7 +278,7 @@ export default function VenueFinancePage({ auth, venue }) {
   // ── Role helpers ─────────────────────────────────────────────────────────────
   const isFinanceAdmin = useMemo(() => {
     const roles = auth?.roles || [];
-    return roles.some((r) => ['super_admin', 'platform_admin', 'internal_admin', 'finance_admin'].includes(r));
+    return roles.some((r) => ['super_admin', 'platform_admin', 'finance_admin'].includes(r));
   }, [auth?.roles]);
 
   const isOwner = useMemo(() => {
