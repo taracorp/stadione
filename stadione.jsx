@@ -4597,10 +4597,19 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     phone: rawMeta.phone || memberVerification?.phone || '',
     photoUrl: rawMeta.photo_url || '',
     gender: rawMeta.gender || '',
+    // Birth place cascade
+    birthCountry: rawMeta.birth_country || 'Indonesia',
+    birthProvince: rawMeta.birth_province || '',
     birthPlace: rawMeta.birth_place || '',
     birthDate: rawMeta.birth_date || '',
+    // Domisili cascade
     province: rawMeta.province || memberVerification?.province || '',
     city: rawMeta.city || memberVerification?.city || '',
+    district: rawMeta.district || memberVerification?.district || '',
+    postalCode: rawMeta.postal_code || memberVerification?.postalCode || '',
+    address: rawMeta.address || '',
+    rt: rawMeta.rt || '',
+    rw: rawMeta.rw || '',
     // Level 2 – Sports
     mainSport: rawMeta.main_sport || '',
     mainPosition: rawMeta.main_position || '',
@@ -4636,7 +4645,19 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
 
   const completion = calcProfileCompletion(auth, ep);
 
-  const updateEp = (key, value) => setEp(prev => ({ ...prev, [key]: value }));
+  const updateEp = (key, value) => setEp(prev => {
+    const next = { ...prev, [key]: value };
+    // Reset cascade on parent change
+    if (key === 'birthCountry') { next.birthProvince = ''; next.birthPlace = ''; }
+    if (key === 'birthProvince') { next.birthPlace = ''; }
+    if (key === 'province') { next.city = ''; next.district = ''; next.postalCode = ''; }
+    if (key === 'city') { next.district = ''; next.postalCode = ''; }
+    if (key === 'district') {
+      const autoPostal = ((WNI_REGION_DATA[next.province] || {})[next.city] || {})[value] || '';
+      if (autoPostal) next.postalCode = autoPostal;
+    }
+    return next;
+  });
 
   const saveEditProfile = async (e) => {
     e.preventDefault();
@@ -4664,8 +4685,15 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           gender: ep.gender,
           birth_place: ep.birthPlace.trim(),
           birth_date: ep.birthDate,
+          birth_country: ep.birthCountry,
+          birth_province: ep.birthProvince,
           province: ep.province,
-          city: ep.city.trim(),
+          city: ep.city,
+          district: ep.district,
+          postal_code: ep.postalCode,
+          address: ep.address.trim(),
+          rt: ep.rt.trim(),
+          rw: ep.rw.trim(),
           main_sport: ep.mainSport,
           main_position: ep.mainPosition,
           second_position: ep.secondPosition,
@@ -4727,9 +4755,9 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     try {
       const ext = file.name.split('.').pop() || 'jpg';
       const path = `${auth.id}/avatar-${Date.now()}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from('profile-photos').upload(path, file, { upsert: true });
+      const { error: uploadErr } = await supabase.storage.from('member-verification-docs').upload(path, file, { upsert: true });
       if (uploadErr) throw uploadErr;
-      const { data: pub } = supabase.storage.from('profile-photos').getPublicUrl(path);
+      const { data: pub } = supabase.storage.from('member-verification-docs').getPublicUrl(path);
       if (pub?.publicUrl) updateEp('photoUrl', pub.publicUrl);
     } catch (err) {
       setEditError('Upload foto gagal: ' + (err?.message || 'Error tidak diketahui'));
@@ -5592,32 +5620,116 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tempat Lahir <span className="text-red-500">*</span></label>
-                      <input type="text" value={ep.birthPlace} onChange={e => updateEp('birthPlace', e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Kota kelahiran" maxLength={60} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tanggal Lahir <span className="text-red-500">*</span></label>
-                      <input type="date" value={ep.birthDate} onChange={e => updateEp('birthDate', e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white" max={new Date().toISOString().split('T')[0]} />
+                  {/* Tempat & Tanggal Lahir */}
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-3">Tempat & Tanggal Lahir</div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Negara Kelahiran <span className="text-red-500">*</span></label>
+                        <select value={ep.birthCountry} onChange={e => updateEp('birthCountry', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                          <option value="Indonesia">🇮🇩 Indonesia</option>
+                          {Object.keys(WNA_CITY_DATA).map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      {ep.birthCountry === 'Indonesia' ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Provinsi Kelahiran</label>
+                            <select value={ep.birthProvince} onChange={e => updateEp('birthProvince', e.target.value)}
+                              className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                              <option value="">— Pilih Provinsi —</option>
+                              {Object.keys(WNI_REGION_DATA).map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kota/Kab. Kelahiran <span className="text-red-500">*</span></label>
+                            <select value={ep.birthPlace} onChange={e => updateEp('birthPlace', e.target.value)}
+                              disabled={!ep.birthProvince}
+                              className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400">
+                              <option value="">— Pilih Kota —</option>
+                              {Object.keys(WNI_REGION_DATA[ep.birthProvince] || {}).map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kota Kelahiran <span className="text-red-500">*</span></label>
+                          <select value={ep.birthPlace} onChange={e => updateEp('birthPlace', e.target.value)}
+                            disabled={!ep.birthCountry}
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400">
+                            <option value="">— Pilih Kota —</option>
+                            {(WNA_CITY_DATA[ep.birthCountry] || []).map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tanggal Lahir <span className="text-red-500">*</span></label>
+                        <input type="date" value={ep.birthDate} onChange={e => updateEp('birthDate', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white" max={new Date().toISOString().split('T')[0]} />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Provinsi <span className="text-red-500">*</span></label>
-                      <select value={ep.province} onChange={e => updateEp('province', e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
-                        <option value="">— Pilih Provinsi —</option>
-                        {INDONESIA_PROVINCES_SHORT.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kota/Kabupaten <span className="text-red-500">*</span></label>
-                      <input type="text" value={ep.city} onChange={e => updateEp('city', e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama kota" maxLength={60} />
+                  {/* Domisili Tinggal */}
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-3">Domisili Tinggal</div>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Provinsi <span className="text-red-500">*</span></label>
+                          <select value={ep.province} onChange={e => updateEp('province', e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                            <option value="">— Pilih Provinsi —</option>
+                            {Object.keys(WNI_REGION_DATA).map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kabupaten/Kota <span className="text-red-500">*</span></label>
+                          <select value={ep.city} onChange={e => updateEp('city', e.target.value)}
+                            disabled={!ep.province}
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400">
+                            <option value="">— Pilih Kab/Kota —</option>
+                            {Object.keys(WNI_REGION_DATA[ep.province] || {}).map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kecamatan</label>
+                          <select value={ep.district} onChange={e => updateEp('district', e.target.value)}
+                            disabled={!ep.city}
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400">
+                            <option value="">— Pilih Kecamatan —</option>
+                            {Object.keys((WNI_REGION_DATA[ep.province] || {})[ep.city] || {}).map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kode Pos</label>
+                          <input type="text" value={ep.postalCode} readOnly
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-neutral-50 text-sm text-neutral-700 cursor-not-allowed"
+                            placeholder="Terisi otomatis" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Alamat Rumah</label>
+                        <textarea value={ep.address} onChange={e => updateEp('address', e.target.value)} rows={2}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm resize-none"
+                          placeholder="Nama jalan, nomor rumah, komplek, dll." maxLength={300} />
+                      </div>
+                      <div className="flex gap-4 max-w-xs">
+                        <div className="flex-1">
+                          <label className="block text-xs text-neutral-500 mb-1">RT</label>
+                          <input type="text" inputMode="numeric" value={ep.rt} onChange={e => updateEp('rt', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm text-center" placeholder="001" maxLength={3} />
+                        </div>
+                        <div className="pt-5 text-neutral-400 font-bold">/</div>
+                        <div className="flex-1">
+                          <label className="block text-xs text-neutral-500 mb-1">RW</label>
+                          <input type="text" inputMode="numeric" value={ep.rw} onChange={e => updateEp('rw', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                            className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm text-center" placeholder="001" maxLength={3} />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
