@@ -170,6 +170,10 @@ const CHATS = [
   },
 ];
 
+const SPORTS_BOOK = ['Semua', ...new Set(VENUES.map((venue) => venue.sport))];
+const SPORTS_TOURNEY = ['Semua', ...new Set(TOURNAMENTS.map((tournament) => tournament.sport))];
+const SPORTS_COACH = ['Semua', ...new Set(COACHES.map((coach) => coach.sport))];
+
 const BRACKETS = {
   // Tournament id 2 = Stadione Padel Open — 8 tim knockout
   2: [
