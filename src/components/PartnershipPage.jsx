@@ -141,13 +141,50 @@ const COMMUNITY_CATEGORIES = [
   'Lainnya',
 ];
 
+const CITIES_BY_PROVINCE = {
+  'Aceh': ['Banda Aceh','Sabang','Langsa','Lhokseumawe','Subulussalam','Kab. Aceh Besar','Kab. Pidie','Kab. Pidie Jaya','Kab. Bireuen','Kab. Aceh Utara','Kab. Aceh Timur','Kab. Aceh Tamiang','Kab. Aceh Tengah','Kab. Bener Meriah','Kab. Gayo Lues','Kab. Aceh Barat','Kab. Nagan Raya','Kab. Aceh Barat Daya','Kab. Aceh Selatan','Kab. Aceh Singkil','Kab. Aceh Tenggara','Kab. Aceh Jaya','Kab. Simeulue'],
+  'Sumatera Utara': ['Medan','Binjai','Pematangsiantar','Sibolga','Tebing Tinggi','Tanjungbalai','Padangsidempuan','Gunungsitoli','Kab. Deli Serdang','Kab. Langkat','Kab. Karo','Kab. Simalungun','Kab. Asahan','Kab. Batubara','Kab. Labuhanbatu','Kab. Labuhanbatu Utara','Kab. Labuhanbatu Selatan','Kab. Tapanuli Utara','Kab. Tapanuli Tengah','Kab. Tapanuli Selatan','Kab. Mandailing Natal','Kab. Padang Lawas','Kab. Padang Lawas Utara','Kab. Dairi','Kab. Pakpak Bharat','Kab. Toba','Kab. Samosir','Kab. Humbang Hasundutan','Kab. Serdang Bedagai','Kab. Nias','Kab. Nias Utara','Kab. Nias Barat','Kab. Nias Selatan'],
+  'Sumatera Barat': ['Padang','Bukittinggi','Payakumbuh','Solok','Sawahlunto','Padang Panjang','Pariaman','Kab. Agam','Kab. Tanah Datar','Kab. Lima Puluh Kota','Kab. Pasaman','Kab. Pasaman Barat','Kab. Padang Pariaman','Kab. Pesisir Selatan','Kab. Sijunjung','Kab. Dharmasraya','Kab. Solok','Kab. Solok Selatan','Kab. Kepulauan Mentawai'],
+  'Riau': ['Pekanbaru','Dumai','Kab. Kampar','Kab. Rokan Hulu','Kab. Rokan Hilir','Kab. Bengkalis','Kab. Kepulauan Meranti','Kab. Siak','Kab. Pelalawan','Kab. Indragiri Hulu','Kab. Indragiri Hilir','Kab. Kuantan Singingi'],
+  'Kepulauan Riau': ['Batam','Tanjungpinang','Kab. Bintan','Kab. Karimun','Kab. Lingga','Kab. Natuna','Kab. Kepulauan Anambas'],
+  'Jambi': ['Jambi','Sungai Penuh','Kab. Batanghari','Kab. Muaro Jambi','Kab. Bungo','Kab. Tebo','Kab. Sarolangun','Kab. Merangin','Kab. Kerinci','Kab. Tanjung Jabung Barat','Kab. Tanjung Jabung Timur'],
+  'Sumatera Selatan': ['Palembang','Lubuklinggau','Pagar Alam','Prabumulih','Kab. Ogan Komering Ulu','Kab. Ogan Komering Ulu Timur','Kab. Ogan Komering Ulu Selatan','Kab. Ogan Komering Ilir','Kab. Ogan Ilir','Kab. Muara Enim','Kab. Lahat','Kab. Empat Lawang','Kab. Musi Rawas','Kab. Musi Rawas Utara','Kab. Musi Banyuasin','Kab. Banyuasin','Kab. Penukal Abab Lematang Ilir'],
+  'Kepulauan Bangka Belitung': ['Pangkalpinang','Kab. Bangka','Kab. Bangka Tengah','Kab. Bangka Barat','Kab. Bangka Selatan','Kab. Belitung','Kab. Belitung Timur'],
+  'Bengkulu': ['Bengkulu','Kab. Bengkulu Utara','Kab. Bengkulu Tengah','Kab. Bengkulu Selatan','Kab. Rejang Lebong','Kab. Kepahiang','Kab. Lebong','Kab. Kaur','Kab. Seluma','Kab. Mukomuko'],
+  'Lampung': ['Bandar Lampung','Metro','Kab. Lampung Selatan','Kab. Lampung Tengah','Kab. Lampung Utara','Kab. Lampung Timur','Kab. Lampung Barat','Kab. Pesawaran','Kab. Pringsewu','Kab. Mesuji','Kab. Tulangbawang','Kab. Tulangbawang Barat','Kab. Tanggamus','Kab. Way Kanan','Kab. Pesisir Barat'],
+  'DKI Jakarta': ['Jakarta Pusat','Jakarta Utara','Jakarta Barat','Jakarta Selatan','Jakarta Timur','Kep. Seribu'],
+  'Jawa Barat': ['Bandung','Bekasi','Bogor','Cimahi','Cirebon','Depok','Sukabumi','Tasikmalaya','Banjar','Kab. Bandung','Kab. Bandung Barat','Kab. Bekasi','Kab. Bogor','Kab. Ciamis','Kab. Cianjur','Kab. Cirebon','Kab. Garut','Kab. Indramayu','Kab. Karawang','Kab. Kuningan','Kab. Majalengka','Kab. Pangandaran','Kab. Purwakarta','Kab. Subang','Kab. Sukabumi','Kab. Sumedang','Kab. Tasikmalaya'],
+  'Banten': ['Serang','Cilegon','Tangerang','Tangerang Selatan','Kab. Lebak','Kab. Pandeglang','Kab. Serang','Kab. Tangerang'],
+  'Jawa Tengah': ['Semarang','Surakarta','Salatiga','Magelang','Pekalongan','Tegal','Kab. Banjarnegara','Kab. Banyumas','Kab. Batang','Kab. Blora','Kab. Boyolali','Kab. Brebes','Kab. Cilacap','Kab. Demak','Kab. Grobogan','Kab. Jepara','Kab. Karanganyar','Kab. Kebumen','Kab. Kendal','Kab. Klaten','Kab. Kudus','Kab. Magelang','Kab. Pati','Kab. Pekalongan','Kab. Pemalang','Kab. Purbalingga','Kab. Purworejo','Kab. Rembang','Kab. Semarang','Kab. Sragen','Kab. Sukoharjo','Kab. Tegal','Kab. Temanggung','Kab. Wonogiri','Kab. Wonosobo'],
+  'DI Yogyakarta': ['Yogyakarta','Kab. Bantul','Kab. Gunungkidul','Kab. Kulon Progo','Kab. Sleman'],
+  'Jawa Timur': ['Surabaya','Batu','Blitar','Kediri','Madiun','Malang','Mojokerto','Pasuruan','Probolinggo','Kab. Bangkalan','Kab. Banyuwangi','Kab. Blitar','Kab. Bojonegoro','Kab. Bondowoso','Kab. Gresik','Kab. Jember','Kab. Jombang','Kab. Kediri','Kab. Lamongan','Kab. Lumajang','Kab. Madiun','Kab. Magetan','Kab. Malang','Kab. Mojokerto','Kab. Nganjuk','Kab. Ngawi','Kab. Pacitan','Kab. Pamekasan','Kab. Pasuruan','Kab. Ponorogo','Kab. Probolinggo','Kab. Sampang','Kab. Sidoarjo','Kab. Situbondo','Kab. Sumenep','Kab. Trenggalek','Kab. Tuban','Kab. Tulungagung'],
+  'Bali': ['Denpasar','Kab. Badung','Kab. Bangli','Kab. Buleleng','Kab. Gianyar','Kab. Jembrana','Kab. Karangasem','Kab. Klungkung','Kab. Tabanan'],
+  'Nusa Tenggara Barat': ['Mataram','Bima','Kab. Lombok Barat','Kab. Lombok Tengah','Kab. Lombok Timur','Kab. Lombok Utara','Kab. Sumbawa','Kab. Sumbawa Barat','Kab. Dompu','Kab. Bima'],
+  'Nusa Tenggara Timur': ['Kupang','Kab. Alor','Kab. Belu','Kab. Ende','Kab. Flores Timur','Kab. Kupang','Kab. Lembata','Kab. Malaka','Kab. Manggarai','Kab. Manggarai Barat','Kab. Manggarai Timur','Kab. Nagekeo','Kab. Ngada','Kab. Rote Ndao','Kab. Sabu Raijua','Kab. Sikka','Kab. Sumba Barat','Kab. Sumba Barat Daya','Kab. Sumba Tengah','Kab. Sumba Timur','Kab. Timor Tengah Selatan','Kab. Timor Tengah Utara'],
+  'Kalimantan Barat': ['Pontianak','Singkawang','Kab. Bengkayang','Kab. Kapuas Hulu','Kab. Kayong Utara','Kab. Ketapang','Kab. Kubu Raya','Kab. Landak','Kab. Melawi','Kab. Mempawah','Kab. Sambas','Kab. Sanggau','Kab. Sekadau','Kab. Sintang'],
+  'Kalimantan Tengah': ['Palangka Raya','Kab. Barito Selatan','Kab. Barito Timur','Kab. Barito Utara','Kab. Gunung Mas','Kab. Kapuas','Kab. Katingan','Kab. Kotawaringin Barat','Kab. Kotawaringin Timur','Kab. Lamandau','Kab. Murung Raya','Kab. Pulang Pisau','Kab. Seruyan','Kab. Sukamara'],
+  'Kalimantan Selatan': ['Banjarmasin','Banjarbaru','Kab. Balangan','Kab. Banjar','Kab. Barito Kuala','Kab. Hulu Sungai Selatan','Kab. Hulu Sungai Tengah','Kab. Hulu Sungai Utara','Kab. Kotabaru','Kab. Tabalong','Kab. Tanah Bumbu','Kab. Tanah Laut','Kab. Tapin'],
+  'Kalimantan Timur': ['Samarinda','Balikpapan','Bontang','Kab. Berau','Kab. Kutai Barat','Kab. Kutai Kartanegara','Kab. Kutai Timur','Kab. Mahakam Ulu','Kab. Paser','Kab. Penajam Paser Utara'],
+  'Kalimantan Utara': ['Tarakan','Kab. Bulungan','Kab. Malinau','Kab. Nunukan','Kab. Tana Tidung'],
+  'Sulawesi Utara': ['Manado','Bitung','Kotamobagu','Tomohon','Kab. Bolaang Mongondow','Kab. Bolaang Mongondow Selatan','Kab. Bolaang Mongondow Timur','Kab. Bolaang Mongondow Utara','Kab. Kepulauan Sangihe','Kab. Kepulauan Siau Tagulandang Biaro','Kab. Kepulauan Talaud','Kab. Minahasa','Kab. Minahasa Selatan','Kab. Minahasa Tenggara','Kab. Minahasa Utara'],
+  'Sulawesi Tengah': ['Palu','Kab. Banggai','Kab. Banggai Kepulauan','Kab. Banggai Laut','Kab. Buol','Kab. Donggala','Kab. Morowali','Kab. Morowali Utara','Kab. Parigi Moutong','Kab. Poso','Kab. Sigi','Kab. Tojo Una-Una','Kab. Toli-Toli'],
+  'Sulawesi Barat': ['Mamuju','Kab. Majene','Kab. Mamasa','Kab. Mamuju Tengah','Kab. Pasangkayu','Kab. Polewali Mandar'],
+  'Sulawesi Selatan': ['Makassar','Palopo','Parepare','Kab. Bantaeng','Kab. Barru','Kab. Bone','Kab. Bulukumba','Kab. Enrekang','Kab. Gowa','Kab. Jeneponto','Kab. Kepulauan Selayar','Kab. Luwu','Kab. Luwu Timur','Kab. Luwu Utara','Kab. Maros','Kab. Pangkajene dan Kepulauan','Kab. Pinrang','Kab. Sidenreng Rappang','Kab. Sinjai','Kab. Soppeng','Kab. Takalar','Kab. Tana Toraja','Kab. Toraja Utara','Kab. Wajo'],
+  'Sulawesi Tenggara': ['Kendari','Bau-Bau','Kab. Bombana','Kab. Buton','Kab. Buton Selatan','Kab. Buton Tengah','Kab. Buton Utara','Kab. Konawe','Kab. Konawe Kepulauan','Kab. Konawe Selatan','Kab. Konawe Utara','Kab. Kolaka','Kab. Kolaka Timur','Kab. Kolaka Utara','Kab. Muna','Kab. Muna Barat','Kab. Wakatobi'],
+  'Gorontalo': ['Gorontalo','Kab. Bone Bolango','Kab. Boalemo','Kab. Gorontalo','Kab. Gorontalo Utara','Kab. Pohuwato'],
+  'Maluku': ['Ambon','Tual','Kab. Buru','Kab. Buru Selatan','Kab. Kepulauan Aru','Kab. Maluku Barat Daya','Kab. Maluku Tengah','Kab. Maluku Tenggara','Kab. Maluku Tenggara Barat','Kab. Seram Bagian Barat','Kab. Seram Bagian Timur'],
+  'Maluku Utara': ['Ternate','Tidore Kepulauan','Kab. Halmahera Barat','Kab. Halmahera Selatan','Kab. Halmahera Tengah','Kab. Halmahera Timur','Kab. Halmahera Utara','Kab. Kepulauan Sula','Kab. Pulau Morotai','Kab. Pulau Taliabu'],
+  'Papua': ['Jayapura','Kab. Asmat','Kab. Biak Numfor','Kab. Boven Digoel','Kab. Deiyai','Kab. Dogiyai','Kab. Intan Jaya','Kab. Jayapura','Kab. Jayawijaya','Kab. Keerom','Kab. Kepulauan Yapen','Kab. Lanny Jaya','Kab. Mamberamo Raya','Kab. Mamberamo Tengah','Kab. Mappi','Kab. Merauke','Kab. Mimika','Kab. Nabire','Kab. Nduga','Kab. Paniai','Kab. Pegunungan Bintang','Kab. Puncak','Kab. Puncak Jaya','Kab. Sarmi','Kab. Supiori','Kab. Tolikara','Kab. Waropen','Kab. Yahukimo','Kab. Yalimo'],
+  'Papua Barat': ['Sorong','Kab. Fakfak','Kab. Kaimana','Kab. Manokwari','Kab. Manokwari Selatan','Kab. Maybrat','Kab. Pegunungan Arfak','Kab. Raja Ampat','Kab. Sorong','Kab. Sorong Selatan','Kab. Tambrauw','Kab. Teluk Bintuni','Kab. Teluk Wondama'],
+};
+
 // ── Form fields per category ──────────────────────────────────────────────────
 const FORM_FIELDS = {
   venue: [
     { key: 'venue_name', label: 'Nama Venue', type: 'text', placeholder: 'GOR Merdeka Futsal', required: true },
     { key: 'sport_types', label: 'Jenis Olahraga Utama', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
-    { key: 'city', label: 'Kota / Kabupaten', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'city', label: 'Kota / Kabupaten', type: 'city_select', required: true },
     { key: 'kecamatan', label: 'Kecamatan', type: 'text', placeholder: 'Depok' },
     { key: 'address', label: 'Alamat Lengkap', type: 'text', placeholder: 'Jl. Sudirman No. 10', required: true },
     { key: 'court_count', label: 'Jumlah Lapangan / Area', type: 'number', placeholder: '4' },
@@ -159,7 +196,7 @@ const FORM_FIELDS = {
     { key: 'experience_years', label: 'Pengalaman Melatih (tahun)', type: 'number', placeholder: '5', required: true },
     { key: 'license', label: 'Lisensi / Sertifikasi', type: 'text', placeholder: 'UEFA C, PBSI Level 1, dll.' },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
-    { key: 'city', label: 'Kota Domisili', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'city', label: 'Kota Domisili', type: 'city_select', required: true },
     { key: 'training_type', label: 'Jenis Pelatihan', type: 'select', options: ['Pelatihan individu', 'Pelatihan kelompok', 'Keduanya'] },
     { key: 'message', label: 'Tentang Anda', type: 'textarea', placeholder: 'Ceritakan pengalaman dan spesialisasi Anda...' },
   ],
@@ -168,7 +205,7 @@ const FORM_FIELDS = {
     { key: 'community_category', label: 'Kategori Komunitas', type: 'select', options: COMMUNITY_CATEGORIES, required: true },
     { key: 'sport', label: 'Cabang Olahraga', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
-    { key: 'city', label: 'Kota / Kabupaten', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'city', label: 'Kota / Kabupaten', type: 'city_select', required: true },
     { key: 'kecamatan', label: 'Kecamatan', type: 'text', placeholder: 'Depok' },
     { key: 'member_count', label: 'Jumlah Anggota Aktif', type: 'number', placeholder: '20' },
     { key: 'social_media', label: 'Media Sosial / Link Grup', type: 'text', placeholder: 'Instagram / Link WhatsApp grup' },
@@ -179,7 +216,7 @@ const FORM_FIELDS = {
     { key: 'sport', label: 'Cabang Olahraga', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'team_type', label: 'Tipe', type: 'select', options: ['Tim kompetitif', 'Akademi / sekolah sepakbola', 'Keduanya'] },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
-    { key: 'city', label: 'Kota / Kabupaten', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'city', label: 'Kota / Kabupaten', type: 'city_select', required: true },
     { key: 'level', label: 'Level Kompetisi', type: 'select', options: ['Lokal/kota', 'Regional/provinsi', 'Nasional', 'Internasional'] },
     { key: 'message', label: 'Informasi Tambahan', type: 'textarea', placeholder: 'Prestasi, target kompetisi, dll.' },
   ],
@@ -188,7 +225,7 @@ const FORM_FIELDS = {
     { key: 'sport', label: 'Cabang Olahraga Utama', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'org_type', label: 'Tipe Organisasi', type: 'select', options: ['Event Organizer', 'Federasi', 'KONI / Dinas Olahraga', 'Lainnya'] },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
-    { key: 'city', label: 'Kota', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'city', label: 'Kota', type: 'city_select', required: true },
     { key: 'event_scale', label: 'Skala Event yang Biasa Diselenggarakan', type: 'select', options: ['Lokal (<100 peserta)', 'Regional (100-500 peserta)', 'Nasional (>500 peserta)'] },
     { key: 'website', label: 'Website / Instagram', type: 'text', placeholder: 'https://...' },
     { key: 'message', label: 'Deskripsi & Rencana Event', type: 'textarea', placeholder: 'Ceritakan event yang ingin diselenggarakan...' },
@@ -210,7 +247,7 @@ function ApplicationModal({ category, auth, onClose }) {
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
 
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k, v) => setForm((f) => { const next = { ...f, [k]: v }; if (k === 'province') next.city = ''; return next; });
   const fields = FORM_FIELDS[category.key] || [];
 
   const handleSubmit = async () => {
@@ -315,6 +352,11 @@ function ApplicationModal({ category, auth, onClose }) {
                   <select className={selectCls} value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)}>
                     <option value="">Pilih...</option>
                     {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : field.type === 'city_select' ? (
+                  <select className={selectCls} value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)} disabled={!form.province}>
+                    <option value="">{form.province ? 'Pilih kota / kabupaten...' : '— Pilih provinsi dulu —'}</option>
+                    {(CITIES_BY_PROVINCE[form.province] || []).map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 ) : (
                   <input type={field.type} className={inputCls} placeholder={field.placeholder}
