@@ -4594,6 +4594,36 @@ const ESPORTS_GAMES = {
   'eFootball / FIFA':          ['Tidak ada posisi khusus'],
   'Game Lainnya':              [],
 };
+
+const createAdditionalSportEntry = () => ({
+  sport: '',
+  mainPosition: '',
+  secondPosition: '',
+  esportsGame: '',
+});
+
+const normalizeAdditionalSports = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      sport: String(item?.sport || '').trim(),
+      mainPosition: String(item?.mainPosition || '').trim(),
+      secondPosition: String(item?.secondPosition || '').trim(),
+      esportsGame: String(item?.esportsGame || '').trim(),
+    }))
+    .filter((item) => item.sport);
+};
+
+const sanitizeAdditionalSports = (value, mainSport = '') => {
+  const usedSports = new Set();
+  if (mainSport) usedSports.add(mainSport);
+  return normalizeAdditionalSports(value).filter((item) => {
+    if (usedSports.has(item.sport)) return false;
+    usedSports.add(item.sport);
+    return true;
+  });
+};
+
 const POSITION_FOOTBALL = ['Penjaga Gawang','Bek Kanan','Bek Kiri','Bek Tengah','Gelandang Bertahan','Gelandang','Gelandang Serang','Sayap Kanan','Sayap Kiri','Penyerang'];
 const DOMINANT_FOOT = ['Kanan','Kiri','Keduanya'];
 const DOMINANT_HAND = ['Kanan','Kiri','Keduanya'];
@@ -4626,6 +4656,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
 
   // Extended profile state (4 levels)
   const rawMeta = auth?.rawMetadata || {};
+  const initialAdditionalSports = normalizeAdditionalSports(rawMeta.additional_sports);
   const [ep, setEp] = useState(() => ({
     // Level 1 – Basic
     firstName: rawMeta.first_name || (auth?.name?.split(' ')[0]) || '',
@@ -4659,6 +4690,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     jerseyName: rawMeta.jersey_name || '',
     playLevel: rawMeta.play_level || '',
     esportsGame: rawMeta.esports_game || '',
+    additionalSports: initialAdditionalSports,
     // Level 3 – Social
     instagram: rawMeta.instagram || '',
     tiktok: rawMeta.tiktok || '',
@@ -4680,6 +4712,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
   const [editSuccess, setEditSuccess] = useState('');
+  const [showAdditionalSports, setShowAdditionalSports] = useState(() => initialAdditionalSports.length > 0);
 
   const completion = calcProfileCompletion(auth, ep);
 
@@ -4699,6 +4732,40 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     return next;
   });
 
+  const updateAdditionalSport = (index, key, value) => {
+    setEp((prev) => {
+      const nextSports = [...prev.additionalSports];
+      const current = { ...(nextSports[index] || createAdditionalSportEntry()) };
+      current[key] = value;
+      if (key === 'sport') {
+        current.mainPosition = '';
+        current.secondPosition = '';
+        current.esportsGame = '';
+      }
+      if (key === 'esportsGame') {
+        current.mainPosition = '';
+        current.secondPosition = '';
+      }
+      nextSports[index] = current;
+      return { ...prev, additionalSports: nextSports };
+    });
+  };
+
+  const addAdditionalSport = () => {
+    setShowAdditionalSports(true);
+    setEp((prev) => ({
+      ...prev,
+      additionalSports: [...prev.additionalSports, createAdditionalSportEntry()],
+    }));
+  };
+
+  const removeAdditionalSport = (index) => {
+    setEp((prev) => ({
+      ...prev,
+      additionalSports: prev.additionalSports.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
   const saveEditProfile = async (e) => {
     e.preventDefault();
     setEditError('');
@@ -4709,6 +4776,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     if (!fullName) { setEditError('Nama depan tidak boleh kosong.'); return; }
     if (ep.newPassword && ep.newPassword.length < 8) { setEditError('Password baru minimal 8 karakter.'); return; }
     if (ep.newPassword && ep.newPassword !== ep.confirmPassword) { setEditError('Konfirmasi password tidak cocok.'); return; }
+    const cleanAdditionalSports = sanitizeAdditionalSports(ep.additionalSports, ep.mainSport);
     setEditSaving(true);
     try {
       const { data: currentUserData } = await supabase.auth.getUser();
@@ -4738,6 +4806,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           main_position: ep.mainPosition,
           second_position: ep.secondPosition,
           esports_game: ep.esportsGame,
+          additional_sports: cleanAdditionalSports,
           height: ep.height,
           weight: ep.weight,
           dominant_foot: ep.dominantFoot,
@@ -5787,18 +5856,6 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                       {SPORT_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Utama</label>
-                      <input type="text" value={ep.mainPosition} onChange={e => updateEp('mainPosition', e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Penyerang" maxLength={40} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Kedua</label>
-                      <input type="text" value={ep.secondPosition} onChange={e => updateEp('secondPosition', e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Gelandang" maxLength={40} />
-                    </div>
-                  </div>
                   {/* Dynamic position section */}
                   {ep.mainSport === 'Esports' ? (
                     <div className="space-y-4">
@@ -5855,6 +5912,149 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                       {ep.mainSport} adalah olahraga individual — tidak ada pilihan posisi regu.
                     </div>
                   ) : null}
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdditionalSports((prev) => !prev)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-900 transition"
+                    >
+                      <Plus size={12} />
+                      {showAdditionalSports ? 'Sembunyikan olahraga tambahan' : 'Tambahkan olahraga lain (opsional)'}
+                    </button>
+                  </div>
+
+                  {showAdditionalSports && (
+                    <div className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                          <div className="text-xs font-bold uppercase tracking-widest text-neutral-500">Olahraga Tambahan</div>
+                          <p className="text-xs text-neutral-500 mt-1">Tambahkan jika kamu aktif di lebih dari satu cabang olahraga. Data ini disiapkan untuk kebutuhan turnamen & liga.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addAdditionalSport}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-900 transition"
+                        >
+                          <Plus size={12} /> Tambah olahraga
+                        </button>
+                      </div>
+
+                      {ep.additionalSports.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-3 text-xs text-neutral-500">
+                          Belum ada olahraga tambahan. Klik "Tambah olahraga" jika diperlukan.
+                        </div>
+                      ) : ep.additionalSports.map((item, index) => (
+                        <div key={`${item.sport || 'sport'}-${index}`} className="rounded-xl border border-neutral-200 bg-white p-4 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-bold uppercase tracking-widest text-neutral-500">Olahraga #{index + 2}</div>
+                            <button
+                              type="button"
+                              onClick={() => removeAdditionalSport(index)}
+                              className="text-xs font-bold text-red-600 hover:underline"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Cabang Olahraga</label>
+                            <select
+                              value={item.sport}
+                              onChange={(e) => updateAdditionalSport(index, 'sport', e.target.value)}
+                              className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                            >
+                              <option value="">— Pilih Olahraga —</option>
+                              {SPORT_OPTIONS.filter((sportName) => sportName !== ep.mainSport).map((sportName) => (
+                                <option key={sportName} value={sportName}>{sportName}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {item.sport === 'Esports' ? (
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Game / Judul</label>
+                                <select
+                                  value={item.esportsGame}
+                                  onChange={(e) => updateAdditionalSport(index, 'esportsGame', e.target.value)}
+                                  className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                                >
+                                  <option value="">— Pilih Game —</option>
+                                  {Object.keys(ESPORTS_GAMES).map((gameName) => (
+                                    <option key={gameName} value={gameName}>{gameName}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              {item.esportsGame && (ESPORTS_GAMES[item.esportsGame] || []).length > 0 && (
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Role Utama</label>
+                                    <select
+                                      value={item.mainPosition}
+                                      onChange={(e) => updateAdditionalSport(index, 'mainPosition', e.target.value)}
+                                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                                    >
+                                      <option value="">— Pilih Role —</option>
+                                      {(ESPORTS_GAMES[item.esportsGame] || []).map((roleName) => (
+                                        <option key={roleName} value={roleName}>{roleName}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Role Sekunder</label>
+                                    <select
+                                      value={item.secondPosition}
+                                      onChange={(e) => updateAdditionalSport(index, 'secondPosition', e.target.value)}
+                                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                                    >
+                                      <option value="">— Pilih Role —</option>
+                                      {(ESPORTS_GAMES[item.esportsGame] || []).filter((roleName) => roleName !== item.mainPosition).map((roleName) => (
+                                        <option key={roleName} value={roleName}>{roleName}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : SPORT_POSITIONS[item.sport] !== undefined && SPORT_POSITIONS[item.sport] !== null ? (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Utama</label>
+                                <select
+                                  value={item.mainPosition}
+                                  onChange={(e) => updateAdditionalSport(index, 'mainPosition', e.target.value)}
+                                  className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                                >
+                                  <option value="">— Pilih Posisi —</option>
+                                  {(SPORT_POSITIONS[item.sport] || []).map((positionName) => (
+                                    <option key={positionName} value={positionName}>{positionName}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Kedua</label>
+                                <select
+                                  value={item.secondPosition}
+                                  onChange={(e) => updateAdditionalSport(index, 'secondPosition', e.target.value)}
+                                  className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                                >
+                                  <option value="">— Pilih Posisi —</option>
+                                  {(SPORT_POSITIONS[item.sport] || []).filter((positionName) => positionName !== item.mainPosition).map((positionName) => (
+                                    <option key={positionName} value={positionName}>{positionName}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          ) : item.sport ? (
+                            <div className="rounded-xl bg-neutral-50 border border-neutral-200 px-4 py-3 text-sm text-neutral-500">
+                              {item.sport} adalah olahraga individual — tidak ada pilihan posisi regu.
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
