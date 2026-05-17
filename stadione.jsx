@@ -1780,6 +1780,7 @@ const AUTH_SET_SESSION_TIMEOUT_MS = 25000; // Allow Supabase session sync to fin
 const AUTH_DISABLE_CLIENT_TIMEOUT_FOR_PASSWORD = false; // Keep false by default; native signIn path is now primary
 const AUTH_OAUTH_TIMEOUT_MS = 30000; // OAuth: 30s (external services)
 const AUTH_FORGOT_PASSWORD_TIMEOUT_MS = 45000; // Reset password email
+const APP_PRODUCTION_ORIGIN = 'https://stadione.vercel.app';
 
 // Track in-flight auth requests to prevent duplicates
 let authSubmitRequest = createRequestTracker();
@@ -1830,11 +1831,67 @@ function getAuthRedirectUrl(mode) {
   // even when the reset was requested from a Vercel preview URL.
   const baseOrigin = isLocalhost
     ? window.location.origin
-    : 'https://stadione.vercel.app';
+    : APP_PRODUCTION_ORIGIN;
 
   const url = new URL(baseOrigin);
   if (mode) url.searchParams.set('auth_mode', mode);
   return url.toString();
+}
+
+function shouldForceCanonicalAuthHost() {
+  if (typeof window === 'undefined') return false;
+
+  const hostname = window.location.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (isLocalhost) return false;
+
+  if (!(hostname.endsWith('.vercel.app') && hostname !== 'stadione.vercel.app')) {
+    return false;
+  }
+
+  const params = getAuthUrlParams();
+  const authKeys = [
+    'code',
+    'type',
+    'auth_mode',
+    'access_token',
+    'refresh_token',
+    'expires_in',
+    'expires_at',
+    'token_type',
+    'error',
+    'error_code',
+    'error_description',
+    'recovery_token',
+  ];
+
+  // Only force host redirect for real auth callback flows.
+  return authKeys.some((key) => params.has(key));
+}
+
+function shouldMoveToCanonicalBeforeOAuth() {
+  if (typeof window === 'undefined') return false;
+
+  const hostname = window.location.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (isLocalhost) return false;
+
+  return hostname.endsWith('.vercel.app') && hostname !== 'stadione.vercel.app';
+}
+
+function buildCanonicalCurrentUrl() {
+  const targetUrl = new URL(APP_PRODUCTION_ORIGIN);
+  targetUrl.pathname = window.location.pathname;
+  targetUrl.search = window.location.search;
+  targetUrl.hash = window.location.hash;
+  return targetUrl.toString();
+}
+
+function redirectToCanonicalAuthHost() {
+  if (!shouldForceCanonicalAuthHost()) return false;
+
+  window.location.replace(buildCanonicalCurrentUrl());
+  return true;
 }
 
 function getAuthModeFromUrl() {
@@ -2329,6 +2386,11 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
   };
 
   const handleGoogleAuth = async () => {
+    if (shouldMoveToCanonicalBeforeOAuth()) {
+      window.location.assign(buildCanonicalCurrentUrl());
+      return;
+    }
+
     setLoading(true);
     setError('');
     setSuccessMessage('');
@@ -6406,6 +6468,10 @@ export default function Stadione() {
   const communityNotificationStorageKey = useMemo(() => `stadione_community_notifications_${auth?.id || 'guest'}`, [auth?.id]);
   const communityUnreadStorageKey = useMemo(() => `stadione_community_unread_${auth?.id || 'guest'}`, [auth?.id]);
   const cartStorageKey = useMemo(() => `stadione_checkout_cart_${auth?.id || 'guest'}`, [auth?.id]);
+
+  useEffect(() => {
+    redirectToCanonicalAuthHost();
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

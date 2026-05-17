@@ -46,6 +46,10 @@ Buka Supabase -> Authentication -> URL Configuration:
   - `https://stadione.vercel.app`
   - `http://localhost:5173` (untuk pengujian lokal)
 
+Penting:
+- Jangan masukkan domain preview Vercel (misalnya `https://stadione-taracorps-projects.vercel.app`) di konfigurasi produksi Supabase Auth.
+- Callback OAuth yang masuk ke preview domain dapat membuat user terlihat seperti masuk ke environment berbeda.
+
 Buka Supabase -> Authentication -> Providers -> Google:
 - Enable Google provider
 - Isi Google Client ID dan Client Secret

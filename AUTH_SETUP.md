@@ -49,6 +49,10 @@ Tambahkan URL berikut pada Supabase Auth:
   - `http://localhost:5173`
   - `https://stadione.vercel.app`
 
+Penting:
+- Jangan tambahkan domain preview Vercel (contoh: `https://stadione-taracorps-projects.vercel.app`) ke Additional Redirect URLs produksi.
+- Jika domain preview pernah terdaftar, hapus untuk mencegah callback Google OAuth kembali ke host non-kanonik.
+
 Catatan:
 - Aplikasi menggunakan query `auth_mode=recovery` saat reset password.
 - Karena redirect kembali ke root URL app, URL root wajib terdaftar sebagai redirect URL.
