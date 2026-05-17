@@ -633,14 +633,32 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onCart, onSwitchCo
 
 // ============ HOME ============
 const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
+  const safeVenues = Array.isArray(venues) ? venues : [];
   const safeNews = Array.isArray(news) ? news : [];
   const safeTournaments = Array.isArray(tournaments) ? tournaments : [];
+  const safeCoaches = Array.isArray(coaches) ? coaches : [];
+
+  const liveStats = [
+    { v: safeVenues.length, l: 'Venue Aktif' },
+    { v: safeTournaments.length, l: 'Turnamen Aktif' },
+    { v: safeCoaches.length, l: 'Pelatih Aktif' },
+    { v: safeNews.length, l: 'Berita Publik' },
+  ];
+
+  const tickerMessages = safeNews.length > 0
+    ? safeNews.slice(0, 6).map((item) => `UPDATE: ${item.title}`)
+    : [
+      'MODE DATA ASLI AKTIF',
+      'Belum ada berita publik dari database',
+      'Tambahkan data asli untuk mulai validasi alur',
+    ];
+
   const features = [
-    { id: 'booking', label: 'BOOKING LAPANGAN', desc: 'Sepakbola, futsal, renang, padel — pesan slot dalam hitungan detik.', count: '500+ Venue', icon: MapPin },
-    { id: 'tournament', label: 'TURNAMEN & LIGA', desc: 'Buat turnamen sendiri atau ikut liga dengan klasemen otomatis.', count: '120+ Aktif', icon: Trophy },
-    { id: 'community', label: 'COMMUNITY ECOSYSTEM', desc: 'Temukan komunitas olahraga dari 40+ kategori dengan smart discovery system.', count: '50 Kategori', icon: Users },
-    { id: 'news', label: 'BERITA & MEDIA', desc: 'Berita olahraga Indonesia, eksklusif & dipercepat.', count: '24/7 Update', icon: Newspaper },
-    { id: 'training', label: 'PELATIHAN', desc: 'Booking pelatih profesional bersertifikasi nasional.', count: '300+ Pelatih', icon: Dumbbell },
+    { id: 'booking', label: 'BOOKING LAPANGAN', desc: 'Sepakbola, futsal, renang, padel — pesan slot dalam hitungan detik.', count: `${safeVenues.length} Venue`, icon: MapPin },
+    { id: 'tournament', label: 'TURNAMEN & LIGA', desc: 'Buat turnamen sendiri atau ikut liga dengan klasemen otomatis.', count: `${safeTournaments.length} Turnamen`, icon: Trophy },
+    { id: 'community', label: 'COMMUNITY ECOSYSTEM', desc: 'Temukan komunitas olahraga dari 40+ kategori dengan smart discovery system.', count: 'Data Live', icon: Users },
+    { id: 'news', label: 'BERITA & MEDIA', desc: 'Berita olahraga Indonesia, eksklusif & dipercepat.', count: `${safeNews.length} Artikel`, icon: Newspaper },
+    { id: 'training', label: 'PELATIHAN', desc: 'Booking pelatih profesional bersertifikasi nasional.', count: `${safeCoaches.length} Pelatih`, icon: Dumbbell },
   ];
   const registrationReadyTournaments = safeTournaments
     .filter((item) => String(item.status || '').toLowerCase() === 'pendaftaran')
@@ -657,7 +675,7 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-16 lg:py-24 relative">
           <div className="flex items-center gap-3 mb-6 fade-up">
             <span className="w-2 h-2 rounded-full pulse-dot" style={{ background: '#E11D2E' }} />
-            <span className="text-xs font-bold uppercase tracking-widest text-neutral-600">Live Sekarang · 1.247 Pengguna Aktif</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-neutral-600">Mode Data Asli · Sumber Supabase Aktif</span>
           </div>
 
           <h1 className="font-display leading-[0.85] mb-8 fade-up" style={{ animationDelay: '0.1s' }}>
@@ -683,12 +701,7 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
 
           {/* Stats strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-neutral-300 border border-neutral-300 fade-up" style={{ animationDelay: '0.3s' }}>
-            {[
-              { v: '500+', l: 'Venue Terdaftar' },
-              { v: '12.4K', l: 'Pengguna Aktif' },
-              { v: '300+', l: 'Pelatih Profesional' },
-              { v: '120', l: 'Turnamen Aktif' },
-            ].map((s, i) => (
+            {liveStats.map((s, i) => (
               <div key={i} className="bg-[#F4F4F4] p-6">
                 <div className="font-display text-5xl lg:text-6xl text-neutral-900 leading-none mb-1">{s.v}</div>
                 <div className="text-xs uppercase tracking-wider font-bold text-neutral-500">{s.l}</div>
@@ -729,7 +742,7 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
           <div className="ticker flex gap-12 py-3 whitespace-nowrap">
             {[...Array(2)].map((_, i) => (
               <div key={i} className="flex gap-12 items-center">
-                {['LIVE: Liga Futsal Jakarta — FC Senayan 3-2 Tebet Tigers', 'BARU: 12 venue padel di Kemang', 'PIALA AFF U-23: Indonesia ke Final', 'Coach Andre Wijaya buka kelas padel pemula', 'Liga Esports MPL S13 — Final EVOS vs RRQ Sabtu', 'Olimpiade renang: Rekor Asia baru'].map((t, j) => (
+                {tickerMessages.map((t, j) => (
                   <span key={j} className="font-display text-lg flex items-center gap-3">
                     <Sparkles size={14} style={{ color: '#E11D2E' }} /> {t}
                   </span>
@@ -843,7 +856,7 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
           </button>
         </div>
         <div className="grid lg:grid-cols-3 gap-6">
-          {safeNews.slice(1, 4).map((n) => (
+          {safeNews.slice(0, 3).map((n) => (
             <article key={n.id} className="cursor-pointer group" onClick={() => onNav('news-detail', n)}>
               <div className="aspect-[4/3] mb-4 relative overflow-hidden grain" style={{ background: n.color }}>
                 <div className="absolute inset-0 flex items-end p-5">
@@ -854,6 +867,11 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
               <h3 className="font-display text-2xl leading-tight text-neutral-900 group-hover:text-[#E11D2E] transition">{n.title}</h3>
             </article>
           ))}
+          {safeNews.length === 0 && (
+            <div className="lg:col-span-3 rounded-2xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+              Belum ada berita publik dari data asli.
+            </div>
+          )}
         </div>
       </section>
 
@@ -894,7 +912,7 @@ const BookingPage = ({ onSelect, venues }) => {
       <SectionHero
         kicker="/ FITUR 01"
         title={<>BOOKING<br /><span className="font-serif-it font-normal" style={{ fontFamily: "'Instrument Serif', serif", fontStyle: 'italic' }}>lapangan.</span></>}
-        subtitle="Cari, pesan, main. 500+ venue tersebar di seluruh Indonesia. Konfirmasi instan, harga transparan."
+        subtitle="Cari, pesan, main. Data venue ditampilkan sesuai database aktif. Konfirmasi instan, harga transparan."
       />
 
       {/* Filters */}
