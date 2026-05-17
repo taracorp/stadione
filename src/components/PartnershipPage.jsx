@@ -111,45 +111,84 @@ const CATEGORIES = [
   },
 ];
 
+// ── Static option lists ───────────────────────────────────────────────────────
+const SPORTS_LIST = [
+  'Futsal', 'Sepak Bola', 'Basket', 'Voli', 'Badminton',
+  'Tenis', 'Padel', 'Renang', 'Lari / Running', 'Bersepeda / Cycling',
+  'Bela Diri / Silat / Karate', 'Panahan', 'Golf', 'Panjat Tebing',
+  'Softball / Baseball', 'Senam / Gym', 'E-Sports', 'Lainnya',
+];
+
+const PROVINCES = [
+  'Aceh', 'Sumatera Utara', 'Sumatera Barat', 'Riau', 'Kepulauan Riau',
+  'Jambi', 'Sumatera Selatan', 'Kepulauan Bangka Belitung', 'Bengkulu', 'Lampung',
+  'DKI Jakarta', 'Jawa Barat', 'Banten', 'Jawa Tengah', 'DI Yogyakarta',
+  'Jawa Timur', 'Bali', 'Nusa Tenggara Barat', 'Nusa Tenggara Timur',
+  'Kalimantan Barat', 'Kalimantan Tengah', 'Kalimantan Selatan', 'Kalimantan Timur', 'Kalimantan Utara',
+  'Sulawesi Utara', 'Sulawesi Tengah', 'Sulawesi Barat', 'Sulawesi Selatan', 'Sulawesi Tenggara', 'Gorontalo',
+  'Maluku', 'Maluku Utara', 'Papua', 'Papua Barat',
+];
+
+const COMMUNITY_CATEGORIES = [
+  'Komunitas Hobi / Rekreasi',
+  'Komunitas Kompetitif',
+  'Akademi / Sekolah Olahraga',
+  'Tim Corporate',
+  'Komunitas Kampus',
+  'Komunitas Pemula',
+  'Komunitas Wanita',
+  'Komunitas Keluarga',
+  'Lainnya',
+];
+
 // ── Form fields per category ──────────────────────────────────────────────────
 const FORM_FIELDS = {
   venue: [
     { key: 'venue_name', label: 'Nama Venue', type: 'text', placeholder: 'GOR Merdeka Futsal', required: true },
-    { key: 'city', label: 'Kota', type: 'text', placeholder: 'Jakarta Selatan', required: true },
+    { key: 'sport_types', label: 'Jenis Olahraga Utama', type: 'select', options: SPORTS_LIST, required: true },
+    { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
+    { key: 'city', label: 'Kota / Kabupaten', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'kecamatan', label: 'Kecamatan', type: 'text', placeholder: 'Depok' },
     { key: 'address', label: 'Alamat Lengkap', type: 'text', placeholder: 'Jl. Sudirman No. 10', required: true },
-    { key: 'sport_types', label: 'Jenis Olahraga', type: 'text', placeholder: 'Futsal, Badminton, Basket' },
-    { key: 'court_count', label: 'Jumlah Lapangan', type: 'number', placeholder: '4' },
-    { key: 'has_online_booking', label: 'Apakah sudah ada sistem booking?', type: 'select', options: ['Belum ada', 'Sudah ada (ingin migrasi)', 'Pakai WhatsApp/manual'] },
+    { key: 'court_count', label: 'Jumlah Lapangan / Area', type: 'number', placeholder: '4' },
+    { key: 'has_online_booking', label: 'Sistem Booking Saat Ini', type: 'select', options: ['Belum ada', 'Sudah ada (ingin migrasi)', 'Pakai WhatsApp/manual'] },
     { key: 'message', label: 'Informasi Tambahan', type: 'textarea', placeholder: 'Ceritakan kondisi venue Anda...' },
   ],
   coach: [
-    { key: 'sport', label: 'Cabang Olahraga', type: 'text', placeholder: 'Futsal, Badminton, Basket...', required: true },
+    { key: 'sport', label: 'Cabang Olahraga', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'experience_years', label: 'Pengalaman Melatih (tahun)', type: 'number', placeholder: '5', required: true },
     { key: 'license', label: 'Lisensi / Sertifikasi', type: 'text', placeholder: 'UEFA C, PBSI Level 1, dll.' },
-    { key: 'city', label: 'Kota Domisili', type: 'text', placeholder: 'Jakarta', required: true },
+    { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
+    { key: 'city', label: 'Kota Domisili', type: 'text', placeholder: 'Sleman', required: true },
     { key: 'training_type', label: 'Jenis Pelatihan', type: 'select', options: ['Pelatihan individu', 'Pelatihan kelompok', 'Keduanya'] },
     { key: 'message', label: 'Tentang Anda', type: 'textarea', placeholder: 'Ceritakan pengalaman dan spesialisasi Anda...' },
   ],
   community: [
-    { key: 'community_name', label: 'Nama Komunitas', type: 'text', placeholder: 'Komunitas Badminton Jakarta', required: true },
-    { key: 'sport', label: 'Cabang Olahraga', type: 'text', placeholder: 'Badminton', required: true },
-    { key: 'member_count', label: 'Jumlah Anggota Aktif', type: 'number', placeholder: '50' },
-    { key: 'city', label: 'Kota', type: 'text', placeholder: 'Jakarta', required: true },
+    { key: 'community_name', label: 'Nama Komunitas', type: 'text', placeholder: 'Komunitas Badminton Jogja', required: true },
+    { key: 'community_category', label: 'Kategori Komunitas', type: 'select', options: COMMUNITY_CATEGORIES, required: true },
+    { key: 'sport', label: 'Cabang Olahraga', type: 'select', options: SPORTS_LIST, required: true },
+    { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
+    { key: 'city', label: 'Kota / Kabupaten', type: 'text', placeholder: 'Sleman', required: true },
+    { key: 'kecamatan', label: 'Kecamatan', type: 'text', placeholder: 'Depok' },
+    { key: 'member_count', label: 'Jumlah Anggota Aktif', type: 'number', placeholder: '20' },
     { key: 'social_media', label: 'Media Sosial / Link Grup', type: 'text', placeholder: 'Instagram / Link WhatsApp grup' },
     { key: 'message', label: 'Deskripsi Komunitas', type: 'textarea', placeholder: 'Ceritakan tentang komunitas Anda...' },
   ],
   team_operator: [
-    { key: 'team_name', label: 'Nama Tim / Akademi', type: 'text', placeholder: 'FC Merdeka Jakarta', required: true },
-    { key: 'sport', label: 'Cabang Olahraga', type: 'text', placeholder: 'Futsal', required: true },
-    { key: 'city', label: 'Kota', type: 'text', placeholder: 'Jakarta', required: true },
+    { key: 'team_name', label: 'Nama Tim / Akademi', type: 'text', placeholder: 'FC Merdeka Jogja', required: true },
+    { key: 'sport', label: 'Cabang Olahraga', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'team_type', label: 'Tipe', type: 'select', options: ['Tim kompetitif', 'Akademi / sekolah sepakbola', 'Keduanya'] },
+    { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
+    { key: 'city', label: 'Kota / Kabupaten', type: 'text', placeholder: 'Sleman', required: true },
     { key: 'level', label: 'Level Kompetisi', type: 'select', options: ['Lokal/kota', 'Regional/provinsi', 'Nasional', 'Internasional'] },
     { key: 'message', label: 'Informasi Tambahan', type: 'textarea', placeholder: 'Prestasi, target kompetisi, dll.' },
   ],
   eo_operator: [
     { key: 'org_name', label: 'Nama Organisasi / EO', type: 'text', placeholder: 'PT Sport Events Indonesia', required: true },
-    { key: 'sport', label: 'Cabang Olahraga', type: 'text', placeholder: 'Futsal, Badminton', required: true },
+    { key: 'sport', label: 'Cabang Olahraga Utama', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'org_type', label: 'Tipe Organisasi', type: 'select', options: ['Event Organizer', 'Federasi', 'KONI / Dinas Olahraga', 'Lainnya'] },
+    { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
+    { key: 'city', label: 'Kota', type: 'text', placeholder: 'Sleman', required: true },
     { key: 'event_scale', label: 'Skala Event yang Biasa Diselenggarakan', type: 'select', options: ['Lokal (<100 peserta)', 'Regional (100-500 peserta)', 'Nasional (>500 peserta)'] },
     { key: 'website', label: 'Website / Instagram', type: 'text', placeholder: 'https://...' },
     { key: 'message', label: 'Deskripsi & Rencana Event', type: 'textarea', placeholder: 'Ceritakan event yang ingin diselenggarakan...' },
