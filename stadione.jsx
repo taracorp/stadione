@@ -7552,6 +7552,10 @@ function normalizeRouteId(value) {
   return String(value ?? '').trim();
 }
 
+function isValidCommunityRouteId(value) {
+  return /^\d+$/.test(String(value || '').trim());
+}
+
 function toRouteSlug(value) {
   return String(value || '')
     .toLowerCase()
@@ -7581,8 +7585,14 @@ function resolveRouteStateFromLocation(locationLike) {
     detailPage = 'news-detail';
     detailId = normalizeRouteId(segments[1]);
   } else if (segments[0] === 'komunitas' && segments[1]) {
-    detailPage = 'community-detail';
-    detailId = normalizeRouteId(segments[1]);
+    const routeId = normalizeRouteId(segments[1]);
+    if (isValidCommunityRouteId(routeId)) {
+      detailPage = 'community-detail';
+      detailId = routeId;
+    } else {
+      detailPage = 'community';
+      detailId = '';
+    }
   } else if (segments[0] === 'pelatihan' && segments[1] === 'pelatih' && segments[2]) {
     detailPage = 'coach-profile';
     detailId = normalizeRouteId(segments[2]);
