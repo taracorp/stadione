@@ -412,6 +412,8 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onCart, onSwitchCo
     auth?.access?.official && { scope: 'official', label: 'Official', page: 'official-center', icon: ShieldCheck },
   ].filter(Boolean);
   const officialCapabilities = getOfficialMatchCapabilities({ userRoles: auth?.roles || [] });
+  const authInitials = String(auth?.name || 'User').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+  const authAvatarUrl = String(auth?.avatarUrl || auth?.rawMetadata?.photo_url || '').trim();
 
   const handleContextSelection = async (scope, pageTarget) => {
     if (typeof onSwitchContext === 'function') {
@@ -478,8 +480,17 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onCart, onSwitchCo
                 onClick={() => { setUserMenu(!userMenu); setNotificationMenu(false); }}
                 className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-white border border-neutral-200 hover:border-neutral-400"
               >
-                <div className="w-8 h-8 rounded-full flex items-center justify-center font-display text-sm text-white" style={{ background: '#E11D2E' }}>
-                  {auth.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                <div className="w-8 h-8 rounded-full flex items-center justify-center font-display text-sm text-white overflow-hidden" style={{ background: '#E11D2E' }}>
+                  {authAvatarUrl ? (
+                    <img
+                      src={authAvatarUrl}
+                      alt={auth?.name || 'User'}
+                      className="w-full h-full object-cover"
+                      onError={(event) => {
+                        event.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : authInitials}
                 </div>
                 <span className="text-sm font-bold hidden md:inline">{auth.name.split(' ')[0]}</span>
                 <ChevronDown size={14} />
@@ -2216,11 +2227,19 @@ function mapAuthUser(user) {
       verifiedAt: raw.verifiedAt || null,
     };
   })();
+  const avatarUrl = String(
+    user?.user_metadata?.photo_url
+    || user?.user_metadata?.avatar_url
+    || user?.user_metadata?.picture
+    || user?.avatar_url
+    || ''
+  ).trim();
 
   return {
     name: user.user_metadata?.name || user.name || user.email?.split('@')[0] || 'User',
     email: user.email || user.registrant_email || '',
     id: user.id,
+    avatarUrl,
     roles: normalizedRoles,
     roleBadges: getUserRoleBadges(normalizedRoles, user.roleProfiles || []),
     activeContext: user.activeContext || null,
@@ -4666,6 +4685,8 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
 
   // Extended profile state (4 levels)
   const rawMeta = auth?.rawMetadata || {};
+  const authInitials = String(auth?.name || 'User').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+  const authAvatarUrl = String(auth?.avatarUrl || rawMeta.photo_url || '').trim();
   const initialAdditionalSports = normalizeAdditionalSports(rawMeta.additional_sports);
   const [ep, setEp] = useState(() => ({
     // Level 1 – Basic
@@ -5212,8 +5233,17 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           <div className="rounded-3xl border border-neutral-200 bg-[#F8FAFC] p-8">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-[#E11D2E] text-white flex items-center justify-center font-display text-3xl shrink-0">
-                {auth?.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+              <div className="w-16 h-16 rounded-full bg-[#E11D2E] text-white flex items-center justify-center font-display text-3xl shrink-0 overflow-hidden">
+                {authAvatarUrl ? (
+                  <img
+                    src={authAvatarUrl}
+                    alt={auth?.name || 'User'}
+                    className="w-full h-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : authInitials}
               </div>
               <div>
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Profil Gamer</div>
