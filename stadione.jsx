@@ -2218,6 +2218,7 @@ function mapAuthUser(user) {
     access: user.access || deriveConsoleAccess(normalizedRoles, permissions),
     memberVerification,
     verifiedMember: Boolean(user?.user_metadata?.verified_member || memberVerification?.verifiedMember),
+    rawMetadata: user?.user_metadata || {},
   };
 }
 
@@ -4554,42 +4555,186 @@ const VERIFIED_MEMBER_REQUIRED_PAGES = new Set([
   'match-statistics',
 ]);
 
+const SPORT_OPTIONS = ['Sepakbola','Futsal','Badminton','Basket','Voli','Renang','Padel','Tennis','Tenis Meja','Bulu Tangkis','Rugby','Atletik','Panahan','Tinju','Pencak Silat','Karate','Taekwondo','Esports','Lainnya'];
+const LEVEL_OPTIONS = ['Pemula','Amatir','Semi-Pro','Profesional'];
+const POSITION_FOOTBALL = ['Penjaga Gawang','Bek Kanan','Bek Kiri','Bek Tengah','Gelandang Bertahan','Gelandang','Gelandang Serang','Sayap Kanan','Sayap Kiri','Penyerang'];
+const DOMINANT_FOOT = ['Kanan','Kiri','Keduanya'];
+const DOMINANT_HAND = ['Kanan','Kiri','Keduanya'];
+const BLOOD_TYPES = ['A','B','AB','O','A+','A-','B+','B-','AB+','AB-','O+','O-'];
+const INDONESIA_PROVINCES_SHORT = ['Aceh','Sumatera Utara','Sumatera Barat','Riau','Jambi','Sumatera Selatan','Bengkulu','Lampung','Kepulauan Bangka Belitung','Kepulauan Riau','DKI Jakarta','Jawa Barat','Jawa Tengah','DI Yogyakarta','Jawa Timur','Banten','Bali','Nusa Tenggara Barat','Nusa Tenggara Timur','Kalimantan Barat','Kalimantan Tengah','Kalimantan Selatan','Kalimantan Timur','Kalimantan Utara','Sulawesi Utara','Sulawesi Tengah','Sulawesi Selatan','Sulawesi Tenggara','Gorontalo','Sulawesi Barat','Maluku','Maluku Utara','Papua Barat','Papua','Papua Selatan','Papua Tengah','Papua Pegunungan'];
+
+const calcProfileCompletion = (auth, ep) => {
+  if (!auth || !ep) return { pct: 0, earned: [], missing: [] };
+  const checks = [
+    { key: 'name', label: 'Nama lengkap', done: !!(ep.firstName?.trim() || auth.name?.trim()) },
+    { key: 'phone', label: 'Nomor HP', done: !!(ep.phone?.trim()) },
+    { key: 'gender', label: 'Jenis kelamin', done: !!(ep.gender) },
+    { key: 'birthdate', label: 'Tanggal lahir', done: !!(ep.birthDate?.trim()) },
+    { key: 'province', label: 'Provinsi', done: !!(ep.province?.trim()) },
+    { key: 'city', label: 'Kota', done: !!(ep.city?.trim()) },
+    { key: 'photo', label: 'Foto profil', done: !!(ep.photoUrl?.trim()) },
+    { key: 'sport', label: 'Olahraga utama', done: !!(ep.mainSport?.trim()) },
+    { key: 'level', label: 'Level bermain', done: !!(ep.playLevel?.trim()) },
+    { key: 'bio', label: 'Bio singkat', done: !!(ep.bio?.trim()) },
+  ];
+  const done = checks.filter(c => c.done);
+  return { pct: Math.round((done.length / checks.length) * 100), earned: done.map(c => c.key), missing: checks.filter(c => !c.done).map(c => c.label) };
+};
+
 const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack, onNav, onAuthChange }) => {
   const memberVerification = auth?.memberVerification || null;
   const [showAllActions, setShowAllActions] = useState(false);
+  const [editTab, setEditTab] = useState('basic');
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [editName, setEditName] = useState(auth?.name || '');
-  const [editCurrentPassword, setEditCurrentPassword] = useState('');
-  const [editNewPassword, setEditNewPassword] = useState('');
-  const [editConfirmPassword, setEditConfirmPassword] = useState('');
+
+  // Extended profile state (4 levels)
+  const rawMeta = auth?.rawMetadata || {};
+  const [ep, setEp] = useState(() => ({
+    // Level 1 – Basic
+    firstName: rawMeta.first_name || (auth?.name?.split(' ')[0]) || '',
+    lastName: rawMeta.last_name || (auth?.name?.split(' ').slice(1).join(' ')) || '',
+    nickname: rawMeta.nickname || '',
+    phone: rawMeta.phone || memberVerification?.phone || '',
+    photoUrl: rawMeta.photo_url || '',
+    gender: rawMeta.gender || '',
+    birthPlace: rawMeta.birth_place || '',
+    birthDate: rawMeta.birth_date || '',
+    province: rawMeta.province || memberVerification?.province || '',
+    city: rawMeta.city || memberVerification?.city || '',
+    // Level 2 – Sports
+    mainSport: rawMeta.main_sport || '',
+    mainPosition: rawMeta.main_position || '',
+    secondPosition: rawMeta.second_position || '',
+    height: rawMeta.height || '',
+    weight: rawMeta.weight || '',
+    dominantFoot: rawMeta.dominant_foot || '',
+    dominantHand: rawMeta.dominant_hand || '',
+    jerseyNumber: rawMeta.jersey_number || '',
+    jerseyName: rawMeta.jersey_name || '',
+    playLevel: rawMeta.play_level || '',
+    // Level 3 – Social
+    instagram: rawMeta.instagram || '',
+    tiktok: rawMeta.tiktok || '',
+    youtube: rawMeta.youtube || '',
+    bio: rawMeta.bio || '',
+    favoriteClub: rawMeta.favorite_club || '',
+    favoriteAthlete: rawMeta.favorite_athlete || '',
+    // Level 4 – Safety
+    emergencyContactName: rawMeta.emergency_contact_name || '',
+    emergencyContactRel: rawMeta.emergency_contact_rel || '',
+    emergencyContactPhone: rawMeta.emergency_contact_phone || '',
+    bloodType: rawMeta.blood_type || '',
+    injuryHistory: rawMeta.injury_history || '',
+    allergies: rawMeta.allergies || '',
+    // Password
+    newPassword: '',
+    confirmPassword: '',
+  }));
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
   const [editSuccess, setEditSuccess] = useState('');
+
+  const completion = calcProfileCompletion(auth, ep);
+
+  const updateEp = (key, value) => setEp(prev => ({ ...prev, [key]: value }));
 
   const saveEditProfile = async (e) => {
     e.preventDefault();
     setEditError('');
     setEditSuccess('');
-    const trimmedName = editName.trim();
-    if (!trimmedName) { setEditError('Nama tidak boleh kosong.'); return; }
-    if (editNewPassword && editNewPassword.length < 8) { setEditError('Password baru minimal 8 karakter.'); return; }
-    if (editNewPassword && editNewPassword !== editConfirmPassword) { setEditError('Konfirmasi password tidak cocok.'); return; }
+    const firstName = ep.firstName.trim();
+    const lastName = ep.lastName.trim();
+    const fullName = [firstName, lastName].filter(Boolean).join(' ') || auth?.name || '';
+    if (!fullName) { setEditError('Nama depan tidak boleh kosong.'); return; }
+    if (ep.newPassword && ep.newPassword.length < 8) { setEditError('Password baru minimal 8 karakter.'); return; }
+    if (ep.newPassword && ep.newPassword !== ep.confirmPassword) { setEditError('Konfirmasi password tidak cocok.'); return; }
     setEditSaving(true);
     try {
-      const updatePayload = { data: { ...(auth?.rawMetadata || {}), name: trimmedName } };
-      if (editNewPassword) updatePayload.password = editNewPassword;
+      const { data: currentUserData } = await supabase.auth.getUser();
+      const currentMeta = currentUserData?.user?.user_metadata || {};
+      const updatePayload = {
+        data: {
+          ...currentMeta,
+          name: fullName,
+          first_name: firstName,
+          last_name: lastName,
+          nickname: ep.nickname.trim(),
+          phone: ep.phone.trim(),
+          photo_url: ep.photoUrl.trim(),
+          gender: ep.gender,
+          birth_place: ep.birthPlace.trim(),
+          birth_date: ep.birthDate,
+          province: ep.province,
+          city: ep.city.trim(),
+          main_sport: ep.mainSport,
+          main_position: ep.mainPosition,
+          second_position: ep.secondPosition,
+          height: ep.height,
+          weight: ep.weight,
+          dominant_foot: ep.dominantFoot,
+          dominant_hand: ep.dominantHand,
+          jersey_number: ep.jerseyNumber,
+          jersey_name: ep.jerseyName.trim(),
+          play_level: ep.playLevel,
+          instagram: ep.instagram.trim(),
+          tiktok: ep.tiktok.trim(),
+          youtube: ep.youtube.trim(),
+          bio: ep.bio.trim(),
+          favorite_club: ep.favoriteClub.trim(),
+          favorite_athlete: ep.favoriteAthlete.trim(),
+          emergency_contact_name: ep.emergencyContactName.trim(),
+          emergency_contact_rel: ep.emergencyContactRel.trim(),
+          emergency_contact_phone: ep.emergencyContactPhone.trim(),
+          blood_type: ep.bloodType,
+          injury_history: ep.injuryHistory.trim(),
+          allergies: ep.allergies.trim(),
+        },
+      };
+      if (ep.newPassword) updatePayload.password = ep.newPassword;
       const { data: updatedData, error: updateError } = await supabase.auth.updateUser(updatePayload);
       if (updateError) throw updateError;
       const refreshed = await enrichAuthUser(updatedData?.user);
       if (refreshed && typeof onAuthChange === 'function') onAuthChange(refreshed);
+      // Award points for completion milestones
+      const newCompletion = calcProfileCompletion(refreshed, ep);
+      if (newCompletion.pct >= 100 && completion.pct < 100) {
+        try { await supabase.rpc('add_user_points', { p_user_id: auth.id, p_points: 50, p_reason: 'complete_basic_profile' }); } catch (_) {}
+      }
+      if (ep.photoUrl.trim() && !rawMeta.photo_url) {
+        try { await supabase.rpc('add_user_points', { p_user_id: auth.id, p_points: 20, p_reason: 'upload_profile_photo' }); } catch (_) {}
+      }
+      if (ep.mainSport && !rawMeta.main_sport) {
+        try { await supabase.rpc('add_user_points', { p_user_id: auth.id, p_points: 30, p_reason: 'complete_sports_profile' }); } catch (_) {}
+      }
       setEditSuccess('Profil berhasil diperbarui.');
-      setEditCurrentPassword('');
-      setEditNewPassword('');
-      setEditConfirmPassword('');
+      updateEp('newPassword', '');
+      updateEp('confirmPassword', '');
     } catch (err) {
       setEditError(err?.message || 'Gagal menyimpan perubahan.');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  // Photo upload
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const uploadProfilePhoto = async (file) => {
+    if (!file || !auth?.id) return;
+    if (!String(file.type).startsWith('image/')) { setEditError('File harus berupa gambar.'); return; }
+    if (file.size > 3 * 1024 * 1024) { setEditError('Ukuran foto maksimal 3MB.'); return; }
+    setUploadingPhoto(true);
+    setEditError('');
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `${auth.id}/avatar-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('profile-photos').upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data: pub } = supabase.storage.from('profile-photos').getPublicUrl(path);
+      if (pub?.publicUrl) updateEp('photoUrl', pub.publicUrl);
+    } catch (err) {
+      setEditError('Upload foto gagal: ' + (err?.message || 'Error tidak diketahui'));
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -4886,13 +5031,14 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                 <div className="font-display text-3xl text-neutral-900">{auth?.name || 'Pengguna'}</div>
                 <div className="text-sm text-neutral-500">{auth?.email || 'Belum login'}</div>
                 <div className="mt-2">
-                  {auth?.verifiedMember ? (
+                  {auth?.verifiedMember && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                       <ShieldCheck size={12} /> Verified Member
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                      <Clock size={12} /> Belum Verified
+                  )}
+                  {!auth?.verifiedMember && completion.pct < 100 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-600 border border-sky-200 cursor-pointer" onClick={() => { setShowEditProfile(true); setEditTab('basic'); setEditError(''); setEditSuccess(''); }}>
+                      <Edit3 size={11} /> Lengkapi Profil ({completion.pct}%)
                     </span>
                   )}
                 </div>
@@ -4908,7 +5054,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
               </div>
               </div>
               <button
-                onClick={() => { setShowEditProfile(true); setEditName(auth?.name || ''); setEditError(''); setEditSuccess(''); }}
+                onClick={() => { setShowEditProfile(true); setEditTab('basic'); setEditError(''); setEditSuccess(''); }}
                 className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-900 flex items-center gap-1.5"
               >
                 <Edit3 size={12} /> Edit
@@ -4923,6 +5069,24 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Koin</div>
                 <div className="text-4xl font-bold text-neutral-900">{stats?.coins ?? 0}</div>
               </div>
+            </div>
+            {/* Profile Completion Bar */}
+            <div className="mt-4 rounded-2xl bg-white border border-neutral-200 p-5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-widest text-neutral-500">Kelengkapan Profil</div>
+                <div className="text-sm font-bold text-neutral-900">{completion.pct}%</div>
+              </div>
+              <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden mb-2">
+                <div className="h-full rounded-full transition-all" style={{ width: `${completion.pct}%`, background: completion.pct >= 100 ? '#10b981' : completion.pct >= 60 ? '#f59e0b' : '#E11D2E' }} />
+              </div>
+              {completion.pct < 100 ? (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-neutral-500">Belum lengkap: {completion.missing.slice(0, 3).join(', ')}{completion.missing.length > 3 ? ` +${completion.missing.length - 3} lagi` : ''}</p>
+                  <button onClick={() => { setShowEditProfile(true); setEditTab('basic'); setEditError(''); setEditSuccess(''); }} className="text-xs font-bold text-[#E11D2E] hover:underline">Lengkapi →</button>
+                </div>
+              ) : (
+                <p className="text-xs text-emerald-600 font-bold">Profil lengkap! Semua poin terbuka.</p>
+              )}
             </div>
           </div>
 
@@ -5328,6 +5492,362 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           )}
         </div>
       </div>
+
+      {/* ===== EDIT PROFILE MODAL ===== */}
+      {showEditProfile && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-6 px-4">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-8 pt-8 pb-6 border-b border-neutral-100">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Akun</div>
+                <h2 className="font-display text-2xl text-neutral-900">Edit Profil</h2>
+              </div>
+              <button onClick={() => setShowEditProfile(false)} className="w-9 h-9 rounded-full border border-neutral-200 flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:border-neutral-900 transition">✕</button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 px-8 pt-5 overflow-x-auto">
+              {[
+                { key: 'basic', label: 'Dasar' },
+                { key: 'sports', label: 'Olahraga' },
+                { key: 'social', label: 'Sosial' },
+                { key: 'safety', label: 'Keselamatan' },
+                { key: 'account', label: 'Akun' },
+              ].map(tab => (
+                <button key={tab.key} onClick={() => setEditTab(tab.key)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition ${editTab === tab.key ? 'bg-neutral-900 text-white' : 'border border-neutral-200 text-neutral-600 hover:border-neutral-900'}`}
+                >{tab.label}</button>
+              ))}
+            </div>
+
+            {/* Profile Completion inside modal */}
+            <div className="px-8 pt-4">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${completion.pct}%`, background: completion.pct >= 100 ? '#10b981' : '#E11D2E' }} />
+                </div>
+                <span className="text-xs font-bold text-neutral-500">{completion.pct}% lengkap</span>
+              </div>
+            </div>
+
+            <form onSubmit={saveEditProfile} className="px-8 pt-6 pb-8 space-y-5">
+
+              {/* === TAB: BASIC === */}
+              {editTab === 'basic' && (
+                <div className="space-y-5">
+                  {/* Photo */}
+                  <div className="flex items-center gap-5">
+                    <div className="w-20 h-20 rounded-full shrink-0 overflow-hidden border-2 border-neutral-200 bg-neutral-100 flex items-center justify-center">
+                      {ep.photoUrl ? (
+                        <img src={ep.photoUrl} alt="avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="font-display text-2xl text-neutral-400">{auth?.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
+                      )}
+                    </div>
+                    <div>
+                      <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold border border-neutral-300 cursor-pointer hover:border-neutral-900 transition ${uploadingPhoto ? 'opacity-60 cursor-wait' : ''}`}>
+                        <Upload size={12} /> {uploadingPhoto ? 'Mengupload...' : 'Upload Foto'}
+                        <input type="file" accept="image/*" className="hidden" disabled={uploadingPhoto}
+                          onChange={e => e.target.files?.[0] && uploadProfilePhoto(e.target.files[0])} />
+                      </label>
+                      <p className="text-xs text-neutral-400 mt-1">JPG/PNG/WebP · maks. 3MB</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nama Depan <span className="text-red-500">*</span></label>
+                      <input type="text" value={ep.firstName} onChange={e => updateEp('firstName', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama depan" maxLength={50} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nama Belakang</label>
+                      <input type="text" value={ep.lastName} onChange={e => updateEp('lastName', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama belakang" maxLength={50} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nama Panggilan</label>
+                    <input type="text" value={ep.nickname} onChange={e => updateEp('nickname', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama yang biasa disapa" maxLength={30} />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nomor HP <span className="text-red-500">*</span></label>
+                    <input type="tel" value={ep.phone} onChange={e => updateEp('phone', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="08xx atau +62xx" maxLength={16} />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Jenis Kelamin <span className="text-red-500">*</span></label>
+                    <div className="flex gap-3">
+                      {['Laki-laki','Perempuan'].map(g => (
+                        <button key={g} type="button" onClick={() => updateEp('gender', g)}
+                          className={`px-5 py-2.5 rounded-full text-sm font-bold border-2 transition ${ep.gender === g ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-300 text-neutral-700 hover:border-neutral-900'}`}>
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tempat Lahir <span className="text-red-500">*</span></label>
+                      <input type="text" value={ep.birthPlace} onChange={e => updateEp('birthPlace', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Kota kelahiran" maxLength={60} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tanggal Lahir <span className="text-red-500">*</span></label>
+                      <input type="date" value={ep.birthDate} onChange={e => updateEp('birthDate', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white" max={new Date().toISOString().split('T')[0]} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Provinsi <span className="text-red-500">*</span></label>
+                      <select value={ep.province} onChange={e => updateEp('province', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                        <option value="">— Pilih Provinsi —</option>
+                        {INDONESIA_PROVINCES_SHORT.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kota/Kabupaten <span className="text-red-500">*</span></label>
+                      <input type="text" value={ep.city} onChange={e => updateEp('city', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama kota" maxLength={60} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* === TAB: SPORTS === */}
+              {editTab === 'sports' && (
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Olahraga Utama <span className="text-red-500">*</span></label>
+                    <select value={ep.mainSport} onChange={e => updateEp('mainSport', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                      <option value="">— Pilih Olahraga —</option>
+                      {SPORT_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Utama</label>
+                      <input type="text" value={ep.mainPosition} onChange={e => updateEp('mainPosition', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Penyerang" maxLength={40} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Posisi Kedua</label>
+                      <input type="text" value={ep.secondPosition} onChange={e => updateEp('secondPosition', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Gelandang" maxLength={40} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tinggi Badan (cm)</label>
+                      <input type="number" value={ep.height} onChange={e => updateEp('height', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. 175" min={100} max={250} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Berat Badan (kg)</label>
+                      <input type="number" value={ep.weight} onChange={e => updateEp('weight', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. 65" min={30} max={200} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Kaki Dominan</label>
+                      <select value={ep.dominantFoot} onChange={e => updateEp('dominantFoot', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                        <option value="">— Pilih —</option>
+                        {DOMINANT_FOOT.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Tangan Dominan</label>
+                      <select value={ep.dominantHand} onChange={e => updateEp('dominantHand', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white">
+                        <option value="">— Pilih —</option>
+                        {DOMINANT_HAND.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nomor Punggung Favorit</label>
+                      <input type="number" value={ep.jerseyNumber} onChange={e => updateEp('jerseyNumber', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="1-99" min={1} max={99} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Jersey Name</label>
+                      <input type="text" value={ep.jerseyName} onChange={e => updateEp('jerseyName', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama di jersey" maxLength={20} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Level Bermain</label>
+                    <div className="flex flex-wrap gap-2">
+                      {LEVEL_OPTIONS.map(l => (
+                        <button key={l} type="button" onClick={() => updateEp('playLevel', l)}
+                          className={`px-4 py-2 rounded-full text-sm font-bold border-2 transition ${ep.playLevel === l ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-300 text-neutral-700 hover:border-neutral-900'}`}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* === TAB: SOCIAL === */}
+              {editTab === 'social' && (
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Bio Singkat</label>
+                    <textarea value={ep.bio} onChange={e => updateEp('bio', e.target.value)} rows={3}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm resize-none"
+                      placeholder="Ceritakan sedikit tentang dirimu sebagai atlet..." maxLength={200} />
+                    <p className="text-xs text-neutral-400 mt-1">{ep.bio.length}/200 karakter</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Instagram</label>
+                    <div className="flex items-center border border-neutral-300 rounded-xl overflow-hidden focus-within:border-neutral-900">
+                      <span className="px-3 text-sm text-neutral-400 border-r border-neutral-300 py-3 bg-neutral-50">@</span>
+                      <input type="text" value={ep.instagram} onChange={e => updateEp('instagram', e.target.value)}
+                        className="flex-1 px-3 py-3 outline-none text-sm" placeholder="username_instagram" maxLength={60} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">TikTok</label>
+                    <div className="flex items-center border border-neutral-300 rounded-xl overflow-hidden focus-within:border-neutral-900">
+                      <span className="px-3 text-sm text-neutral-400 border-r border-neutral-300 py-3 bg-neutral-50">@</span>
+                      <input type="text" value={ep.tiktok} onChange={e => updateEp('tiktok', e.target.value)}
+                        className="flex-1 px-3 py-3 outline-none text-sm" placeholder="username_tiktok" maxLength={60} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">YouTube Channel</label>
+                    <input type="url" value={ep.youtube} onChange={e => updateEp('youtube', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="https://youtube.com/@channel" maxLength={120} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Klub Favorit</label>
+                      <input type="text" value={ep.favoriteClub} onChange={e => updateEp('favoriteClub', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Persija" maxLength={60} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Atlet Favorit</label>
+                      <input type="text" value={ep.favoriteAthlete} onChange={e => updateEp('favoriteAthlete', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Cristiano Ronaldo" maxLength={60} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* === TAB: SAFETY === */}
+              {editTab === 'safety' && (
+                <div className="space-y-5">
+                  <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4">
+                    <p className="text-xs text-amber-700">Data ini bersifat pribadi dan hanya digunakan untuk keperluan kedaruratan serta verifikasi turnamen resmi.</p>
+                  </div>
+                  <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 pb-1 border-b border-neutral-100">Kontak Darurat</div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nama Kontak</label>
+                    <input type="text" value={ep.emergencyContactName} onChange={e => updateEp('emergencyContactName', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="Nama orang yang dihubungi" maxLength={80} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Hubungan</label>
+                      <input type="text" value={ep.emergencyContactRel} onChange={e => updateEp('emergencyContactRel', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="cth. Orang Tua" maxLength={40} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Nomor HP</label>
+                      <input type="tel" value={ep.emergencyContactPhone} onChange={e => updateEp('emergencyContactPhone', e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm" placeholder="08xx" maxLength={16} />
+                    </div>
+                  </div>
+                  <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 pb-1 border-b border-neutral-100 mt-2">Informasi Medis</div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Golongan Darah</label>
+                    <div className="flex flex-wrap gap-2">
+                      {BLOOD_TYPES.map(b => (
+                        <button key={b} type="button" onClick={() => updateEp('bloodType', b)}
+                          className={`px-3.5 py-2 rounded-full text-xs font-bold border-2 transition ${ep.bloodType === b ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-300 text-neutral-700 hover:border-neutral-900'}`}>
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Riwayat Cedera</label>
+                    <textarea value={ep.injuryHistory} onChange={e => updateEp('injuryHistory', e.target.value)} rows={2}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm resize-none"
+                      placeholder="cth. Pernah cedera lutut kiri (2022)" maxLength={300} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Alergi</label>
+                    <textarea value={ep.allergies} onChange={e => updateEp('allergies', e.target.value)} rows={2}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm resize-none"
+                      placeholder="cth. Alergi obat penisilin" maxLength={200} />
+                  </div>
+                </div>
+              )}
+
+              {/* === TAB: ACCOUNT === */}
+              {editTab === 'account' && (
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Email</label>
+                    <input type="email" value={auth?.email || ''} readOnly
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-neutral-50 text-sm text-neutral-500 cursor-not-allowed" />
+                    <p className="text-xs text-neutral-400 mt-1">Email tidak dapat diubah langsung di sini.</p>
+                  </div>
+                  <div className="border-t border-neutral-100 pt-4">
+                    <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-3">Ganti Password</div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Password Baru</label>
+                        <input type="password" value={ep.newPassword} onChange={e => updateEp('newPassword', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                          placeholder="Min. 8 karakter" autoComplete="new-password" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1.5">Konfirmasi Password Baru</label>
+                        <input type="password" value={ep.confirmPassword} onChange={e => updateEp('confirmPassword', e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                          placeholder="Ulangi password baru" autoComplete="new-password" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Errors & Success */}
+              {editError && <div className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-xl border border-red-200">{editError}</div>}
+              {editSuccess && <div className="text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-200">{editSuccess}</div>}
+
+              {/* Footer actions */}
+              <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
+                <button type="button" onClick={() => setShowEditProfile(false)}
+                  className="px-5 py-2.5 rounded-full text-sm font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-900 transition">
+                  Batal
+                </button>
+                <button type="submit" disabled={editSaving}
+                  className="px-8 py-2.5 rounded-full text-sm font-bold text-white disabled:opacity-60 flex items-center gap-2 transition"
+                  style={{ background: '#E11D2E' }}>
+                  {editSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
