@@ -7,7 +7,7 @@ import {
   Wifi, Car, Coffee, Volleyball, Gamepad2, Activity,
   Circle, Sparkles, ChevronDown, MoveRight,
   LogOut, User, MessageSquare, Wallet, BarChart3,
-  Edit3, ArrowLeft, MessageCircle, ChevronLeft, Settings,
+  Edit3, ArrowLeft, MessageCircle, ChevronLeft, Settings, ShoppingCart,
   Twitter, Facebook, Linkedin, Share2, Bookmark, Check, Heart, Upload
 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -380,7 +380,7 @@ const AccessDeniedPage = ({ title = 'Akses tidak tersedia', description = 'Halam
 );
 
 // ============ HEADER ============
-const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchContext, gamificationStats, statsLoading, communityNotifications = [], communityUnreadById = {}, onOpenCommunityNotification }) => {
+const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onCart, onSwitchContext, gamificationStats, statsLoading, communityNotifications = [], communityUnreadById = {}, onOpenCommunityNotification, cartCount = 0 }) => {
   const [open, setOpen] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const [notificationMenu, setNotificationMenu] = useState(false);
@@ -391,7 +391,6 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
     { id: 'news', label: 'Berita' },
     { id: 'training', label: 'Pelatihan' },
   ];
-  const totalUnread = CHATS.reduce((s, c) => s + (c.unread || 0), 0);
   const totalCommunityUnread = Object.values(communityUnreadById || {}).reduce((sum, count) => sum + Number(count || 0), 0);
   const activeScope = auth?.activeContext?.context_scope;
   const contextAccess = {
@@ -461,14 +460,14 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
                 )}
               </button>
               <button
-                onClick={onChat}
+                onClick={onCart}
                 className="relative p-2.5 hover:bg-neutral-200 rounded-full"
-                title="Pesan"
+                title="Keranjang"
               >
-                <MessageCircle size={18} />
-                {totalUnread > 0 && (
+                <ShoppingCart size={18} />
+                {cartCount > 0 && (
                   <span className="absolute top-1 right-1 w-4 h-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: '#E11D2E' }}>
-                    {totalUnread}
+                    {Math.min(cartCount, 99)}
                   </span>
                 )}
               </button>
@@ -549,9 +548,9 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
                       <button onClick={() => { onNav('profile'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                         <User size={14} /> Profil Saya
                       </button>
-                      <button onClick={() => { onChat(); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3 justify-between">
-                        <span className="flex items-center gap-3"><MessageCircle size={14} /> Pesan</span>
-                        {totalUnread > 0 && <span className="text-[10px] font-bold text-white px-1.5 rounded-full" style={{ background: '#E11D2E', minWidth: 18, height: 18, lineHeight: '18px' }}>{totalUnread}</span>}
+                      <button onClick={() => { onNav('cart'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3 justify-between">
+                        <span className="flex items-center gap-3"><ShoppingCart size={14} /> Keranjang</span>
+                        {cartCount > 0 && <span className="text-[10px] font-bold text-white px-1.5 rounded-full" style={{ background: '#E11D2E', minWidth: 18, height: 18, lineHeight: '18px' }}>{Math.min(cartCount, 99)}</span>}
                       </button>
                       <button onClick={() => { setNotificationMenu(true); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3 justify-between">
                         <span className="flex items-center gap-3"><Bell size={14} /> Notifikasi</span>
@@ -599,10 +598,10 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
           {auth && (
             <>
               <button
-                onClick={() => { onChat(); setOpen(false); }}
+                onClick={() => { onNav('cart'); setOpen(false); }}
                 className="block w-full text-left px-5 py-3.5 text-sm font-semibold border-b border-neutral-200"
               >
-                Pesan {totalUnread > 0 && <span className="ml-2 text-xs font-bold text-white px-2 py-0.5 rounded-full" style={{ background: '#E11D2E' }}>{totalUnread}</span>}
+                Keranjang {cartCount > 0 && <span className="ml-2 text-xs font-bold text-white px-2 py-0.5 rounded-full" style={{ background: '#E11D2E' }}>{Math.min(cartCount, 99)}</span>}
               </button>
               <button
                 onClick={() => { onNav('coach-dashboard'); setOpen(false); }}
@@ -5272,6 +5271,149 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
 };
 
 // ============ PAYMENT ============
+const CartPage = ({ auth, cartItems, transactionHistory, onCheckoutItem, onRemoveItem, onBack }) => {
+  const [activeTab, setActiveTab] = useState('cart');
+
+  const totalCartAmount = useMemo(() => {
+    return (cartItems || []).reduce((sum, item) => sum + Number(item?.payload?.amount || 0), 0);
+  }, [cartItems]);
+
+  return (
+    <div className="bg-[#F4F4F4] min-h-[70vh] py-8 lg:py-12 px-5 lg:px-8">
+      <div className="max-w-5xl mx-auto">
+        <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold mb-5 text-neutral-700 hover:text-neutral-900">
+          <ArrowLeft size={16} /> Kembali
+        </button>
+
+        <div className="rounded-3xl border border-neutral-200 bg-white p-6 lg:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Akun Belanja</div>
+              <h1 className="font-display text-3xl text-neutral-900">Keranjang & Riwayat Transaksi</h1>
+              <p className="mt-2 text-sm text-neutral-500">Kelola checkout aktif Anda dan pantau transaksi yang sudah tercatat.</p>
+            </div>
+            {auth && (
+              <div className="text-right">
+                <div className="text-xs text-neutral-500">User</div>
+                <div className="text-sm font-bold text-neutral-900">{auth.name}</div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 mb-6 p-1 rounded-2xl border border-neutral-200 bg-neutral-50 w-fit">
+            <button
+              onClick={() => setActiveTab('cart')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'cart' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:text-neutral-900'}`}
+            >
+              Keranjang ({cartItems.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'history' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:text-neutral-900'}`}
+            >
+              Riwayat Transaksi ({transactionHistory.length})
+            </button>
+          </div>
+
+          {activeTab === 'cart' ? (
+            <div>
+              {cartItems.length > 0 ? (
+                <>
+                  <div className="space-y-3">
+                    {cartItems.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="text-xs uppercase tracking-[0.18em] text-neutral-500 mb-1">{item.payload?.type === 'booking' ? 'Booking Lapangan' : 'Pelatihan'}</div>
+                            <div className="font-bold text-neutral-900 text-lg leading-tight">{item.payload?.itemName || 'Checkout'}</div>
+                            <div className="text-sm text-neutral-500 mt-1">{item.payload?.itemSub || '-'}</div>
+                            <div className="text-xs text-neutral-400 mt-2">Ditambahkan {new Date(item.createdAt).toLocaleString('id-ID')}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs text-neutral-500">Estimasi bayar</div>
+                            <div className="font-bold text-lg text-neutral-900">{formatRupiah(Number(item.payload?.amount || 0))}</div>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => onCheckoutItem(item)}
+                            className="px-4 py-2 rounded-full text-sm font-bold text-white"
+                            style={{ background: '#E11D2E' }}
+                          >
+                            Checkout Sekarang
+                          </button>
+                          <button
+                            onClick={() => onRemoveItem(item.id)}
+                            className="px-4 py-2 rounded-full text-sm font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-500"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-neutral-200 bg-white p-4 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-widest text-neutral-500">Total Keranjang</div>
+                      <div className="text-sm text-neutral-500">Belum termasuk biaya layanan di halaman pembayaran.</div>
+                    </div>
+                    <div className="font-display text-2xl text-neutral-900">{formatRupiah(totalCartAmount)}</div>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
+                  <ShoppingCart size={24} className="mx-auto mb-3 text-neutral-400" />
+                  <div className="font-bold text-neutral-800 mb-1">Keranjang masih kosong</div>
+                  <div className="text-sm text-neutral-500">Mulai booking lapangan atau program pelatihan, lalu item checkout akan muncul di sini.</div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              {transactionHistory.length > 0 ? (
+                <div className="space-y-3">
+                  {transactionHistory.map((activity, index) => {
+                    const metadata = activity?.activity_metadata || {};
+                    const totalPaid = Number(metadata.totalPaid || metadata.amount || metadata.transactionAmount || 0);
+                    const paymentMethod = metadata.paymentMethod || metadata.method || '-';
+                    const dateValue = activity.activity_date || activity.created_at;
+
+                    return (
+                      <div key={activity.id || `${activity.activity_type}-${index}`} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="text-xs uppercase tracking-[0.18em] text-neutral-500 mb-1">Transaksi</div>
+                            <div className="font-bold text-neutral-900">{activity.activity_title || 'Transaksi'}</div>
+                            <div className="text-sm text-neutral-500 mt-1">{activity.activity_description || 'Riwayat transaksi checkout pengguna'}</div>
+                            <div className="text-xs text-neutral-400 mt-2">{new Date(dateValue || Date.now()).toLocaleString('id-ID')}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs text-neutral-500">Metode</div>
+                            <div className="text-sm font-bold text-neutral-700">{String(paymentMethod).replace(/_/g, ' ')}</div>
+                            <div className="text-xs text-neutral-500 mt-2">Total</div>
+                            <div className="font-bold text-neutral-900">{totalPaid > 0 ? formatRupiah(totalPaid) : '-'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
+                  <Wallet size={24} className="mx-auto mb-3 text-neutral-400" />
+                  <div className="font-bold text-neutral-800 mb-1">Belum ada riwayat transaksi</div>
+                  <div className="text-sm text-neutral-500">Setelah checkout berhasil, riwayat transaksi akan tampil otomatis di sini.</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PaymentPage = ({ payload, onBack, onSuccess }) => {
   const [promoCode, setPromoCode] = useState('');
   const [promoDiscount, setPromoDiscount] = useState(0);
@@ -6185,6 +6327,7 @@ export default function Stadione() {
   const [returnTo, setReturnTo] = useState(null);
   const [communityNotifications, setCommunityNotifications] = useState([]);
   const [communityUnreadById, setCommunityUnreadById] = useState({});
+  const [cartItems, setCartItems] = useState([]);
 
   // Auth state
   const [auth, setAuth] = useState(null);
@@ -6209,6 +6352,7 @@ export default function Stadione() {
   }, []);
   const communityNotificationStorageKey = useMemo(() => `stadione_community_notifications_${auth?.id || 'guest'}`, [auth?.id]);
   const communityUnreadStorageKey = useMemo(() => `stadione_community_unread_${auth?.id || 'guest'}`, [auth?.id]);
+  const cartStorageKey = useMemo(() => `stadione_checkout_cart_${auth?.id || 'guest'}`, [auth?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -6228,12 +6372,34 @@ export default function Stadione() {
     if (typeof window === 'undefined') return;
 
     try {
+      const rawCart = window.localStorage.getItem(cartStorageKey);
+      const parsed = rawCart ? JSON.parse(rawCart) : [];
+      setCartItems(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setCartItems([]);
+    }
+  }, [cartStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
       window.localStorage.setItem(communityNotificationStorageKey, JSON.stringify(communityNotifications.slice(0, 20)));
       window.localStorage.setItem(communityUnreadStorageKey, JSON.stringify(communityUnreadById || {}));
     } catch {
       // ignore localStorage failures
     }
   }, [communityNotificationStorageKey, communityNotifications, communityUnreadById, communityUnreadStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      window.localStorage.setItem(cartStorageKey, JSON.stringify(cartItems.slice(0, 30)));
+    } catch {
+      // ignore localStorage failures
+    }
+  }, [cartItems, cartStorageKey]);
 
   const handleCommunityNotification = useCallback((notification) => {
     if (!notification?.id) return;
@@ -6420,6 +6586,16 @@ export default function Stadione() {
   const { activities, loading: activitiesLoading, refetch: refetchActivities } = useActivityHistory(auth?.id, 20);
   const { currentTier, nextTier, progressPercentage, pointsToNextTier } = useTierProgression(gamificationStats?.points || 0);
   const access = auth?.access || deriveConsoleAccess([], []);
+  const transactionHistory = useMemo(() => {
+    return (activities || [])
+      .filter((item) => {
+        const type = String(item?.activity_type || '').toLowerCase();
+        const metadata = item?.activity_metadata || {};
+        const amount = Number(metadata.totalPaid || metadata.amount || metadata.transactionAmount || 0);
+        return type === 'venue_booking' || type === 'transaction' || amount > 0;
+      })
+      .sort((a, b) => new Date(b.activity_date || b.created_at || 0).getTime() - new Date(a.activity_date || a.created_at || 0).getTime());
+  }, [activities]);
   
   // Fallback to hardcoded data if Supabase is not available
   const VENUES_DATA = venues.length > 0 ? venues : [];
@@ -6463,6 +6639,29 @@ export default function Stadione() {
     setPage(newPage);
     if (newPage.startsWith('tournament-detail')) setTab(tournamentDetail?.format === 'Knockout' ? 'bagan' : 'klasemen');
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const addItemToCart = (payload) => {
+    if (!payload) return;
+
+    const nextItem = {
+      id: (typeof crypto !== 'undefined' && crypto?.randomUUID)
+        ? crypto.randomUUID()
+        : `cart-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      payload,
+      createdAt: new Date().toISOString(),
+    };
+
+    setCartItems((prev) => [nextItem, ...prev].slice(0, 30));
+    goTo('cart');
+  };
+
+  const handleCheckoutFromCart = (item) => {
+    if (!item?.payload) return;
+    goTo('payment', {
+      ...item.payload,
+      sourceCartItemId: item.id,
+    }, { returnTo: 'cart' });
   };
 
   const openAuth = (mode) => {
@@ -6611,6 +6810,10 @@ export default function Stadione() {
 
   // Payment success → return to home or specified page
   const handlePaymentSuccess = async ({ method, total, voucher } = {}) => {
+    if (paymentPayload?.sourceCartItemId) {
+      setCartItems((prev) => prev.filter((item) => item.id !== paymentPayload.sourceCartItemId));
+    }
+
     if (paymentPayload?.type === 'booking' && auth?.id) {
       const resolvedMethod = method?.name || (voucher?.covered ? 'free_voucher' : undefined);
       const resolvedTotal = Number.isFinite(Number(total)) ? Number(total) : Number(paymentPayload?.amount || 0);
@@ -6636,7 +6839,7 @@ export default function Stadione() {
       }
 
       await refetchActivities?.();
-      goTo('profile');
+      goTo(returnTo || 'profile');
       setPaymentPayload(null);
       setReturnTo(null);
       return;
@@ -6650,7 +6853,7 @@ export default function Stadione() {
   // Booking → payment
   const startBookingPayment = (venue, slot, date) => {
     requireAuthThen(() => {
-      goTo('payment', {
+      addItemToCart({
         type: 'booking',
         amount: venue.price,
         venueId: venue.id,
@@ -6661,19 +6864,19 @@ export default function Stadione() {
         durationHours: 1,
         itemName: venue.name,
         itemSub: `${date} · ${slot} · 1 jam`,
-      }, { returnTo: 'booking' });
+      });
     });
   };
 
   // Coach → payment
   const startCoachPayment = ({ coach, program, time, date }) => {
     requireAuthThen(() => {
-      goTo('payment', {
+      addItemToCart({
         type: 'coaching',
         amount: program?.price || coach.price,
         itemName: program?.name || 'Sesi Privat',
         itemSub: `${coach.name}${time ? ` · ${date} ${time}` : ''}`,
-      }, { returnTo: 'training' });
+      });
     });
   };
 
@@ -6686,13 +6889,14 @@ export default function Stadione() {
         auth={auth}
         onOpenAuth={openAuth}
         onLogout={handleLogout}
-        onChat={() => requireAuthThen(() => goTo('chat'))}
+        onCart={() => requireAuthThen(() => goTo('cart'))}
         onSwitchContext={handleSwitchContext}
         gamificationStats={gamificationStats}
         statsLoading={gamificationLoading}
         communityNotifications={communityNotifications}
         communityUnreadById={communityUnreadById}
         onOpenCommunityNotification={handleOpenCommunityNotification}
+        cartCount={cartItems.length}
       />
       {(!SUPABASE_CONFIGURED || SUPABASE_ERROR) && (
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 bg-amber-100 border border-amber-300 text-amber-900 text-sm rounded-b-3xl">
@@ -6750,6 +6954,16 @@ export default function Stadione() {
         {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} news={NEWS_DATA} />}
         {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} auth={auth} openAuth={openAuth} newsList={NEWS_DATA} />}
         {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} onNav={goTo} onAuthChange={setAuth} />}
+        {page === 'cart' && (
+          <CartPage
+            auth={auth}
+            cartItems={cartItems}
+            transactionHistory={transactionHistory}
+            onCheckoutItem={handleCheckoutFromCart}
+            onRemoveItem={(itemId) => setCartItems((prev) => prev.filter((item) => item.id !== itemId))}
+            onBack={() => goTo('home')}
+          />
+        )}
         {page === 'training' && (
           <Suspense fallback={<div className="p-8 text-center text-neutral-500">Memuat training ecosystem...</div>}>
             <TrainingEcosystem
