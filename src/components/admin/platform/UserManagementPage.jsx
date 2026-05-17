@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { KeyRound, Mail, Plus, RefreshCw, Shield, UserCog, UserPlus, Users } from 'lucide-react';
+import { Ban, KeyRound, Mail, Plus, RefreshCw, Shield, UserCog, UserPlus, UserRoundX, Users } from 'lucide-react';
 import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatCard, inputCls, selectCls } from '../AdminLayout.jsx';
 import { supabase } from '../../../config/supabase.js';
 

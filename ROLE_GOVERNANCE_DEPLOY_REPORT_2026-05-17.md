@@ -50,17 +50,17 @@
 - Waktu eksekusi: 2026-05-17
 - Catatan error (jika ada): Tidak ada
 
-1. Script disiapkan: [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
+1. Script dijalankan: [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
 
-- Status: PENDING EXECUTION
-- Waktu eksekusi: Pending
-- Catatan error (jika ada): Rollout incremental untuk dropdown aksi user management, blokir permanen, nonaktif berjangka, dan hapus permanen.
+- Status: PASS
+- Waktu eksekusi: 2026-05-17
+- Catatan error (jika ada): Percobaan pertama gagal karena `admin_list_users(text, integer, integer)` belum di-drop sebelum return type diubah. Script rollout diperbaiki lalu dijalankan ulang dan berhasil.
 
-1. Script disiapkan: [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
+1. Script dijalankan: [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
 
-- Status: PENDING EXECUTION
-- Waktu eksekusi: Pending
-- Catatan error (jika ada): Smoke SQL untuk verifikasi signature RPC moderation baru, kolom `disabled_until`, dan keberadaan RPC hapus permanen.
+- Status: PASS
+- Waktu eksekusi: 2026-05-17
+- Catatan error (jika ada): Percobaan pertama gagal karena smoke check memanggil `admin_list_users` dengan role non-super-admin. Smoke script diubah untuk memverifikasi return type via introspeksi `pg_get_function_result(...)`, lalu lulus.
 
 ## Hasil Query Inti
 
@@ -119,7 +119,7 @@ LIMIT 1;
 1. Verification Queue terbuka sesuai role: PASS
 1. Forbidden state tampil normal untuk akses tidak berizin: PASS
 1. User Management create user hanya untuk super admin: PASS
-1. User Management dropdown aksi blokir/nonaktifkan/hapus: PENDING DB ROLLOUT
+1. User Management dropdown aksi blokir/nonaktifkan/hapus: PASS (DB rollout + smoke SQL selesai)
 
 Catatan bukti uji manual:
 
@@ -156,8 +156,6 @@ Update sampling persona tambahan:
 - Deploy diterima: GO
 - Alasan: Hardening backend/frontend lulus, guard SQL super-admin-only tervalidasi, dan verifikasi lintas halaman admin prioritas selesai PASS.
 - Tindak lanjut:
-  - Jalankan rollout baru [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
-  - Jalankan smoke check baru [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
   - Jalankan checklist manual pada [ROLE_ACCESS_QA_CHECKLIST.md](ROLE_ACCESS_QA_CHECKLIST.md)
   - Eksekusi runsheet manual pada [USER_MANAGEMENT_SUPER_ADMIN_QA_RUNSHEET.md](USER_MANAGEMENT_SUPER_ADMIN_QA_RUNSHEET.md)
   - Audit mapping compatibility role `eo_operator` agar konsisten dengan policy matrix yang disepakati

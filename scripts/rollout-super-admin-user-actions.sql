@@ -50,6 +50,7 @@ BEGIN
   END IF;
 END $$;
 
+DROP FUNCTION IF EXISTS public.admin_list_users(text, integer, integer);
 DROP FUNCTION IF EXISTS public.admin_set_user_moderation(uuid, boolean, boolean, text);
 
 CREATE OR REPLACE FUNCTION public.admin_list_users(

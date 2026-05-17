@@ -32,7 +32,11 @@ SELECT
     ELSE 'CHECK: permanent delete logic missing'
   END AS delete_rpc_check;
 
--- 5) Spot-check list RPC output columns.
-SELECT *
-FROM public.admin_list_users(NULL, 5, 0)
-LIMIT 1;
+-- 5) Verify list RPC returns the expected moderation columns without invoking auth-gated logic.
+SELECT
+  pg_get_function_result('public.admin_list_users(text,integer,integer)'::regprocedure) AS list_users_return_type,
+  CASE
+    WHEN pg_get_function_result('public.admin_list_users(text,integer,integer)'::regprocedure) LIKE '%disabled_until timestamp with time zone%'
+    THEN 'OK: list RPC return type includes disabled_until'
+    ELSE 'CHECK: list RPC return type missing disabled_until'
+  END AS list_users_signature_check;
