@@ -5,6 +5,7 @@ import {
   Globe, FileText, Zap, Shield, TrendingUp, Heart,
 } from 'lucide-react';
 import { supabase } from '../config/supabase.js';
+import { WNI_REGION_DATA } from '../data/wniRegionData.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 const inputCls = 'w-full px-4 py-3 rounded-xl border border-neutral-200 bg-white text-sm focus:outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 transition placeholder:text-neutral-400';
@@ -119,15 +120,7 @@ const SPORTS_LIST = [
   'Softball / Baseball', 'Senam / Gym', 'E-Sports', 'Lainnya',
 ];
 
-const PROVINCES = [
-  'Aceh', 'Sumatera Utara', 'Sumatera Barat', 'Riau', 'Kepulauan Riau',
-  'Jambi', 'Sumatera Selatan', 'Kepulauan Bangka Belitung', 'Bengkulu', 'Lampung',
-  'DKI Jakarta', 'Jawa Barat', 'Banten', 'Jawa Tengah', 'DI Yogyakarta',
-  'Jawa Timur', 'Bali', 'Nusa Tenggara Barat', 'Nusa Tenggara Timur',
-  'Kalimantan Barat', 'Kalimantan Tengah', 'Kalimantan Selatan', 'Kalimantan Timur', 'Kalimantan Utara',
-  'Sulawesi Utara', 'Sulawesi Tengah', 'Sulawesi Barat', 'Sulawesi Selatan', 'Sulawesi Tenggara', 'Gorontalo',
-  'Maluku', 'Maluku Utara', 'Papua', 'Papua Barat',
-];
+const PROVINCES = Object.keys(WNI_REGION_DATA);
 
 const COMMUNITY_CATEGORIES = [
   'Komunitas Hobi / Rekreasi',
@@ -185,7 +178,7 @@ const FORM_FIELDS = {
     { key: 'sport_types', label: 'Jenis Olahraga Utama', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
     { key: 'city', label: 'Kota / Kabupaten', type: 'city_select', required: true },
-    { key: 'kecamatan', label: 'Kecamatan', type: 'text', placeholder: 'Depok' },
+    { key: 'kecamatan', label: 'Kecamatan', type: 'district_select' },
     { key: 'address', label: 'Alamat Lengkap', type: 'text', placeholder: 'Jl. Sudirman No. 10', required: true },
     { key: 'court_count', label: 'Jumlah Lapangan / Area', type: 'number', placeholder: '4' },
     { key: 'has_online_booking', label: 'Sistem Booking Saat Ini', type: 'select', options: ['Belum ada', 'Sudah ada (ingin migrasi)', 'Pakai WhatsApp/manual'] },
@@ -206,7 +199,7 @@ const FORM_FIELDS = {
     { key: 'sport', label: 'Cabang Olahraga', type: 'select', options: SPORTS_LIST, required: true },
     { key: 'province', label: 'Provinsi', type: 'select', options: PROVINCES, required: true },
     { key: 'city', label: 'Kota / Kabupaten', type: 'city_select', required: true },
-    { key: 'kecamatan', label: 'Kecamatan', type: 'text', placeholder: 'Depok' },
+    { key: 'kecamatan', label: 'Kecamatan', type: 'district_select' },
     { key: 'member_count', label: 'Jumlah Anggota Aktif', type: 'number', placeholder: '20' },
     { key: 'social_media', label: 'Media Sosial / Link Grup', type: 'text', placeholder: 'Instagram / Link WhatsApp grup' },
     { key: 'message', label: 'Deskripsi Komunitas', type: 'textarea', placeholder: 'Ceritakan tentang komunitas Anda...' },
@@ -247,7 +240,17 @@ function ApplicationModal({ category, auth, onClose }) {
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
 
-  const set = (k, v) => setForm((f) => { const next = { ...f, [k]: v }; if (k === 'province') next.city = ''; return next; });
+  const set = (k, v) => setForm((f) => {
+    const next = { ...f, [k]: v };
+    if (k === 'province') {
+      next.city = '';
+      next.kecamatan = '';
+    }
+    if (k === 'city') {
+      next.kecamatan = '';
+    }
+    return next;
+  });
   const fields = FORM_FIELDS[category.key] || [];
 
   const handleSubmit = async () => {
@@ -356,7 +359,12 @@ function ApplicationModal({ category, auth, onClose }) {
                 ) : field.type === 'city_select' ? (
                   <select className={selectCls} value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)} disabled={!form.province}>
                     <option value="">{form.province ? 'Pilih kota / kabupaten...' : '— Pilih provinsi dulu —'}</option>
-                    {(CITIES_BY_PROVINCE[form.province] || []).map((c) => <option key={c} value={c}>{c}</option>)}
+                    {Object.keys(WNI_REGION_DATA[form.province] || {}).map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                ) : field.type === 'district_select' ? (
+                  <select className={selectCls} value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)} disabled={!form.city}>
+                    <option value="">{form.city ? 'Pilih kecamatan...' : '— Pilih kota/kabupaten dulu —'}</option>
+                    {Object.keys((WNI_REGION_DATA[form.province] || {})[form.city] || {}).map((d) => <option key={d} value={d}>{d}</option>)}
                   </select>
                 ) : (
                   <input type={field.type} className={inputCls} placeholder={field.placeholder}
