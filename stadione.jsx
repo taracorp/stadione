@@ -4132,7 +4132,7 @@ const WNI_REGION_DATA = {
     'Kab. Kulon Progo': { 'Wates':'55611','Pengasih':'55651','Lendah':'55663','Galur':'55661','Temon':'55654','Panjatan':'55655','Kokap':'55653','Girimulyo':'55674','Nanggulan':'55671','Kalibawang':'55672','Samigaluh':'55673' },
   },
   'Jawa Timur': {
-    'Kota Surabaya': { 'Tegalsari':'60262','Wonokromo':'60243','Kenjeran':'60135','Rungkut':'60294','Mulyorejo':'60115','Sukolilo':'60111','Gubeng':'60281','Genteng':'60271','Bubutan':'60172','Simokerto':'60151','Semampir':'60143','Pabean Cantikan':'60162','Bulak':'60123','Krembangan':'60175','Asemrowo':'60182','Sukomanunggal':'60188','Benowo':'60195','Pakal':'60197','Lakarsantri':'60213','Sambikerep':'60216','Tandes':'60186','Karang Pilang':'60221','Wiyung':'60227','Dukuh Pakis':'60225','Wonocolo':'60237','Gayungan':'60235','Jambangan':'60232','Sawahan':'60251','Dukuh Pakis':'60225' },
+    'Kota Surabaya': { 'Tegalsari':'60262','Wonokromo':'60243','Kenjeran':'60135','Rungkut':'60294','Mulyorejo':'60115','Sukolilo':'60111','Gubeng':'60281','Genteng':'60271','Bubutan':'60172','Simokerto':'60151','Semampir':'60143','Pabean Cantikan':'60162','Bulak':'60123','Krembangan':'60175','Asemrowo':'60182','Sukomanunggal':'60188','Benowo':'60195','Pakal':'60197','Lakarsantri':'60213','Sambikerep':'60216','Tandes':'60186','Karang Pilang':'60221','Wiyung':'60227','Dukuh Pakis':'60225','Wonocolo':'60237','Gayungan':'60235','Jambangan':'60232','Sawahan':'60251' },
     'Kota Malang': { 'Klojen':'65111','Lowokwaru':'65141','Kedungkandang':'65136','Sukun':'65148','Blimbing':'65122' },
     'Kab. Sidoarjo': { 'Sidoarjo':'61211','Waru':'61256','Taman':'61257','Gedangan':'61254','Candi':'61271','Tanggulangin':'61272','Porong':'61274' },
     'Kota Kediri': { 'Kediri Kota':'64111','Pesantren':'64131','Mojoroto':'64119' },
@@ -7435,9 +7435,201 @@ const DEV_E2E_OFFICIAL_AUTH = Object.freeze({
   },
 });
 
+const PUBLIC_PAGE_PATHS = Object.freeze({
+  home: '/',
+  booking: '/booking-lapangan',
+  tournament: '/turnamen-liga',
+  community: '/komunitas',
+  news: '/berita',
+  training: '/pelatihan',
+  kerjasama: '/partnership',
+});
+
+const PATH_PAGE_ALIASES = Object.freeze({
+  '/partnership': 'kerjasama',
+  '/kerjasama': 'kerjasama',
+});
+
+const TRAINING_ROUTE_SECTIONS = new Set(['home', 'academy', 'coach', 'programs', 'events', 'athlete', 'parent', 'workspace']);
+
+const TRAINING_PAGE_ALIASES = Object.freeze({
+  'training-academy': 'academy',
+  'training-parent': 'parent',
+  'training-workspace': 'workspace',
+  'training-programs': 'programs',
+});
+
+const ROUTE_HISTORY_PAGE_FALLBACK = Object.freeze({
+  'booking-detail': 'booking',
+  'tournament-detail': 'tournament',
+  'tournament-published': 'tournament',
+  'create-tournament': 'tournament',
+  'community-detail': 'community',
+  'news-detail': 'news',
+  'coach-profile': 'training',
+});
+
+const DETAIL_ROUTE_SEGMENTS = Object.freeze({
+  'booking-detail': ['booking-lapangan'],
+  'tournament-detail': ['turnamen-liga'],
+  'news-detail': ['berita'],
+  'community-detail': ['komunitas'],
+  'coach-profile': ['pelatihan', 'pelatih'],
+});
+
+function normalizePathname(pathname = '/') {
+  const value = String(pathname || '/').trim();
+  if (!value || value === '/') return '/';
+  const noTrailingSlash = value.replace(/\/+$/, '');
+  const normalized = noTrailingSlash.startsWith('/') ? noTrailingSlash : `/${noTrailingSlash}`;
+  return normalized.toLowerCase();
+}
+
+function safeDecodePathSegment(value) {
+  try {
+    return decodeURIComponent(String(value || '').trim());
+  } catch {
+    return String(value || '').trim();
+  }
+}
+
+function normalizeRouteId(value) {
+  return String(value ?? '').trim();
+}
+
+function toRouteSlug(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function getDetailRouteIdFromData(data) {
+  if (!data || typeof data !== 'object') return '';
+  return normalizeRouteId(data.id || data.slug || data.reference || data.code || '');
+}
+
+function resolveRouteStateFromLocation(locationLike) {
+  const pathname = normalizePathname(locationLike?.pathname || '/');
+  const params = new URLSearchParams(locationLike?.search || '');
+  const segments = pathname.split('/').filter(Boolean).map((segment) => safeDecodePathSegment(segment));
+  let detailId = '';
+
+  let detailPage = null;
+  if (segments[0] === 'booking-lapangan' && segments[1]) {
+    detailPage = 'booking-detail';
+    detailId = normalizeRouteId(segments[1]);
+  } else if (segments[0] === 'turnamen-liga' && segments[1]) {
+    detailPage = 'tournament-detail';
+    detailId = normalizeRouteId(segments[1]);
+  } else if (segments[0] === 'berita' && segments[1]) {
+    detailPage = 'news-detail';
+    detailId = normalizeRouteId(segments[1]);
+  } else if (segments[0] === 'komunitas' && segments[1]) {
+    detailPage = 'community-detail';
+    detailId = normalizeRouteId(segments[1]);
+  } else if (segments[0] === 'pelatihan' && segments[1] === 'pelatih' && segments[2]) {
+    detailPage = 'coach-profile';
+    detailId = normalizeRouteId(segments[2]);
+  }
+
+  const pageParam = String(params.get('page') || '').trim();
+  const sectionFromAlias = TRAINING_PAGE_ALIASES[pageParam] || null;
+  let page = detailPage || PATH_PAGE_ALIASES[pathname] || null;
+
+  if (!page) {
+    page = sectionFromAlias ? 'training' : (pageParam || 'home');
+  }
+
+  if (!detailId && ['booking-detail', 'tournament-detail', 'news-detail', 'community-detail', 'coach-profile'].includes(page)) {
+    detailId = normalizeRouteId(params.get('id') || params.get('slug') || '');
+  }
+
+  let trainingSection = 'home';
+  if (page === 'training') {
+    const requestedSection = sectionFromAlias || String(params.get('section') || 'home').trim();
+    if (TRAINING_ROUTE_SECTIONS.has(requestedSection)) {
+      trainingSection = requestedSection;
+    }
+  }
+
+  const canonicalUrl = buildRouteUrl(page, {
+    section: page === 'training' ? trainingSection : undefined,
+    detailId,
+  });
+  const shouldCanonicalize = Boolean(
+    `${pathname}${locationLike?.search || ''}` !== canonicalUrl &&
+    (PUBLIC_PAGE_PATHS[page] || DETAIL_ROUTE_SEGMENTS[page])
+  );
+
+  return { page, trainingSection, detailId, shouldCanonicalize };
+}
+
+function getHistoryRoutePage(page) {
+  return ROUTE_HISTORY_PAGE_FALLBACK[page] || page;
+}
+
+function buildRouteUrl(page, { section, detailId: rawDetailId } = {}) {
+  const normalizedPage = getHistoryRoutePage(page);
+  const detailId = normalizeRouteId(rawDetailId || '');
+  const detailSegments = DETAIL_ROUTE_SEGMENTS[page];
+
+  if (detailSegments && detailId) {
+    const encodedId = encodeURIComponent(detailId);
+    return `/${detailSegments.join('/')}/${encodedId}`;
+  }
+
+  if (page === 'coach-profile' && !detailId) {
+    return PUBLIC_PAGE_PATHS.training;
+  }
+
+  if ((page === 'news-detail' || page === 'community-detail') && !detailId) {
+    return PUBLIC_PAGE_PATHS[getHistoryRoutePage(page)] || '/';
+  }
+
+  const path = PUBLIC_PAGE_PATHS[normalizedPage];
+  const params = new URLSearchParams();
+
+  if (path) {
+    if (normalizedPage === 'training' && section && section !== 'home') {
+      params.set('section', section);
+    }
+    const search = params.toString();
+    return `${path}${search ? `?${search}` : ''}`;
+  }
+
+  if (normalizedPage && normalizedPage !== 'home') {
+    params.set('page', normalizedPage);
+  }
+
+  const fallbackSearch = params.toString();
+  return `/${fallbackSearch ? `?${fallbackSearch}` : ''}`;
+}
+
+function syncRouteInBrowser(page, options = {}) {
+  if (typeof window === 'undefined') return;
+
+  const url = buildRouteUrl(page, options);
+  if (`${window.location.pathname}${window.location.search}` === url) return;
+
+  if (options.replace) {
+    window.history.replaceState({}, '', url);
+  } else {
+    window.history.pushState({}, '', url);
+  }
+}
+
+function getInitialRouteState() {
+  if (typeof window === 'undefined') {
+    return { page: 'home', trainingSection: 'home', detailId: '', shouldCanonicalize: false };
+  }
+
+  return resolveRouteStateFromLocation(window.location);
+}
+
 export default function Stadione() {
-  const [page, setPage] = useState('home');
-  const [trainingSection, setTrainingSection] = useState('home');
+  const [page, setPage] = useState(() => getInitialRouteState().page);
+  const [trainingSection, setTrainingSection] = useState(() => getInitialRouteState().trainingSection);
   const [tournamentDetail, setTournamentDetail] = useState(null);
   const [matchContext, setMatchContext] = useState(null);
   const [bookingDetail, setBookingDetail] = useState(null);
@@ -7751,25 +7943,32 @@ export default function Stadione() {
   const COACHES_DATA = coaches.length > 0 ? coaches : [];
   const CHATS_DATA = chats.length > 0 ? chats : [];
 
-  const goTo = (newPage, data = null, opts = {}) => {
-    const trainingAliasMap = {
-      'training-academy': 'academy',
-      'training-parent': 'parent',
-      'training-workspace': 'workspace',
-      'training-programs': 'programs',
-    };
-    const sectionFromAlias = trainingAliasMap[newPage];
+  const goTo = useCallback((newPage, data = null, opts = {}) => {
+    let nextPage = newPage;
+    let nextTrainingSection = trainingSection;
+    const nextDetailId = normalizeRouteId(opts.routeDetailId || getDetailRouteIdFromData(data));
+
+    const sectionFromAlias = TRAINING_PAGE_ALIASES[newPage];
     const requestedTrainingSection = sectionFromAlias || opts?.section || data?.section;
 
     if (newPage === 'training' || sectionFromAlias) {
-      const allowedSections = new Set(['home', 'academy', 'coach', 'programs', 'events', 'athlete', 'parent', 'workspace']);
-      if (requestedTrainingSection && allowedSections.has(requestedTrainingSection)) {
+      if (requestedTrainingSection && TRAINING_ROUTE_SECTIONS.has(requestedTrainingSection)) {
         setTrainingSection(requestedTrainingSection);
+        nextTrainingSection = requestedTrainingSection;
       } else if (newPage === 'training' && !requestedTrainingSection) {
         setTrainingSection('home');
+        nextTrainingSection = 'home';
       }
+
+      nextPage = 'training';
       setPage('training');
-      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (!opts.skipHistory) {
+        syncRouteInBrowser(nextPage, {
+          replace: Boolean(opts.replaceHistory),
+          section: nextTrainingSection,
+        });
+      }
+      if (opts.scroll !== false && typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -7784,9 +7983,159 @@ export default function Stadione() {
     if (newPage === 'chat') setChatInitial(data);
     if (opts.returnTo !== undefined) setReturnTo(opts.returnTo);
     setPage(newPage);
-    if (newPage.startsWith('tournament-detail')) setTab(tournamentDetail?.format === 'Knockout' ? 'bagan' : 'klasemen');
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+    if (newPage.startsWith('tournament-detail')) setTab(data?.format === 'Knockout' ? 'bagan' : 'klasemen');
+
+    if (!opts.skipHistory) {
+      syncRouteInBrowser(nextPage, {
+        replace: Boolean(opts.replaceHistory),
+        detailId: nextDetailId,
+      });
+    }
+
+    if (opts.scroll !== false && typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [trainingSection]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const initialRoute = getInitialRouteState();
+    if (initialRoute.shouldCanonicalize) {
+      syncRouteInBrowser(initialRoute.page, {
+        replace: true,
+        section: initialRoute.page === 'training' ? initialRoute.trainingSection : undefined,
+        detailId: initialRoute.detailId,
+      });
+    }
+
+    const handlePopState = () => {
+      const nextRoute = resolveRouteStateFromLocation(window.location);
+      goTo(nextRoute.page, null, {
+        section: nextRoute.trainingSection,
+        routeDetailId: nextRoute.detailId,
+        skipHistory: true,
+        scroll: false,
+      });
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [goTo]);
+
+  useEffect(() => {
+    if (page !== 'news-detail' || articleDetail) return;
+    if (typeof window === 'undefined') return;
+
+    const route = resolveRouteStateFromLocation(window.location);
+    const routeId = normalizeRouteId(route.detailId);
+    if (!routeId) {
+      goTo('news', null, { replaceHistory: true, scroll: false });
+      return;
+    }
+
+    const found = NEWS_DATA.find((item) => {
+      const itemId = normalizeRouteId(item?.id);
+      const itemSlug = toRouteSlug(item?.title || item?.headline || item?.name || '');
+      return itemId === routeId || (itemSlug && itemSlug === routeId.toLowerCase());
+    });
+
+    if (found) {
+      setArticleDetail(found);
+      return;
+    }
+
+    if (!newsLoading) {
+      goTo('news', null, { replaceHistory: true, scroll: false });
+    }
+  }, [NEWS_DATA, articleDetail, goTo, newsLoading, page]);
+
+  useEffect(() => {
+    if (page !== 'tournament-detail' || tournamentDetail) return;
+    if (typeof window === 'undefined') return;
+
+    const route = resolveRouteStateFromLocation(window.location);
+    const routeId = normalizeRouteId(route.detailId);
+    if (!routeId) {
+      goTo('tournament', null, { replaceHistory: true, scroll: false });
+      return;
+    }
+
+    const found = TOURNAMENTS_DATA.find((item) => normalizeRouteId(item?.id) === routeId || toRouteSlug(item?.name) === routeId.toLowerCase());
+    if (found) {
+      setTournamentDetail(found);
+      setTab(found?.format === 'Knockout' ? 'bagan' : 'klasemen');
+      return;
+    }
+
+    if (!tournamentsLoading) {
+      goTo('tournament', null, { replaceHistory: true, scroll: false });
+    }
+  }, [TOURNAMENTS_DATA, goTo, page, setTab, tournamentDetail, tournamentsLoading]);
+
+  useEffect(() => {
+    if (page !== 'booking-detail' || bookingDetail) return;
+    if (typeof window === 'undefined') return;
+
+    const route = resolveRouteStateFromLocation(window.location);
+    const routeId = normalizeRouteId(route.detailId);
+    if (!routeId) {
+      goTo('booking', null, { replaceHistory: true, scroll: false });
+      return;
+    }
+
+    const found = VENUES_DATA.find((item) => normalizeRouteId(item?.id) === routeId || toRouteSlug(item?.name) === routeId.toLowerCase());
+    if (found) {
+      setBookingDetail(found);
+      return;
+    }
+
+    if (!venuesLoading) {
+      goTo('booking', null, { replaceHistory: true, scroll: false });
+    }
+  }, [VENUES_DATA, bookingDetail, goTo, page, venuesLoading]);
+
+  useEffect(() => {
+    if (page !== 'coach-profile' || coachDetail) return;
+    if (typeof window === 'undefined') return;
+
+    const route = resolveRouteStateFromLocation(window.location);
+    const routeId = normalizeRouteId(route.detailId);
+    if (!routeId) {
+      goTo('training', null, { replaceHistory: true, scroll: false });
+      return;
+    }
+
+    const found = COACHES_DATA.find((item) => normalizeRouteId(item?.id) === routeId || toRouteSlug(item?.name) === routeId.toLowerCase());
+    if (found) {
+      setCoachDetail(found);
+      return;
+    }
+
+    if (!coachesLoading) {
+      goTo('training', null, { replaceHistory: true, scroll: false });
+    }
+  }, [COACHES_DATA, coachDetail, coachesLoading, goTo, page]);
+
+  useEffect(() => {
+    if (page !== 'community-detail' || communityDetail) return;
+    if (typeof window === 'undefined') return;
+
+    const route = resolveRouteStateFromLocation(window.location);
+    const routeId = normalizeRouteId(route.detailId);
+    if (!routeId) {
+      goTo('community', null, { replaceHistory: true, scroll: false });
+      return;
+    }
+
+    setCommunityDetail({
+      id: routeId,
+      name: 'Komunitas',
+      city: '',
+      province: '',
+      badges: [],
+      events: [],
+      feedPosts: [],
+    });
+  }, [communityDetail, goTo, page]);
 
   const addItemToCart = (payload) => {
     if (!payload) return;
