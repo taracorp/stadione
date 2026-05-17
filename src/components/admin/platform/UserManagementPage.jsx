@@ -102,6 +102,8 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
   const [verificationReviewTarget, setVerificationReviewTarget] = useState(null);
   const [verificationApprovalLoading, setVerificationApprovalLoading] = useState(false);
   const [verificationApprovalNotes, setVerificationApprovalNotes] = useState('');
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const applyUserSnapshot = useCallback((nextUsers = [], options = {}) => {
     setUsers((prevUsers) => {
@@ -462,6 +464,32 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
       });
     } finally {
       setVerificationApprovalLoading(false);
+    }
+  }
+
+  async function handleDeleteUser() {
+    if (!deleteConfirmTarget) return;
+
+    setDeleteLoading(true);
+    try {
+      // Delete user dari Supabase Auth
+      const { error } = await supabase.auth.admin.deleteUser(deleteConfirmTarget.user_id);
+
+      if (error) throw error;
+
+      // Remove user dari state
+      setUsers((prev) => prev.filter((user) => user.user_id !== deleteConfirmTarget.user_id));
+
+      setDeleteConfirmTarget(null);
+      setFeedback({ type: 'success', message: `User ${deleteConfirmTarget.full_name || deleteConfirmTarget.email} berhasil dihapus.` });
+    } catch (err) {
+      console.error('Failed to delete user:', err);
+      setFeedback({
+        type: 'error',
+        message: `Gagal menghapus user: ${err.message || 'Terjadi kesalahan.'}`,
+      });
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -982,6 +1010,16 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
                           >
                             <UserRoundX size={14} /> {isDisabled ? 'Aktifkan' : 'Nonaktifkan'}
                           </ActionButton>
+                          <ActionButton
+                            variant="danger"
+                            size="sm"
+                            disabled={isSelf}
+                            onClick={() => {
+                              setDeleteConfirmTarget(user);
+                            }}
+                          >
+                            Hapus
+                          </ActionButton>
                         </div>
                       </td>
                     </tr>
@@ -1135,6 +1173,48 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
                 loading={verificationApprovalLoading}
               >
                 Setujui
+              </ActionButton>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(deleteConfirmTarget)}
+        onClose={() => {
+          if (deleteLoading) return;
+          setDeleteConfirmTarget(null);
+        }}
+        title="Hapus User"
+      >
+        {deleteConfirmTarget && (
+          <div className="space-y-4">
+            <div className="rounded-2xl bg-red-50 border border-red-200 p-4">
+              <p className="text-sm text-red-900">
+                <span className="font-semibold">Perhatian!</span> Anda akan menghapus user <span className="font-semibold">{deleteConfirmTarget.full_name || deleteConfirmTarget.email}</span> secara permanen.
+              </p>
+              <p className="text-xs text-red-800 mt-2">
+                Tindakan ini tidak dapat dibatalkan. Semua data pengguna akan dihapus dari sistem.
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <ActionButton
+                variant="outline"
+                onClick={() => {
+                  if (deleteLoading) return;
+                  setDeleteConfirmTarget(null);
+                }}
+                disabled={deleteLoading}
+              >
+                Batal
+              </ActionButton>
+              <ActionButton
+                variant="danger"
+                onClick={handleDeleteUser}
+                loading={deleteLoading}
+              >
+                Hapus Selamanya
               </ActionButton>
             </div>
           </div>

@@ -82,8 +82,29 @@ function isHostedCheckoutUrl(value: string) {
 }
 
 function isApiEndpointUrl(value: string) {
-  const normalized = String(value || '').toLowerCase();
-  return (normalized.includes('/checkout/') && normalized.includes('payment-url')) || normalized.includes('api.doku.com') || normalized.includes('api-sandbox.doku.com');
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+
+    const isApiHost =
+      host === 'api.doku.com' ||
+      host === 'api-sandbox.doku.com' ||
+      host.endsWith('.api.doku.com') ||
+      host.endsWith('.api-sandbox.doku.com');
+
+    const hasCheckoutPaymentPath =
+      path.includes('/checkout/v1/payment') ||
+      path.includes('/checkout/v2/payment-url') ||
+      path.includes('/checkout/v1/payment-url');
+
+    return isApiHost && hasCheckoutPaymentPath;
+  } catch {
+    return false;
+  }
 }
 
 function getCheckoutApiCandidates(environment: string, configCheckoutBaseUrl: string) {
@@ -96,21 +117,28 @@ function getCheckoutApiCandidates(environment: string, configCheckoutBaseUrl: st
   }
 
   if (DOKU_CHECKOUT_API_URL) {
-    candidates.push(normalizeUrl(DOKU_CHECKOUT_API_URL));
+    const envApiUrl = normalizeUrl(DOKU_CHECKOUT_API_URL);
+    if (isApiEndpointUrl(envApiUrl)) {
+      candidates.push(envApiUrl);
+    }
   }
 
   if (normalizedEnvironment === 'production') {
     if (DOKU_CHECKOUT_PROD_API_URL) {
-      candidates.push(normalizeUrl(DOKU_CHECKOUT_PROD_API_URL));
+      const prodApiUrl = normalizeUrl(DOKU_CHECKOUT_PROD_API_URL);
+      if (isApiEndpointUrl(prodApiUrl)) {
+        candidates.push(prodApiUrl);
+      }
     }
-    candidates.push('https://api.doku.com/checkout/v2/payment-url');
-    candidates.push('https://api.doku.com/checkout/v1/payment-url');
+    candidates.push('https://api.doku.com/checkout/v1/payment');
   } else {
     if (DOKU_CHECKOUT_SANDBOX_API_URL) {
-      candidates.push(normalizeUrl(DOKU_CHECKOUT_SANDBOX_API_URL));
+      const sandboxApiUrl = normalizeUrl(DOKU_CHECKOUT_SANDBOX_API_URL);
+      if (isApiEndpointUrl(sandboxApiUrl)) {
+        candidates.push(sandboxApiUrl);
+      }
     }
-    candidates.push('https://api-sandbox.doku.com/checkout/v2/payment-url');
-    candidates.push('https://api-sandbox.doku.com/checkout/v1/payment-url');
+    candidates.push('https://api-sandbox.doku.com/checkout/v1/payment');
   }
 
   return Array.from(new Set(candidates.filter(Boolean)));
@@ -128,9 +156,6 @@ function buildCheckoutRequestBody(payload: Record<string, any>) {
     amount,
     invoice_number: `INV-${bookingId}-${Date.now()}`,
     currency,
-    auto_redirect: true,
-    disable_retry_payment: true,
-    recover_abandoned_cart: true,
   };
 
   if (returnUrl) {
@@ -146,14 +171,6 @@ function buildCheckoutRequestBody(payload: Record<string, any>) {
     },
   };
 
-  if (customerName || customerPhone) {
-    requestBody.customer = {
-      id: bookingId || `BK-${Date.now()}`,
-      name: customerName || 'Stadione Customer',
-      phone: customerPhone || undefined,
-    };
-  }
-
   return requestBody;
 }
 
@@ -166,41 +183,87 @@ async function buildCheckoutSignature(options: {
   secretKey: string;
 }) {
   const bodyDigest = await sha256Base64(JSON.stringify(options.requestBody));
-  const canonicalVariants = [
-    [
-      `Client-Id:${options.clientId}`,
-      `Request-Id:${options.requestId}`,
-      `Request-Timestamp:${options.timestamp}`,
-      `Request-Target:${options.requestTarget}`,
-      `Digest:SHA-256=${bodyDigest}`,
-    ].join('\n'),
-    [
-      `Client-Id:${options.clientId}`,
-      `Request-Id:${options.requestId}`,
-      `Request-Timestamp:${options.timestamp}`,
-      `Digest:SHA-256=${bodyDigest}`,
-    ].join('\n'),
-  ];
+  const canonical = [
+    `Client-Id:${options.clientId}`,
+    `Request-Id:${options.requestId}`,
+    `Request-Timestamp:${options.timestamp}`,
+    `Request-Target:${options.requestTarget}`,
+    `Digest:${bodyDigest}`,
+  ].join('\n');
 
-  const signatures: string[] = [];
-  for (const canonical of canonicalVariants) {
-    signatures.push(`HMACSHA256=${await computeHmacBase64(canonical, options.secretKey)}`);
-  }
+  const signature = `HMACSHA256=${await computeHmacBase64(canonical, options.secretKey)}`;
 
   return {
     bodyDigest,
-    signatures,
+    signature,
   };
 }
 
 function extractPaymentUrl(responseData: any): string {
   return (
     responseData?.response?.payment?.url ||
-    responseData?.response?.url ||
     responseData?.payment?.url ||
+    responseData?.response?.url ||
     responseData?.url ||
     ''
   );
+}
+
+function isLegacyCheckoutUrl(value: string): boolean {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return false;
+
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.toLowerCase();
+    const hasLegacyQuery = ['order_id', 'amount', 'currency'].some((key) => url.searchParams.has(key));
+    const hasModernToken = ['token', 'payment_token', 'checkout_token', 'session', 'session_id'].some((key) => url.searchParams.has(key));
+
+    return (host === 'checkout.doku.com' || host.endsWith('.checkout.doku.com')) && hasLegacyQuery && !hasModernToken;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeErrorText(input: any): string {
+  const safe = (value: any) => {
+    const text = String(value ?? '').trim();
+    if (!text || text === '[object Object]') return '';
+    return text;
+  };
+
+  if (input === null || input === undefined) return '';
+  if (typeof input === 'string') return safe(input);
+
+  if (Array.isArray(input)) {
+    return input
+      .map((item) => normalizeErrorText(item))
+      .filter(Boolean)
+      .join(', ')
+      .trim();
+  }
+
+  if (typeof input === 'object') {
+    const nested =
+      normalizeErrorText(input.error_messages) ||
+      normalizeErrorText(input.errors) ||
+      normalizeErrorText(input.error) ||
+      normalizeErrorText(input.message) ||
+      normalizeErrorText(input.details) ||
+      normalizeErrorText(input.hint) ||
+      normalizeErrorText(input.response?.message) ||
+      normalizeErrorText(input.response?.error);
+
+    if (nested) return nested;
+
+    try {
+      return safe(JSON.stringify(input));
+    } catch {
+      return '';
+    }
+  }
+
+  return safe(input);
 }
 
 async function requestDokuCheckoutUrl(params: {
@@ -212,8 +275,8 @@ async function requestDokuCheckoutUrl(params: {
   const requestUrl = new URL(params.checkoutApiUrl);
   const requestTarget = requestUrl.pathname;
   const requestId = crypto.randomUUID();
-  const timestamp = new Date().toISOString();
-  const { bodyDigest, signatures } = await buildCheckoutSignature({
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const { bodyDigest, signature } = await buildCheckoutSignature({
     clientId: params.clientId,
     requestId,
     timestamp,
@@ -228,52 +291,47 @@ async function requestDokuCheckoutUrl(params: {
     'Client-Id': params.clientId,
     'Request-Id': requestId,
     'Request-Timestamp': timestamp,
-    Digest: `SHA-256=${bodyDigest}`,
+    Digest: bodyDigest,
     'Request-Target': requestTarget,
   } as Record<string, string>;
 
-  let lastError: string | null = null;
+  const response = await fetch(params.checkoutApiUrl, {
+    method: 'POST',
+    headers: {
+      ...headersBase,
+      Signature: signature,
+    },
+    body: JSON.stringify(params.requestBody),
+  });
 
-  for (const signature of signatures) {
-    const response = await fetch(params.checkoutApiUrl, {
-      method: 'POST',
-      headers: {
-        ...headersBase,
-        Signature: signature,
-      },
-      body: JSON.stringify(params.requestBody),
-    });
-
-    const responseText = await response.text();
-    let responseJson: any = null;
-    try {
-      responseJson = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      responseJson = { raw: responseText };
-    }
-
-    if (response.ok) {
-      const paymentUrl = extractPaymentUrl(responseJson);
-      if (paymentUrl) {
-        return {
-          paymentUrl,
-          rawResponse: responseJson,
-          signature,
-        };
-      }
-      lastError = 'DOKU checkout response did not include payment.url';
-      continue;
-    }
-
-    lastError = responseJson?.error_messages?.join(', ')
-      || responseJson?.message?.join?.(', ')
-      || responseJson?.message
-      || responseJson?.error
-      || response.statusText
-      || 'DOKU checkout request failed';
+  const responseText = await response.text();
+  let responseJson: any = null;
+  try {
+    responseJson = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    responseJson = { raw: responseText };
   }
 
-  throw new Error(lastError || 'DOKU checkout request failed');
+  if (response.ok) {
+    const paymentUrl = extractPaymentUrl(responseJson);
+    if (paymentUrl) {
+      return {
+        paymentUrl,
+        rawResponse: responseJson,
+        signature,
+      };
+    }
+    throw new Error('DOKU checkout response did not include payment.url');
+  }
+
+  throw new Error(
+    `DOKU ${response.status} ${params.checkoutApiUrl}: ${
+      normalizeErrorText(responseJson)
+      || normalizeErrorText(responseText)
+      || normalizeErrorText(response.statusText)
+      || 'DOKU checkout request failed'
+    }`
+  );
 }
 
 function isMissingColumnError(error: any, column: string): boolean {
@@ -339,25 +397,67 @@ async function handleRequest(req: Request): Promise<Response> {
     });
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
-  const { data: config, error: configError } = await supabase
-    .from('doku_venue_config')
-    .select('*')
-    .eq('venue_id', venueId)
-    .single();
-
-  if (configError || !config) {
-    return new Response(JSON.stringify({ error: 'DOKU configuration not found for this venue' }), {
+  if (amount < 1000) {
+    return new Response(JSON.stringify({
+      error: 'Minimum pembayaran DOKU adalah IDR 1.000.',
+    }), {
       status: 400,
       headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
 
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+  const { data: venueConfig, error: venueConfigError } = await supabase
+    .from('doku_venue_config')
+    .select('*')
+    .eq('venue_id', venueId)
+    .maybeSingle();
+
+  if (venueConfigError) {
+    return new Response(JSON.stringify({ error: venueConfigError.message || 'Failed to load DOKU venue configuration' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  // Fallback to the latest usable config when a venue-specific row is missing.
+  // This keeps checkout available for venues that share one DOKU merchant profile.
+  let config = venueConfig;
+  let configSource = 'venue';
+
+  if (!config) {
+    const { data: sharedConfig, error: sharedConfigError } = await supabase
+      .from('doku_venue_config')
+      .select('*')
+      .not('client_id', 'is', null)
+      .not('secret_key', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (sharedConfigError) {
+      return new Response(JSON.stringify({ error: sharedConfigError.message || 'Failed to load shared DOKU configuration' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+
+    if (!sharedConfig) {
+      return new Response(JSON.stringify({ error: 'DOKU configuration not found for this venue' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+
+    config = sharedConfig;
+    configSource = 'shared';
+  }
+
   const orderId = `doku-${bookingId}-${Date.now()}`;
-  const checkoutBaseUrl = String(config.checkout_base_url || '').trim();
-  const effectiveSecretKey = String(DOKU_SECRET_KEY || config.secret_key || '').trim();
-  const effectiveClientId = String(config.client_id || '').trim();
+  const checkoutBaseUrl = String(config?.checkout_base_url || '').trim();
+  const effectiveSecretKey = String(DOKU_SECRET_KEY || config?.secret_key || '').trim();
+  const effectiveClientId = String(config?.client_id || '').trim();
 
   if (!effectiveClientId || !effectiveSecretKey) {
     return new Response(JSON.stringify({ error: 'Client ID dan Secret Key DOKU belum dikonfigurasi' }), {
@@ -380,12 +480,8 @@ async function handleRequest(req: Request): Promise<Response> {
   let checkoutUrl = '';
   let checkoutApiResponse: Record<string, any> | null = null;
 
-  if (isHostedCheckoutUrl(checkoutBaseUrl) && payload.checkout_url) {
-    checkoutUrl = String(payload.checkout_url).trim();
-  }
-
   if (!checkoutUrl) {
-    const checkoutApiCandidates = getCheckoutApiCandidates(String(config.environment || 'sandbox'), checkoutBaseUrl);
+    const checkoutApiCandidates = getCheckoutApiCandidates(String(config?.environment || 'sandbox'), checkoutBaseUrl);
     if (checkoutApiCandidates.length === 0) {
       return new Response(JSON.stringify({ error: 'Checkout API URL tidak ditemukan. Set DOKU Checkout API URL atau isi checkout_base_url dengan endpoint API yang valid.' }), {
         status: 400,
@@ -404,6 +500,11 @@ async function handleRequest(req: Request): Promise<Response> {
         });
         checkoutUrl = checkoutResult.paymentUrl;
         checkoutApiResponse = checkoutResult.rawResponse;
+
+        if (isLegacyCheckoutUrl(checkoutUrl)) {
+          throw new Error('DOKU checkout mengembalikan URL lama yang tidak valid. Periksa endpoint payment-url dan konfigurasi checkout DOKU.');
+        }
+
         break;
       } catch (error) {
         lastCheckoutError = error instanceof Error ? error.message : String(error);
@@ -432,6 +533,7 @@ async function handleRequest(req: Request): Promise<Response> {
       generated_at: new Date().toISOString(),
       payload: requestBody,
       api_response: checkoutApiResponse,
+      config_source: configSource,
     },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

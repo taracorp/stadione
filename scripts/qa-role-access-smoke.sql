@@ -105,3 +105,11 @@ SELECT
   CASE WHEN matched_permissions > 0 THEN true ELSE false END AS permission_gate_ready
 FROM role_permission_hits
 ORDER BY role, page_key;
+
+-- 4) Verify user creation RPC hardening (must be super_admin only).
+SELECT
+  CASE
+    WHEN pg_get_functiondef('public.admin_create_user_account(text,text,text,text)'::regprocedure) LIKE '%IF NOT public.has_app_role(''super_admin'') THEN%'
+    THEN 'OK: super_admin guard detected'
+    ELSE 'CHECK: super_admin guard not detected'
+  END AS admin_create_user_guard_status;

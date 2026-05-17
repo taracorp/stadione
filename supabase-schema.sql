@@ -507,6 +507,140 @@ CREATE POLICY "Authenticated users can upload payment proofs"
 	ON storage.objects FOR INSERT
 	WITH CHECK (bucket_id = 'payment-proofs' AND auth.uid() IS NOT NULL);
 
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('member-verification-docs', 'member-verification-docs', true)
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name,
+    public = EXCLUDED.public;
+
+DROP POLICY IF EXISTS "Member verification documents are publicly readable" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can upload member verification documents" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can update member verification documents" ON storage.objects;
+
+CREATE POLICY "Member verification documents are publicly readable"
+	ON storage.objects FOR SELECT
+	USING (bucket_id = 'member-verification-docs');
+
+CREATE POLICY "Authenticated users can upload member verification documents"
+	ON storage.objects FOR INSERT
+	WITH CHECK (bucket_id = 'member-verification-docs' AND auth.uid() IS NOT NULL);
+
+CREATE POLICY "Authenticated users can update member verification documents"
+	ON storage.objects FOR UPDATE
+	USING (bucket_id = 'member-verification-docs' AND auth.uid() IS NOT NULL)
+	WITH CHECK (bucket_id = 'member-verification-docs' AND auth.uid() IS NOT NULL);
+
+CREATE OR REPLACE FUNCTION public.admin_create_user_account(
+	p_email text,
+	p_password text,
+	p_full_name text DEFAULT NULL,
+	p_role text DEFAULT 'general_user'
+)
+RETURNS TABLE (
+	user_id uuid,
+	email text,
+	full_name text,
+	role text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+	v_email text := lower(trim(COALESCE(p_email, '')));
+	v_password text := COALESCE(p_password, '');
+	v_full_name text := NULLIF(trim(COALESCE(p_full_name, '')), '');
+	v_role text := lower(trim(COALESCE(p_role, 'general_user')));
+	v_user_id uuid := gen_random_uuid();
+BEGIN
+	IF NOT public.has_app_role('super_admin') THEN
+		RAISE EXCEPTION 'Unauthorized';
+	END IF;
+
+	IF v_email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
+		RAISE EXCEPTION 'Invalid email';
+	END IF;
+
+	IF length(v_password) < 8 THEN
+		RAISE EXCEPTION 'Password must be at least 8 characters';
+	END IF;
+
+	IF NOT EXISTS (SELECT 1 FROM public.app_roles ar WHERE ar.role = v_role) THEN
+		RAISE EXCEPTION 'Role % is not registered in app_roles', v_role;
+	END IF;
+
+	IF EXISTS (
+		SELECT 1
+		FROM auth.users u
+		WHERE lower(u.email::text) = v_email
+	) THEN
+		RAISE EXCEPTION 'Email % is already registered', v_email;
+	END IF;
+
+	INSERT INTO auth.users (
+		id,
+		instance_id,
+		aud,
+		role,
+		email,
+		encrypted_password,
+		email_confirmed_at,
+		raw_user_meta_data,
+		raw_app_meta_data,
+		is_super_admin,
+		created_at,
+		updated_at,
+		confirmation_token,
+		recovery_token,
+		email_change_token_new,
+		email_change
+	) VALUES (
+		v_user_id,
+		'00000000-0000-0000-0000-000000000000',
+		'authenticated',
+		'authenticated',
+		v_email,
+		crypt(v_password, gen_salt('bf')),
+		now(),
+		jsonb_build_object('name', v_full_name),
+		jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email')),
+		false,
+		now(),
+		now(),
+		'',
+		'',
+		'',
+		''
+	);
+
+	IF EXISTS (
+		SELECT 1
+		FROM information_schema.tables
+		WHERE table_schema = 'public'
+		  AND table_name = 'profiles'
+	) THEN
+		INSERT INTO public.profiles (id, email, name, created_at)
+		VALUES (v_user_id, v_email, COALESCE(v_full_name, split_part(v_email, '@', 1)), now())
+		ON CONFLICT (id) DO UPDATE
+		SET email = EXCLUDED.email,
+		    name = EXCLUDED.name;
+	END IF;
+
+	INSERT INTO public.user_roles (user_id, role, granted_by)
+	VALUES (v_user_id, v_role, auth.uid())
+	ON CONFLICT ON CONSTRAINT user_roles_pkey DO UPDATE
+	SET granted_by = EXCLUDED.granted_by,
+	    granted_at = now();
+
+	RETURN QUERY
+	SELECT
+		v_user_id,
+		v_email,
+		COALESCE(v_full_name, split_part(v_email, '@', 1)),
+		v_role;
+END;
+$$;
+
 -- Data inserts
 INSERT INTO venues (id,name,city,sport,price,rating,reviews,color) VALUES (1,'GOR Senayan Mini Soccer','Jakarta Pusat','Sepakbola',450000,4.8,234,'#0F4D2A');
 INSERT INTO venue_tags (venue_id,tag) VALUES (1,'Outdoor');

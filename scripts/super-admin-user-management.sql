@@ -1,0 +1,299 @@
+-- Super Admin user management feature
+-- Adds moderation metadata and RPC helpers for listing users, changing roles,
+-- and blocking/disabling accounts from the platform console.
+
+CREATE TABLE IF NOT EXISTS public.user_moderation (
+  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  is_blocked boolean NOT NULL DEFAULT false,
+  is_disabled boolean NOT NULL DEFAULT false,
+  moderation_reason text,
+  updated_by uuid REFERENCES auth.users(id),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.user_moderation ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'user_moderation'
+      AND policyname = 'Users can read own moderation status'
+  ) THEN
+    CREATE POLICY "Users can read own moderation status"
+      ON public.user_moderation
+      FOR SELECT
+      USING (auth.uid() = user_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'user_moderation'
+      AND policyname = 'Admins can manage moderation status'
+  ) THEN
+    CREATE POLICY "Admins can manage moderation status"
+      ON public.user_moderation
+      FOR ALL
+      USING (public.has_app_role('super_admin') OR public.has_permission('users.moderate'))
+      WITH CHECK (public.has_app_role('super_admin') OR public.has_permission('users.moderate'));
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.admin_list_users(
+  p_search text DEFAULT NULL,
+  p_limit integer DEFAULT 50,
+  p_offset integer DEFAULT 0
+)
+RETURNS TABLE (
+  user_id uuid,
+  email text,
+  full_name text,
+  roles text[],
+  is_blocked boolean,
+  is_disabled boolean,
+  moderation_reason text,
+  created_at timestamptz,
+  last_sign_in_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  safe_limit integer;
+BEGIN
+  IF NOT (public.has_app_role('super_admin') OR public.has_permission('users.role.manage') OR public.has_permission('users.moderate')) THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  safe_limit := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
+
+  RETURN QUERY
+  SELECT
+    u.id AS user_id,
+    u.email::text,
+    COALESCE(NULLIF(trim(u.raw_user_meta_data->>'name'), ''), split_part(u.email::text, '@', 1)) AS full_name,
+    COALESCE(array_agg(DISTINCT ur.role) FILTER (WHERE ur.role IS NOT NULL), ARRAY[]::text[]) AS roles,
+    COALESCE(um.is_blocked, false) AS is_blocked,
+    COALESCE(um.is_disabled, false) AS is_disabled,
+    um.moderation_reason,
+    u.created_at,
+    u.last_sign_in_at
+  FROM auth.users u
+  LEFT JOIN public.user_roles ur ON ur.user_id = u.id
+  LEFT JOIN public.user_moderation um ON um.user_id = u.id
+  WHERE (
+    p_search IS NULL
+    OR trim(p_search) = ''
+    OR u.email ILIKE ('%' || trim(p_search) || '%')
+    OR COALESCE(u.raw_user_meta_data->>'name', '') ILIKE ('%' || trim(p_search) || '%')
+  )
+  GROUP BY u.id, u.email, u.raw_user_meta_data, um.is_blocked, um.is_disabled, um.moderation_reason, u.created_at, u.last_sign_in_at
+  ORDER BY u.created_at DESC
+  LIMIT safe_limit OFFSET GREATEST(COALESCE(p_offset, 0), 0);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_set_user_role(
+  p_user_id uuid,
+  p_role text,
+  p_replace_existing boolean DEFAULT true
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+  IF NOT public.has_app_role('super_admin') THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  IF p_user_id IS NULL OR p_role IS NULL OR trim(p_role) = '' THEN
+    RAISE EXCEPTION 'Invalid parameters';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.app_roles WHERE role = trim(p_role)) THEN
+    RAISE EXCEPTION 'Role % is not registered in app_roles', p_role;
+  END IF;
+
+  IF p_replace_existing THEN
+    DELETE FROM public.user_roles WHERE user_id = p_user_id;
+  END IF;
+
+  INSERT INTO public.user_roles (user_id, role, granted_by)
+  VALUES (p_user_id, trim(p_role), auth.uid())
+  ON CONFLICT (user_id, role) DO UPDATE
+  SET granted_by = EXCLUDED.granted_by,
+      granted_at = now();
+
+  RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_set_user_moderation(
+  p_user_id uuid,
+  p_is_blocked boolean,
+  p_is_disabled boolean DEFAULT false,
+  p_reason text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+  IF NOT (public.has_app_role('super_admin') OR public.has_permission('users.moderate')) THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'Invalid user id';
+  END IF;
+
+  INSERT INTO public.user_moderation (
+    user_id,
+    is_blocked,
+    is_disabled,
+    moderation_reason,
+    updated_by,
+    updated_at
+  ) VALUES (
+    p_user_id,
+    COALESCE(p_is_blocked, false),
+    COALESCE(p_is_disabled, false),
+    NULLIF(trim(COALESCE(p_reason, '')), ''),
+    auth.uid(),
+    now()
+  )
+  ON CONFLICT (user_id) DO UPDATE
+  SET is_blocked = EXCLUDED.is_blocked,
+      is_disabled = EXCLUDED.is_disabled,
+      moderation_reason = EXCLUDED.moderation_reason,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = now();
+
+  RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_create_user_account(
+  p_email text,
+  p_password text,
+  p_full_name text DEFAULT NULL,
+  p_role text DEFAULT 'general_user'
+)
+RETURNS TABLE (
+  user_id uuid,
+  email text,
+  full_name text,
+  role text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+  v_email text := lower(trim(COALESCE(p_email, '')));
+  v_password text := COALESCE(p_password, '');
+  v_full_name text := NULLIF(trim(COALESCE(p_full_name, '')), '');
+  v_role text := lower(trim(COALESCE(p_role, 'general_user')));
+  v_user_id uuid := gen_random_uuid();
+BEGIN
+  IF NOT public.has_app_role('super_admin') THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  IF v_email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
+    RAISE EXCEPTION 'Invalid email';
+  END IF;
+
+  IF length(v_password) < 8 THEN
+    RAISE EXCEPTION 'Password must be at least 8 characters';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.app_roles ar WHERE ar.role = v_role) THEN
+    RAISE EXCEPTION 'Role % is not registered in app_roles', v_role;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM auth.users u
+    WHERE lower(u.email::text) = v_email
+  ) THEN
+    RAISE EXCEPTION 'Email % is already registered', v_email;
+  END IF;
+
+  INSERT INTO auth.users (
+    id,
+    instance_id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_user_meta_data,
+    raw_app_meta_data,
+    is_super_admin,
+    created_at,
+    updated_at,
+    confirmation_token,
+    recovery_token,
+    email_change_token_new,
+    email_change
+  ) VALUES (
+    v_user_id,
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated',
+    'authenticated',
+    v_email,
+    crypt(v_password, gen_salt('bf')),
+    now(),
+    jsonb_build_object('name', v_full_name),
+    jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email')),
+    false,
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    ''
+  );
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+  ) THEN
+    INSERT INTO public.profiles (id, email, name, created_at)
+    VALUES (v_user_id, v_email, COALESCE(v_full_name, split_part(v_email, '@', 1)), now())
+    ON CONFLICT (id) DO UPDATE
+    SET email = EXCLUDED.email,
+        name = EXCLUDED.name;
+  END IF;
+
+  INSERT INTO public.user_roles (user_id, role, granted_by)
+  VALUES (v_user_id, v_role, auth.uid())
+  ON CONFLICT ON CONSTRAINT user_roles_pkey DO UPDATE
+  SET granted_by = EXCLUDED.granted_by,
+      granted_at = now();
+
+  RETURN QUERY
+  SELECT
+    v_user_id,
+    v_email,
+    COALESCE(v_full_name, split_part(v_email, '@', 1)),
+    v_role;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_list_users(text, integer, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_user_role(uuid, text, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_user_moderation(uuid, boolean, boolean, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_create_user_account(text, text, text, text) TO authenticated;

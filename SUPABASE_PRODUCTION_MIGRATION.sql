@@ -720,6 +720,30 @@ CREATE POLICY "Authenticated users can upload payment proofs"
   ON storage.objects FOR INSERT
   WITH CHECK (bucket_id = 'payment-proofs' AND auth.uid() IS NOT NULL);
 
+-- Member Verification Documents
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('member-verification-docs', 'member-verification-docs', true)
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name,
+    public = EXCLUDED.public;
+
+DROP POLICY IF EXISTS "Member verification documents are publicly readable" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can upload member verification documents" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can update member verification documents" ON storage.objects;
+
+CREATE POLICY "Member verification documents are publicly readable"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'member-verification-docs');
+
+CREATE POLICY "Authenticated users can upload member verification documents"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'member-verification-docs' AND auth.uid() IS NOT NULL);
+
+CREATE POLICY "Authenticated users can update member verification documents"
+  ON storage.objects FOR UPDATE
+  USING (bucket_id = 'member-verification-docs' AND auth.uid() IS NOT NULL)
+  WITH CHECK (bucket_id = 'member-verification-docs' AND auth.uid() IS NOT NULL);
+
 -- Sample Data
 INSERT INTO venues (id,name,city,sport,price,rating,reviews,color) VALUES (1,'GOR Senayan Mini Soccer','Jakarta Pusat','Sepakbola',450000,4.8,234,'#0F4D2A');
 INSERT INTO venue_tags (venue_id,tag) VALUES (1,'Outdoor');
