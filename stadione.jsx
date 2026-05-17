@@ -31,7 +31,7 @@ import {
   QuizResultToast
 } from './src/components/GamificationUI.jsx';
 import { awardPoints, registerTournamentPlayer, submitGeneratedQuizAttempt, hasTriviaAttempt } from './src/services/gamificationService.js';
-import { fetchCurrentUserActiveContext, fetchCurrentUserModerationStatus, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, sendEInvoiceEmail, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
+import { fetchCurrentUserActiveContext, fetchCurrentUserModerationStatus, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, joinCommunity, recordVenueBooking, recordActivityToLog, sendEInvoiceEmail, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
 import { fetchRegistrationWorkspaceContext } from './src/services/registrationService.js';
 import { canAccessAdminPage, deriveConsoleAccess, getOfficialMatchCapabilities, PAGE_ACCESS } from './src/utils/permissions.js';
 import { getUserRoleBadges, normalizeRoles } from './src/utils/roles.js';
@@ -8469,6 +8469,21 @@ export default function Stadione() {
       return;
     }
 
+    if (paymentPayload?.type === 'community-membership' && auth?.id && paymentPayload?.communityId) {
+      const result = await joinCommunity(auth.id, paymentPayload.communityId);
+      if (result?.error) {
+        console.warn('Membership payment selesai, tetapi join komunitas gagal:', result.error);
+      }
+
+      goTo('community-detail', {
+        id: paymentPayload.communityId,
+        name: paymentPayload.communityName || 'Komunitas',
+      });
+      setPaymentPayload(null);
+      setReturnTo(null);
+      return;
+    }
+
     goTo(returnTo || 'home');
     setPaymentPayload(null);
     setReturnTo(null);
@@ -8501,6 +8516,22 @@ export default function Stadione() {
         itemName: program?.name || 'Sesi Privat',
         itemSub: `${coach.name}${time ? ` · ${date} ${time}` : ''}`,
       });
+    });
+  };
+
+  const startCommunityMembershipPayment = (community) => {
+    const fee = Number(community?.membershipFee || 0);
+    if (!community?.id || fee <= 0) return;
+
+    requireAuthThen(() => {
+      goTo('payment', {
+        type: 'community-membership',
+        amount: fee,
+        itemName: `Membership ${community.name || 'Komunitas'}`,
+        itemSub: `Biaya membership per ${community.membershipPeriod || 'bulan'}`,
+        communityId: community.id,
+        communityName: community.name || 'Komunitas',
+      }, { returnTo: 'community' });
     });
   };
 
@@ -8557,6 +8588,7 @@ export default function Stadione() {
               openAuth={openAuth}
               onBack={() => goTo('community')}
               onSelectCommunity={(community) => goTo('community-detail', community)}
+              onMembershipCheckout={startCommunityMembershipPayment}
               onCommunityNotification={handleCommunityNotification}
               onCommunityRead={handleCommunityRead}
             />
