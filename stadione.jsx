@@ -30,7 +30,7 @@ import {
   ArticleQuizModal,
   QuizResultToast
 } from './src/components/GamificationUI.jsx';
-import { registerTournamentPlayer, submitGeneratedQuizAttempt, hasTriviaAttempt } from './src/services/gamificationService.js';
+import { awardPoints, registerTournamentPlayer, submitGeneratedQuizAttempt, hasTriviaAttempt } from './src/services/gamificationService.js';
 import { fetchCurrentUserActiveContext, fetchCurrentUserModerationStatus, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, sendEInvoiceEmail, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
 import { fetchRegistrationWorkspaceContext } from './src/services/registrationService.js';
 import { canAccessAdminPage, deriveConsoleAccess, getOfficialMatchCapabilities, PAGE_ACCESS } from './src/utils/permissions.js';
@@ -4782,6 +4782,11 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
     if (ep.newPassword && ep.newPassword.length < 8) { setEditError('Password baru minimal 8 karakter.'); return; }
     if (ep.newPassword && ep.newPassword !== ep.confirmPassword) { setEditError('Konfirmasi password tidak cocok.'); return; }
     const cleanAdditionalSports = sanitizeAdditionalSports(ep.additionalSports, ep.mainSport);
+    const rewardFlags = (rawMeta.gamification_rewards && typeof rawMeta.gamification_rewards === 'object') ? rawMeta.gamification_rewards : {};
+    const completionAfterSave = calcProfileCompletion({ ...auth, name: fullName }, ep);
+    const shouldAwardCompleteProfile = completionAfterSave.pct >= 100 && !Boolean(rewardFlags.complete_basic_profile);
+    const shouldAwardPhoto = !!ep.photoUrl.trim() && !rawMeta.photo_url && !Boolean(rewardFlags.upload_profile_photo);
+    const shouldAwardSport = !!ep.mainSport && !rawMeta.main_sport && !Boolean(rewardFlags.complete_sports_profile);
     setEditSaving(true);
     try {
       const { data: currentUserData } = await supabase.auth.getUser();
@@ -4838,17 +4843,49 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
       if (updateError) throw updateError;
       const refreshed = await enrichAuthUser(updatedData?.user);
       if (refreshed && typeof onAuthChange === 'function') onAuthChange(refreshed);
-      // Award points for completion milestones
-      const newCompletion = calcProfileCompletion(refreshed, ep);
-      if (newCompletion.pct >= 100 && completion.pct < 100) {
-        try { await supabase.rpc('add_user_points', { p_user_id: auth.id, p_points: 50, p_reason: 'complete_basic_profile' }); } catch (_) {}
+
+      // Award points for completion milestones (idempotent with metadata reward flags)
+      const nextRewardFlags = { ...rewardFlags };
+      let rewardFlagsUpdated = false;
+
+      if (shouldAwardCompleteProfile) {
+        const awarded = await awardPoints(auth.id, 50, 'complete_basic_profile');
+        if (awarded) {
+          nextRewardFlags.complete_basic_profile = true;
+          rewardFlagsUpdated = true;
+        }
       }
-      if (ep.photoUrl.trim() && !rawMeta.photo_url) {
-        try { await supabase.rpc('add_user_points', { p_user_id: auth.id, p_points: 20, p_reason: 'upload_profile_photo' }); } catch (_) {}
+      if (shouldAwardPhoto) {
+        const awarded = await awardPoints(auth.id, 20, 'upload_profile_photo');
+        if (awarded) {
+          nextRewardFlags.upload_profile_photo = true;
+          rewardFlagsUpdated = true;
+        }
       }
-      if (ep.mainSport && !rawMeta.main_sport) {
-        try { await supabase.rpc('add_user_points', { p_user_id: auth.id, p_points: 30, p_reason: 'complete_sports_profile' }); } catch (_) {}
+      if (shouldAwardSport) {
+        const awarded = await awardPoints(auth.id, 30, 'complete_sports_profile');
+        if (awarded) {
+          nextRewardFlags.complete_sports_profile = true;
+          rewardFlagsUpdated = true;
+        }
       }
+
+      if (rewardFlagsUpdated) {
+        const { data: latestUserData } = await supabase.auth.getUser();
+        const latestMeta = latestUserData?.user?.user_metadata || {};
+        const { data: rewardUpdatedData, error: rewardMetaError } = await supabase.auth.updateUser({
+          data: {
+            ...latestMeta,
+            gamification_rewards: nextRewardFlags,
+          },
+        });
+
+        if (!rewardMetaError && rewardUpdatedData?.user) {
+          const rewardRefreshed = await enrichAuthUser(rewardUpdatedData.user);
+          if (rewardRefreshed && typeof onAuthChange === 'function') onAuthChange(rewardRefreshed);
+        }
+      }
+
       setEditSuccess('Profil berhasil diperbarui.');
       updateEp('newPassword', '');
       updateEp('confirmPassword', '');
