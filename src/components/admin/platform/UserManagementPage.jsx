@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ban, KeyRound, Mail, Plus, RefreshCw, Shield, UserCog, UserPlus, UserRoundX, Users } from 'lucide-react';
+import { KeyRound, Mail, Plus, RefreshCw, Shield, UserCog, UserPlus, Users } from 'lucide-react';
 import AdminLayout, { ActionButton, EmptyState, Field, Modal, StatCard, inputCls, selectCls } from '../AdminLayout.jsx';
 import { supabase } from '../../../config/supabase.js';
 
@@ -19,6 +19,12 @@ const DEFAULT_CREATE_FORM = {
   confirmPassword: '',
   role: 'general_user',
 };
+
+const MODERATION_DISABLE_OPTIONS = [
+  { hours: 24, label: 'Nonaktifkan 1x24 jam' },
+  { hours: 72, label: 'Nonaktifkan 3x24 jam' },
+  { hours: 168, label: 'Nonaktifkan 7x24 jam' },
+];
 
 function csvEscape(value) {
   const text = String(value ?? '');
@@ -72,6 +78,23 @@ function normalizeRoleLabel(role) {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function getModerationOptions(user) {
+  const isBlocked = Boolean(user?.is_blocked);
+  const isDisabled = Boolean(user?.is_disabled);
+
+  if (isBlocked || isDisabled) {
+    return [{ value: 'reactivate', label: 'Aktifkan kembali' }];
+  }
+
+  return [
+    { value: 'block', label: 'Blokir' },
+    ...MODERATION_DISABLE_OPTIONS.map((option) => ({
+      value: `disable-${option.hours}`,
+      label: option.label,
+    })),
+  ];
 }
 
 export default function UserManagementPage({ auth, onBack, onNav }) {
@@ -386,9 +409,10 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
     try {
       const { error } = await supabase.rpc('admin_set_user_moderation', {
         p_user_id: moderationTarget.user_id,
-        p_is_blocked: moderationTarget.nextBlocked,
-        p_is_disabled: moderationTarget.nextDisabled,
-        p_reason: moderationReason,
+        p_is_blocked: moderationTarget.mode === 'block',
+        p_is_disabled: moderationTarget.mode === 'disable',
+        p_disabled_hours: moderationTarget.mode === 'disable' ? moderationTarget.disabledHours : null,
+        p_reason: moderationTarget.mode === 'reactivate' ? null : moderationReason,
       });
 
       if (error) throw error;
@@ -397,15 +421,26 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
         if (user.user_id !== moderationTarget.user_id) return user;
         return {
           ...user,
-          is_blocked: moderationTarget.nextBlocked,
-          is_disabled: moderationTarget.nextDisabled,
-          moderation_reason: moderationReason.trim() || null,
+          is_blocked: moderationTarget.mode === 'block',
+          is_disabled: moderationTarget.mode === 'disable',
+          moderation_reason: moderationTarget.mode === 'reactivate' ? null : moderationReason.trim() || null,
+          disabled_until: moderationTarget.mode === 'disable'
+            ? new Date(Date.now() + (moderationTarget.disabledHours * 60 * 60 * 1000)).toISOString()
+            : null,
         };
       }));
 
       setModerationTarget(null);
       setModerationReason('');
-      setFeedback({ type: 'success', message: 'Status akun berhasil diperbarui.' });
+      setFeedback({
+        type: 'success',
+        message:
+          moderationTarget.mode === 'block'
+            ? 'Akun berhasil diblokir sampai super admin mengaktifkan kembali.'
+            : moderationTarget.mode === 'disable'
+              ? `Akun berhasil dinonaktifkan selama ${moderationTarget.durationLabel}.`
+              : 'Akun berhasil diaktifkan kembali.',
+      });
     } catch (err) {
       console.error('Failed to update moderation status:', err);
       setFeedback({ type: 'error', message: `Gagal memperbarui status akun: ${err.message || 'Terjadi kesalahan.'}` });
@@ -470,14 +505,19 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
   async function handleDeleteUser() {
     if (!deleteConfirmTarget) return;
 
+    if (deleteConfirmTarget.user_id === auth?.id) {
+      setFeedback({ type: 'error', message: 'Akun sendiri tidak bisa dihapus dari halaman ini.' });
+      return;
+    }
+
     setDeleteLoading(true);
     try {
-      // Delete user dari Supabase Auth
-      const { error } = await supabase.auth.admin.deleteUser(deleteConfirmTarget.user_id);
+      const { error } = await supabase.rpc('admin_delete_user_account', {
+        p_user_id: deleteConfirmTarget.user_id,
+      });
 
       if (error) throw error;
 
-      // Remove user dari state
       setUsers((prev) => prev.filter((user) => user.user_id !== deleteConfirmTarget.user_id));
 
       setDeleteConfirmTarget(null);
@@ -492,6 +532,50 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
       setDeleteLoading(false);
     }
   }
+
+  const openModerationAction = useCallback((user, actionValue) => {
+    const userName = user.full_name || user.email || 'User';
+
+    if (actionValue === 'block') {
+      setModerationTarget({
+        user_id: user.user_id,
+        user_name: userName,
+        mode: 'block',
+        actionLabel: 'Blokir Akun',
+        actionSummary: 'Akun akan diblokir sampai super admin mengaktifkan kembali.',
+      });
+      setModerationReason('');
+      return;
+    }
+
+    if (actionValue === 'reactivate') {
+      setModerationTarget({
+        user_id: user.user_id,
+        user_name: userName,
+        mode: 'reactivate',
+        actionLabel: 'Aktifkan Kembali',
+        actionSummary: 'Akun akan kembali aktif dan status blokir/nonaktif dihapus.',
+      });
+      setModerationReason('');
+      return;
+    }
+
+    if (actionValue.startsWith('disable-')) {
+      const disabledHours = Number(actionValue.replace('disable-', ''));
+      const selectedOption = MODERATION_DISABLE_OPTIONS.find((option) => option.hours === disabledHours);
+
+      setModerationTarget({
+        user_id: user.user_id,
+        user_name: userName,
+        mode: 'disable',
+        disabledHours,
+        durationLabel: selectedOption?.label || `${Math.round(disabledHours / 24)}x24 jam`,
+        actionLabel: selectedOption?.label || 'Nonaktifkan Akun',
+        actionSummary: `Akun akan dinonaktifkan selama ${selectedOption?.label || `${Math.round(disabledHours / 24)}x24 jam`} dan aktif kembali otomatis setelah waktu habis.`,
+      });
+      setModerationReason('');
+    }
+  }, []);
 
   async function handleCreateUser(event) {
     event.preventDefault();
@@ -975,52 +1059,31 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
                           : '-'}
                       </td>
                       <td className="px-4 py-4 min-w-[220px]">
-                        <div className="flex flex-wrap gap-2">
-                          <ActionButton
-                            variant={isBlocked ? 'outline' : 'danger'}
-                            size="sm"
-                            disabled={isSelf}
-                            onClick={() => {
-                              setModerationTarget({
-                                user_id: user.user_id,
-                                user_name: user.full_name || user.email,
-                                actionLabel: isBlocked ? 'Buka Blokir' : 'Blokir Akun',
-                                nextBlocked: !isBlocked,
-                                nextDisabled: isDisabled,
-                              });
-                              setModerationReason('');
-                            }}
-                          >
-                            <Ban size={14} /> {isBlocked ? 'Buka Blokir' : 'Blokir'}
-                          </ActionButton>
-                          <ActionButton
-                            variant={isDisabled ? 'outline' : 'danger'}
-                            size="sm"
-                            disabled={isSelf}
-                            onClick={() => {
-                              setModerationTarget({
-                                user_id: user.user_id,
-                                user_name: user.full_name || user.email,
-                                actionLabel: isDisabled ? 'Aktifkan Akun' : 'Nonaktifkan Akun',
-                                nextBlocked: isBlocked,
-                                nextDisabled: !isDisabled,
-                              });
-                              setModerationReason('');
-                            }}
-                          >
-                            <UserRoundX size={14} /> {isDisabled ? 'Aktifkan' : 'Nonaktifkan'}
-                          </ActionButton>
-                          <ActionButton
-                            variant="danger"
-                            size="sm"
-                            disabled={isSelf}
-                            onClick={() => {
+                        <select
+                          className={selectCls}
+                          value=""
+                          disabled={isSelf}
+                          onChange={(event) => {
+                            const actionValue = event.target.value;
+                            event.target.value = '';
+
+                            if (!actionValue) return;
+                            if (actionValue === 'delete') {
                               setDeleteConfirmTarget(user);
-                            }}
-                          >
-                            Hapus
-                          </ActionButton>
-                        </div>
+                              return;
+                            }
+
+                            openModerationAction(user, actionValue);
+                          }}
+                        >
+                          <option value="">{isSelf ? 'Aksi tidak tersedia' : 'Pilih aksi...'}</option>
+                          {getModerationOptions(user).map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                          <option value="delete">Hapus permanen</option>
+                        </select>
                       </td>
                     </tr>
                   );
@@ -1059,6 +1122,9 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
               Anda akan melakukan aksi <span className="font-semibold text-neutral-900">{moderationTarget.actionLabel}</span> untuk user
               <span className="font-semibold text-neutral-900"> {moderationTarget.user_name}</span>.
             </p>
+            <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-700">
+              {moderationTarget.actionSummary}
+            </div>
             <Field label="Alasan" hint="Opsional, tetapi disarankan untuk audit.">
               <textarea
                 className={inputCls}
@@ -1194,7 +1260,7 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
                 <span className="font-semibold">Perhatian!</span> Anda akan menghapus user <span className="font-semibold">{deleteConfirmTarget.full_name || deleteConfirmTarget.email}</span> secara permanen.
               </p>
               <p className="text-xs text-red-800 mt-2">
-                Tindakan ini tidak dapat dibatalkan. Semua data pengguna akan dihapus dari sistem.
+                Tindakan ini tidak dapat dibatalkan. Semua data pengguna dan riwayatnya akan dihapus dari sistem.
               </p>
             </div>
 

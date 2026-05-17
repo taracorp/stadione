@@ -7,6 +7,8 @@
 - Tester: GitHub Copilot (agent)
 - Build/commit referensi: build lokal `npm run build` PASS
 - Catatan umum: Uji dilakukan via browser lokal pada `http://localhost:5173`.
+- Script rollout SQL: [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
+- Smoke SQL rollout: [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
 
 ## Akun Uji
 
@@ -87,6 +89,46 @@
 - Actual: Akses non-super-admin tidak menampilkan form create dan backend guard tetap aktif.
 - Status: PASS
 - Bukti: UI restriction pada internal admin + verifikasi RPC guard di SQL.
+
+1. Dropdown aksi user management
+
+- Langkah: Buka kolom `Aksi` pada satu user target.
+- Expected: Tampil satu dropdown pilihan, bukan tiga tombol terpisah.
+- Actual:
+- Status:
+- Bukti:
+
+1. Blokir permanen sampai diaktifkan kembali
+
+- Langkah: Pilih `Blokir`, isi alasan, lalu submit.
+- Expected: Status user berubah menjadi `Diblokir` tanpa expiry otomatis.
+- Actual:
+- Status:
+- Bukti:
+
+1. Nonaktifkan 1x24 jam
+
+- Langkah: Pilih `Nonaktifkan 1x24 jam`, isi alasan, lalu submit.
+- Expected: Status user berubah menjadi `Nonaktif` dan kolom backend `disabled_until` terisi sekitar +24 jam.
+- Actual:
+- Status:
+- Bukti:
+
+1. Aktifkan kembali user
+
+- Langkah: Pada user berstatus `Diblokir` atau `Nonaktif`, pilih `Aktifkan kembali`.
+- Expected: Status kembali `Aktif`, block/disable hilang.
+- Actual:
+- Status:
+- Bukti:
+
+1. Hapus permanen user
+
+- Langkah: Pilih `Hapus permanen`, konfirmasi modal hapus.
+- Expected: User hilang dari daftar dan data user + riwayat terhapus permanen.
+- Actual:
+- Status:
+- Bukti:
 
 ## Mapping ke Deploy Report
 

@@ -14,6 +14,9 @@
 - QA smoke SQL
 - Verifikasi aplikasi
 - Hardening User Management create user (super-admin only)
+- User Management action dropdown (blokir, nonaktifkan, hapus)
+- Timed disable rollout (`disabled_until`)
+- Permanent delete RPC rollout (`admin_delete_user_account`)
 
 ## Eksekusi SQL
 
@@ -46,6 +49,18 @@
 - Status: PASS
 - Waktu eksekusi: 2026-05-17
 - Catatan error (jika ada): Tidak ada
+
+1. Script disiapkan: [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
+
+- Status: PENDING EXECUTION
+- Waktu eksekusi: Pending
+- Catatan error (jika ada): Rollout incremental untuk dropdown aksi user management, blokir permanen, nonaktif berjangka, dan hapus permanen.
+
+1. Script disiapkan: [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
+
+- Status: PENDING EXECUTION
+- Waktu eksekusi: Pending
+- Catatan error (jika ada): Smoke SQL untuk verifikasi signature RPC moderation baru, kolom `disabled_until`, dan keberadaan RPC hapus permanen.
 
 ## Hasil Query Inti
 
@@ -104,6 +119,7 @@ LIMIT 1;
 1. Verification Queue terbuka sesuai role: PASS
 1. Forbidden state tampil normal untuk akses tidak berizin: PASS
 1. User Management create user hanya untuk super admin: PASS
+1. User Management dropdown aksi blokir/nonaktifkan/hapus: PENDING DB ROLLOUT
 
 Catatan bukti uji manual:
 
@@ -140,6 +156,8 @@ Update sampling persona tambahan:
 - Deploy diterima: GO
 - Alasan: Hardening backend/frontend lulus, guard SQL super-admin-only tervalidasi, dan verifikasi lintas halaman admin prioritas selesai PASS.
 - Tindak lanjut:
+  - Jalankan rollout baru [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
+  - Jalankan smoke check baru [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
   - Jalankan checklist manual pada [ROLE_ACCESS_QA_CHECKLIST.md](ROLE_ACCESS_QA_CHECKLIST.md)
   - Eksekusi runsheet manual pada [USER_MANAGEMENT_SUPER_ADMIN_QA_RUNSHEET.md](USER_MANAGEMENT_SUPER_ADMIN_QA_RUNSHEET.md)
   - Audit mapping compatibility role `eo_operator` agar konsisten dengan policy matrix yang disepakati
@@ -151,6 +169,8 @@ Update sampling persona tambahan:
 - Checklist QA role access: [ROLE_ACCESS_QA_CHECKLIST.md](ROLE_ACCESS_QA_CHECKLIST.md)
 - Runsheet QA user management: [USER_MANAGEMENT_SUPER_ADMIN_QA_RUNSHEET.md](USER_MANAGEMENT_SUPER_ADMIN_QA_RUNSHEET.md)
 - Smoke SQL role access: [scripts/qa-role-access-smoke.sql](scripts/qa-role-access-smoke.sql)
+- Smoke SQL user actions: [scripts/qa-super-admin-user-management-actions.sql](scripts/qa-super-admin-user-management-actions.sql)
 - Perubahan UI create-user guard: [src/components/admin/platform/UserManagementPage.jsx](src/components/admin/platform/UserManagementPage.jsx)
 - Perubahan SQL schema: [supabase-schema.sql](supabase-schema.sql)
 - Script hardening SQL: [scripts/super-admin-user-management.sql](scripts/super-admin-user-management.sql)
+- Script rollout user actions: [scripts/rollout-super-admin-user-actions.sql](scripts/rollout-super-admin-user-actions.sql)
