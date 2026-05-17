@@ -132,20 +132,26 @@ function Sidebar({ activePage, onNav, venueName, sidebarOpen, onClose }) {
                 </p>
                 {items.map(({ key, label, icon: Icon }) => {
                   const active = activePage === key;
+                  const badge = navBadges[key] || 0;
                   return (
                     <button
                       key={key}
                       onClick={() => { onNav(key); onClose(); }}
                       className={`
-                        w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition mb-0.5
+                        relative w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition mb-0.5
                         ${active
                           ? 'bg-emerald-50 text-emerald-700'
-                          : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'}
+                          : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'}}
                       `}
                     >
                       <Icon size={15} />
                       {label}
                       {active && <ChevronRight size={13} className="ml-auto text-emerald-500" />}
+                      {badge > 0 && (
+                        <span className="ml-auto px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-bold">
+                          {badge}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -164,6 +170,7 @@ export default function VenueWorkspacePage({ auth, onBack, onNav: parentNav }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [venue, setVenue] = useState(null);
   const [loadingVenue, setLoadingVenue] = useState(true);
+  const [navBadges, setNavBadges] = useState({});
 
   useEffect(() => {
     if (!auth?.id) return;
@@ -198,7 +205,20 @@ export default function VenueWorkspacePage({ auth, onBack, onNav: parentNav }) {
         setLoadingVenue(false);
       }
     }
+    async function loadPendingCounts() {
+      try {
+        const [{ count: maintenance }] = await Promise.all([
+          supabase.from('venue_maintenance').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        ]);
+        setNavBadges({
+          maintenance: maintenance || 0,
+        });
+      } catch (err) {
+        console.error('VenueWorkspacePage pending counts error:', err);
+      }
+    }
     loadVenue();
+    loadPendingCounts();
   }, [auth?.id]);
 
   const activeLabel = NAV_ITEMS.find((n) => n.key === activePage)?.label || '';

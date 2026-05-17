@@ -84,17 +84,23 @@ export default function OfficialCenterPage({ auth, onBack, onNav }) {
       <div className="grid lg:grid-cols-2 gap-4">
         {actions.map((action) => {
           const Icon = action.icon;
+          const badge = action.key === 'official-schedule' ? stats.assigned : 0;
           return (
             <button
               key={action.key}
               onClick={() => onNav(action.key)}
-              className="w-full rounded-3xl border border-neutral-200 bg-white p-6 text-left hover:border-neutral-900 transition"
+              className="relative w-full rounded-3xl border border-neutral-200 bg-white p-6 text-left hover:border-neutral-900 transition"
             >
               <div className="w-12 h-12 rounded-2xl bg-neutral-900 text-white flex items-center justify-center mb-4">
                 <Icon size={18} />
               </div>
               <div className="font-display text-2xl text-neutral-900 mb-2">{action.label}</div>
               <p className="text-sm text-neutral-500 leading-relaxed">{action.sub}</p>
+              {badge > 0 && (
+                <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+                  {badge > 99 ? '99+' : badge}
+                </div>
+              )}
             </button>
           );
         })}

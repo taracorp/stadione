@@ -7,6 +7,8 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
   const [stats, setStats] = useState({ users: 0, tournaments: 0, communities: 0, articles: 0 });
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
+  const [pendingModeration, setPendingModeration] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -17,6 +19,8 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
           { count: communities },
           { count: articles },
           { data: activity },
+          { count: verifyCount },
+          { count: moderationCount },
         ] = await Promise.all([
           supabase.from('user_stats').select('*', { count: 'exact', head: true }),
           supabase.from('tournaments').select('*', { count: 'exact', head: true }),
@@ -27,6 +31,14 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
             .select('id,activity_title,activity_description,activity_type,activity_date,activity_category')
             .order('created_at', { ascending: false })
             .limit(8),
+          supabase
+            .from('tournament_verification_requests')
+            .select('id', { count: 'exact', head: true })
+            .in('status', ['pending', 'under_review']),
+          supabase
+            .from('content_reports')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending'),
         ]);
         setStats({
           users: users || 0,
@@ -35,6 +47,8 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
           articles: articles || 0,
         });
         setRecentActivity(activity || []);
+        setPendingVerifications(verifyCount || 0);
+        setPendingModeration(moderationCount || 0);
       } catch (err) {
         console.error('PlatformDashboard load error:', err);
       } finally {
@@ -45,14 +59,14 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
   }, []);
 
   const quickActions = [
-    { label: 'Dashboard', kicker: 'Platform', icon: BarChart3, active: true, onClick: null },
-    { label: 'Newsroom', kicker: 'Platform', icon: Newspaper, onClick: () => onNav('newsroom') },
-    { label: 'Moderasi', kicker: 'Platform', icon: ShieldCheck, onClick: () => onNav('moderation') },
-    { label: 'Analytics', kicker: 'Platform', icon: TrendingUp, onClick: () => onNav('analytics') },
-    { label: 'Verifikasi', kicker: 'Platform', icon: Sparkles, onClick: () => onNav('admin-verification-queue') },
-    { label: 'User Management', kicker: 'Platform', icon: UserCog, onClick: () => onNav('user-management') },
-    { label: 'Promo Platform', kicker: 'Platform', icon: Tag, onClick: () => onNav('platform-promo') },
-    { label: 'Promo Sponsor', kicker: 'Platform', icon: Tag, onClick: () => onNav('sponsor-promo') },
+    { label: 'Dashboard', kicker: 'Platform', icon: BarChart3, active: true, onClick: null, badge: 0 },
+    { label: 'Newsroom', kicker: 'Platform', icon: Newspaper, onClick: () => onNav('newsroom'), badge: 0 },
+    { label: 'Moderasi', kicker: 'Platform', icon: ShieldCheck, onClick: () => onNav('moderation'), badge: pendingModeration },
+    { label: 'Analytics', kicker: 'Platform', icon: TrendingUp, onClick: () => onNav('analytics'), badge: 0 },
+    { label: 'Verifikasi', kicker: 'Platform', icon: Sparkles, onClick: () => onNav('admin-verification-queue'), badge: pendingVerifications },
+    { label: 'User Management', kicker: 'Platform', icon: UserCog, onClick: () => onNav('user-management'), badge: 0 },
+    { label: 'Promo Platform', kicker: 'Platform', icon: Tag, onClick: () => onNav('platform-promo'), badge: 0 },
+    { label: 'Promo Sponsor', kicker: 'Platform', icon: Tag, onClick: () => onNav('sponsor-promo'), badge: 0 },
   ];
 
   const activityTypeMap = {
@@ -81,13 +95,18 @@ export default function PlatformDashboard({ auth, onBack, onNav }) {
               key={qa.label}
               onClick={qa.onClick}
               disabled={qa.active}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold border transition
+              className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold border transition
                 ${qa.active
                   ? 'bg-neutral-900 text-white border-neutral-900'
                   : 'bg-white text-neutral-700 border-neutral-200 hover:border-neutral-900 hover:text-neutral-900'}`}
             >
               <Icon size={14} />
               {qa.label}
+              {qa.badge > 0 && (
+                <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+                  {qa.badge > 99 ? '99+' : qa.badge}
+                </span>
+              )}
             </button>
           );
         })}

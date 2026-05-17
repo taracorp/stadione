@@ -156,7 +156,14 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
         <StatCard label="Total Sponsor" value={loading ? '—' : sponsors.length} icon={Star} accent="emerald" />
         <StatCard label="Kontrak Aktif" value={loading ? '—' : active} icon={Check} accent="blue" />
         <StatCard label="Segera Expired" value={loading ? '—' : expiringSoon} icon={AlertCircle} accent="amber" />
-        <StatCard label="Request Partnership" value={loading ? '—' : pendingApplications} icon={AlertCircle} accent="violet" />
+        <div className="relative">
+          <StatCard label="Request Partnership" value={loading ? '—' : pendingApplications} icon={AlertCircle} accent="violet" />
+          {pendingApplications > 0 && (
+            <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
+              {pendingApplications > 99 ? '99+' : pendingApplications}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Partnership applications */}
