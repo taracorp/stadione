@@ -99,6 +99,9 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
   const [sortConfig, setSortConfig] = useState(initialPrefs.sortConfig);
   const [createForm, setCreateForm] = useState(DEFAULT_CREATE_FORM);
   const [createLoading, setCreateLoading] = useState(false);
+  const [verificationReviewTarget, setVerificationReviewTarget] = useState(null);
+  const [verificationApprovalLoading, setVerificationApprovalLoading] = useState(false);
+  const [verificationApprovalNotes, setVerificationApprovalNotes] = useState('');
 
   const applyUserSnapshot = useCallback((nextUsers = [], options = {}) => {
     setUsers((prevUsers) => {
@@ -406,6 +409,59 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
       setFeedback({ type: 'error', message: `Gagal memperbarui status akun: ${err.message || 'Terjadi kesalahan.'}` });
     } finally {
       setModerationLoading(false);
+    }
+  }
+
+  async function handleVerificationApproval(approve = true) {
+    if (!verificationReviewTarget) return;
+
+    setVerificationApprovalLoading(true);
+    try {
+      const newStatus = approve ? 'verified' : 'rejected';
+      const notes = verificationApprovalNotes.trim();
+
+      // Update user metadata dengan status verifikasi baru
+      const { error } = await supabase.auth.admin.updateUserById(verificationReviewTarget.user_id, {
+        user_metadata: {
+          ...verificationReviewTarget.user_metadata,
+          verification_status: newStatus,
+          verification_reviewed_at: new Date().toISOString(),
+          verification_reviewed_by: auth?.id || '',
+          verification_admin_notes: notes,
+        },
+      });
+
+      if (error) throw error;
+
+      // Update user di state
+      setUsers((prev) => prev.map((user) => {
+        if (user.user_id !== verificationReviewTarget.user_id) return user;
+        return {
+          ...user,
+          user_metadata: {
+            ...user.user_metadata,
+            verification_status: newStatus,
+            verification_reviewed_at: new Date().toISOString(),
+            verification_reviewed_by: auth?.id || '',
+            verification_admin_notes: notes,
+          },
+        };
+      }));
+
+      setVerificationReviewTarget(null);
+      setVerificationApprovalNotes('');
+      setFeedback({
+        type: 'success',
+        message: approve ? 'Member berhasil di-verifikasi.' : 'Verifikasi member berhasil ditolak.',
+      });
+    } catch (err) {
+      console.error('Failed to update verification status:', err);
+      setFeedback({
+        type: 'error',
+        message: `Gagal memperbarui status verifikasi: ${err.message || 'Terjadi kesalahan.'}`,
+      });
+    } finally {
+      setVerificationApprovalLoading(false);
     }
   }
 
@@ -784,6 +840,7 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
                       Status <span className="text-[10px] opacity-60">{getSortMarker('status')}</span>
                     </button>
                   </th>
+                  <th className="px-4 py-3">Verifikasi Member</th>
                   <th className="px-4 py-3">
                     <button onClick={() => handleSort('last_sign_in_at')} className="inline-flex items-center gap-1 hover:text-neutral-900 transition">
                       Last Sign In <span className="text-[10px] opacity-60">{getSortMarker('last_sign_in_at')}</span>
@@ -847,6 +904,42 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
                         {user.moderation_reason && (
                           <p className="text-xs text-neutral-500 mt-2">Alasan: {user.moderation_reason}</p>
                         )}
+                      </td>
+                      <td className="px-4 py-4 min-w-[200px]">
+                        {(() => {
+                          const verificationStatus = user.user_metadata?.verification_status || 'none';
+                          const verificationBadgeColor = 
+                            verificationStatus === 'verified' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                            verificationStatus === 'rejected' ? 'bg-red-100 text-red-700 border-red-200' :
+                            verificationStatus === 'pending' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                            'bg-gray-100 text-gray-700 border-gray-200';
+                          
+                          const verificationLabel =
+                            verificationStatus === 'verified' ? 'Terverifikasi' :
+                            verificationStatus === 'rejected' ? 'Ditolak' :
+                            verificationStatus === 'pending' ? 'Pending' :
+                            'Belum Upload';
+
+                          return (
+                            <>
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-[0.12em] border ${verificationBadgeColor}`}>
+                                {verificationLabel}
+                              </span>
+                              {verificationStatus === 'pending' && (
+                                <ActionButton
+                                  size="sm"
+                                  className="mt-2"
+                                  onClick={() => {
+                                    setVerificationReviewTarget(user);
+                                    setVerificationApprovalNotes('');
+                                  }}
+                                >
+                                  Review
+                                </ActionButton>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-4 min-w-[180px] text-xs text-neutral-500">
                         {user.last_sign_in_at
@@ -950,6 +1043,98 @@ export default function UserManagementPage({ auth, onBack, onNav }) {
               </ActionButton>
               <ActionButton onClick={handleSubmitModeration} loading={moderationLoading}>
                 Konfirmasi
+              </ActionButton>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(verificationReviewTarget)}
+        onClose={() => {
+          if (verificationApprovalLoading) return;
+          setVerificationReviewTarget(null);
+          setVerificationApprovalNotes('');
+        }}
+        title="Review Verifikasi Member"
+      >
+        {verificationReviewTarget && (
+          <div className="space-y-6">
+            <div>
+              <div className="text-sm font-semibold text-neutral-900">Data Member</div>
+              <div className="mt-3 space-y-2 text-sm">
+                <div><span className="text-neutral-600">Nama:</span> <span className="font-semibold">{verificationReviewTarget.full_name || '-'}</span></div>
+                <div><span className="text-neutral-600">Email:</span> <span className="font-semibold">{verificationReviewTarget.email || '-'}</span></div>
+                <div><span className="text-neutral-600">Status Akun:</span> <span className="font-semibold">{mapUserStatus(verificationReviewTarget)}</span></div>
+              </div>
+            </div>
+
+            {verificationReviewTarget.user_metadata?.submission_data && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-900 mb-3">Data Form yang Disubmit</div>
+                <div className="bg-neutral-50 rounded-lg p-4 space-y-2 text-sm">
+                  {Object.entries(verificationReviewTarget.user_metadata.submission_data).map(([key, value]) => (
+                    <div key={key} className="flex justify-between">
+                      <span className="text-neutral-600 capitalize">{String(key).replace(/_/g, ' ')}:</span>
+                      <span className="font-semibold text-neutral-900">{String(value || '-')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {verificationReviewTarget.user_metadata?.ktp_url && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-900 mb-3">Foto KTP</div>
+                <div className="rounded-lg overflow-hidden border border-neutral-200 bg-neutral-50">
+                  <img src={verificationReviewTarget.user_metadata.ktp_url} alt="KTP" className="w-full h-auto max-h-[300px] object-cover" />
+                </div>
+              </div>
+            )}
+
+            {verificationReviewTarget.user_metadata?.selfie_url && (
+              <div>
+                <div className="text-sm font-semibold text-neutral-900 mb-3">Foto Selfie</div>
+                <div className="rounded-lg overflow-hidden border border-neutral-200 bg-neutral-50">
+                  <img src={verificationReviewTarget.user_metadata.selfie_url} alt="Selfie" className="w-full h-auto max-h-[300px] object-cover" />
+                </div>
+              </div>
+            )}
+
+            <Field label="Catatan Approval" hint="Opsional, untuk dokumentasi keputusan verifikasi.">
+              <textarea
+                className={inputCls}
+                rows={3}
+                value={verificationApprovalNotes}
+                onChange={(event) => setVerificationApprovalNotes(event.target.value)}
+                placeholder="Masukkan catatan untuk verifikasi ini..."
+              />
+            </Field>
+
+            <div className="flex gap-2 justify-end">
+              <ActionButton
+                variant="outline"
+                onClick={() => {
+                  if (verificationApprovalLoading) return;
+                  setVerificationReviewTarget(null);
+                  setVerificationApprovalNotes('');
+                }}
+                disabled={verificationApprovalLoading}
+              >
+                Batal
+              </ActionButton>
+              <ActionButton
+                variant="danger"
+                onClick={() => handleVerificationApproval(false)}
+                loading={verificationApprovalLoading}
+              >
+                Tolak
+              </ActionButton>
+              <ActionButton
+                onClick={() => handleVerificationApproval(true)}
+                loading={verificationApprovalLoading}
+              >
+                Setujui
               </ActionButton>
             </div>
           </div>
