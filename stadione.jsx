@@ -8,7 +8,7 @@ import {
   Circle, Sparkles, ChevronDown, MoveRight,
   LogOut, User, MessageSquare, Wallet, BarChart3,
   Edit3, ArrowLeft, MessageCircle, ChevronLeft, Settings,
-  Twitter, Facebook, Linkedin, Share2, Bookmark, Check
+  Twitter, Facebook, Linkedin, Share2, Bookmark, Check, Heart, Upload
 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -31,7 +31,7 @@ import {
   QuizResultToast
 } from './src/components/GamificationUI.jsx';
 import { registerTournamentPlayer, submitGeneratedQuizAttempt, hasTriviaAttempt } from './src/services/gamificationService.js';
-import { fetchCurrentUserActiveContext, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
+import { fetchCurrentUserActiveContext, fetchCurrentUserModerationStatus, fetchCurrentUserPermissions, fetchCurrentUserRoleProfiles, fetchCurrentUserRoles, recordVenueBooking, recordActivityToLog, switchCurrentUserActiveContext } from './src/services/supabaseService.js';
 import { fetchRegistrationWorkspaceContext } from './src/services/registrationService.js';
 import { canAccessAdminPage, deriveConsoleAccess, getOfficialMatchCapabilities, PAGE_ACCESS } from './src/utils/permissions.js';
 import { getUserRoleBadges, normalizeRoles } from './src/utils/roles.js';
@@ -54,6 +54,9 @@ const AnalyticsPage = lazy(() => import('./src/components/admin/platform/Analyti
 const ModerationPage = lazy(() => import('./src/components/admin/platform/ModerationPage.jsx'));
 const NewsroomPage = lazy(() => import('./src/components/admin/platform/NewsroomPage.jsx'));
 const VerificationQueuePage = lazy(() => import('./src/components/admin/platform/VerificationQueuePage.jsx'));
+const UserManagementPage = lazy(() => import('./src/components/admin/platform/UserManagementPage.jsx'));
+const PlatformPromoPage = lazy(() => import('./src/components/admin/platform/PlatformPromoPage.jsx'));
+const SponsorPromoPage = lazy(() => import('./src/components/admin/platform/SponsorPromoPage.jsx'));
 const WorkspaceConsolePage = lazy(() => import('./src/components/admin/workspace/WorkspaceConsolePage.jsx'));
 const CommunityManagerPage = lazy(() => import('./src/components/admin/workspace/CommunityManagerPage.jsx'));
 const SponsorManagerPage = lazy(() => import('./src/components/admin/workspace/SponsorManagerPage.jsx'));
@@ -68,7 +71,11 @@ const MatchCenterPage = lazy(() => import('./src/components/admin/official/Match
 const MatchReportPage = lazy(() => import('./src/components/admin/official/MatchReportPage.jsx'));
 const MatchStatisticsPage = lazy(() => import('./src/components/admin/official/MatchStatisticsPage.jsx'));
 const QuickRegistrationModal = lazy(() => import('./src/components/QuickRegistrationModal.jsx'));
+const PartnershipPage = lazy(() => import('./src/components/PartnershipPage.jsx'));
 const TeamWorkspaceModal = lazy(() => import('./src/components/TeamWorkspaceModal.jsx'));
+const TrainingEcosystem = lazy(() => import('./src/components/training/TrainingEcosystem.jsx'));
+const CommunityDiscoveryPage = lazy(() => import('./src/components/community/CommunityDiscoveryPage.jsx'));
+const CommunityDetailPage = lazy(() => import('./src/components/community/CommunityDetailPage.jsx'));
 
 // ============ DATA ============
 const VENUES = [
@@ -129,31 +136,6 @@ const TOURNAMENTS = [
     color: '#EA580C', host: 'Komunitas TM Jakarta', participants: 12
   },
 ];
-
-const NEWS = [
-  { id: 1, category: 'Sepakbola', title: 'Timnas U-23 Cetak Sejarah, Lolos Final Piala AFF', excerpt: 'Garuda Muda menundukkan Vietnam 2-1 lewat gol dramatis di babak tambahan.', author: 'Rendy Pratama', date: '07 Mei 2026', read: '4 mnt', featured: true, color: '#E11D2E' },
-  { id: 2, category: 'Futsal', title: 'Liga Futsal Profesional Resmi Bergulir Bulan Depan', excerpt: 'Format baru, 16 klub, hadiah total 2 miliar rupiah.', author: 'Maya Hartono', date: '06 Mei 2026', read: '3 mnt', color: '#92400E' },
-  { id: 3, category: 'Badminton', title: 'Jonatan Christie Juara Singapore Open 2026', excerpt: 'Comeback dramatis dari set pertama untuk mengamankan gelar.', author: 'Bagas Nurhakim', date: '05 Mei 2026', read: '5 mnt', color: '#B91C1C' },
-  { id: 4, category: 'Padel', title: 'Demam Padel Indonesia: 200+ Klub Baru di 2026', excerpt: 'Olahraga raket asal Spanyol ini meledak popularitasnya.', author: 'Sarah Kusuma', date: '04 Mei 2026', read: '6 mnt', color: '#1F3A8A' },
-  { id: 5, category: 'Esports', title: 'MPL Season 13 Catat Penonton Tertinggi Sepanjang Sejarah', excerpt: 'Final EVOS vs RRQ tembus 5 juta concurrent viewers.', author: 'Dimas Pradana', date: '04 Mei 2026', read: '4 mnt', color: '#7C3AED' },
-  { id: 6, category: 'Tennis', title: 'Indonesia Open Tennis Datangkan Pemain Top 50 Dunia', excerpt: 'Turnamen ATP Challenger tahun ini lebih bergengsi.', author: 'Lisa Andriani', date: '03 Mei 2026', read: '3 mnt', color: '#15803D' },
-  { id: 7, category: 'Renang', title: 'Atlet Renang Nasional Pecahkan Rekor Asia 200m Gaya Bebas', excerpt: 'Catatan baru di kejuaraan terbuka di Tokyo.', author: 'Aldi Surya', date: '02 Mei 2026', read: '4 mnt', color: '#0E7490' },
-];
-
-const COACHES = [
-  { id: 1, name: 'Coach Bambang Sutrisno', sport: 'Sepakbola', exp: 12, rating: 4.9, sessions: 234, price: 250000, certs: ['AFC C-License', 'Mantan Pemain Persija'], initial: 'BS' },
-  { id: 2, name: 'Coach Ratna Dewi', sport: 'Renang', exp: 8, rating: 4.8, sessions: 412, price: 180000, certs: ['SI Pelatih Nasional', 'Olimpiade 2016'], initial: 'RD' },
-  { id: 3, name: 'Coach Andre Wijaya', sport: 'Padel', exp: 6, rating: 5.0, sessions: 89, price: 350000, certs: ['Padel Pro Spain', 'Top 100 ATP Padel'], initial: 'AW' },
-  { id: 4, name: 'Coach Dewi Lestari', sport: 'Badminton', exp: 15, rating: 4.9, sessions: 567, price: 220000, certs: ['PB Djarum Alumni', 'BWF Coach Level 2'], initial: 'DL' },
-  { id: 5, name: 'Coach Rizky Pratama', sport: 'Futsal', exp: 9, rating: 4.7, sessions: 178, price: 200000, certs: ['AFC Futsal C-License'], initial: 'RP' },
-  { id: 6, name: 'Coach Maria Santoso', sport: 'Tennis', exp: 11, rating: 4.8, sessions: 290, price: 280000, certs: ['ITF Level 2', 'Ex-Davis Cup Coach'], initial: 'MS' },
-  { id: 7, name: 'Coach Hendra Kurniawan', sport: 'Pingpong', exp: 7, rating: 4.6, sessions: 145, price: 150000, certs: ['ITTF Level 1', 'PORDA Champion'], initial: 'HK' },
-  { id: 8, name: 'Coach Galih Eka', sport: 'Esports', exp: 5, rating: 4.9, sessions: 412, price: 120000, certs: ['Mythic Glory ML', 'Coach RRQ Hoshi'], initial: 'GE' },
-];
-
-const SPORTS_BOOK = ['Semua', 'Sepakbola', 'Futsal', 'Renang', 'Padel'];
-const SPORTS_TOURNEY = ['Semua', 'Sepakbola', 'Futsal', 'Badminton', 'Pingpong', 'Tennis', 'Padel', 'Esports'];
-const SPORTS_COACH = ['Semua', 'Sepakbola', 'Futsal', 'Renang', 'Padel', 'Badminton', 'Tennis', 'Pingpong', 'Esports'];
 
 const CHATS = [
   {
@@ -398,16 +380,19 @@ const AccessDeniedPage = ({ title = 'Akses tidak tersedia', description = 'Halam
 );
 
 // ============ HEADER ============
-const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchContext, gamificationStats, statsLoading }) => {
+const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchContext, gamificationStats, statsLoading, communityNotifications = [], communityUnreadById = {}, onOpenCommunityNotification }) => {
   const [open, setOpen] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
+  const [notificationMenu, setNotificationMenu] = useState(false);
   const items = [
     { id: 'booking', label: 'Booking Lapangan' },
     { id: 'tournament', label: 'Turnamen & Liga' },
+    { id: 'community', label: 'Komunitas' },
     { id: 'news', label: 'Berita' },
     { id: 'training', label: 'Pelatihan' },
   ];
   const totalUnread = CHATS.reduce((s, c) => s + (c.unread || 0), 0);
+  const totalCommunityUnread = Object.values(communityUnreadById || {}).reduce((sum, count) => sum + Number(count || 0), 0);
   const activeScope = auth?.activeContext?.context_scope;
   const contextAccess = {
     platform: activeScope ? activeScope === 'platform' : auth?.access?.platform,
@@ -464,6 +449,18 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
           {auth ? (
             <>
               <button
+                onClick={() => { setNotificationMenu((value) => !value); setUserMenu(false); }}
+                className="relative p-2.5 hover:bg-neutral-200 rounded-full"
+                title="Notifikasi komunitas"
+              >
+                <Bell size={18} />
+                {totalCommunityUnread > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[16px] h-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center px-1" style={{ background: '#E11D2E' }}>
+                    {Math.min(totalCommunityUnread, 99)}
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={onChat}
                 className="relative p-2.5 hover:bg-neutral-200 rounded-full"
                 title="Pesan"
@@ -476,7 +473,7 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
                 )}
               </button>
               <button
-                onClick={() => setUserMenu(!userMenu)}
+                onClick={() => { setUserMenu(!userMenu); setNotificationMenu(false); }}
                 className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-white border border-neutral-200 hover:border-neutral-400"
               >
                 <div className="w-8 h-8 rounded-full flex items-center justify-center font-display text-sm text-white" style={{ background: '#E11D2E' }}>
@@ -485,6 +482,51 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
                 <span className="text-sm font-bold hidden md:inline">{auth.name.split(' ')[0]}</span>
                 <ChevronDown size={14} />
               </button>
+              {notificationMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setNotificationMenu(false)} />
+                  <div className="absolute top-full right-16 mt-2 w-[360px] max-w-[calc(100vw-2rem)] bg-white rounded-2xl border border-neutral-200 shadow-xl z-50 overflow-hidden">
+                    <div className="p-4 border-b border-neutral-100 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-sm text-neutral-900">Notifikasi Komunitas</div>
+                        <div className="text-xs text-neutral-500">{totalCommunityUnread} unread dari semua komunitas</div>
+                      </div>
+                      <Bell size={16} className="text-neutral-500" />
+                    </div>
+                    <div className="max-h-[420px] overflow-y-auto">
+                      {communityNotifications.length === 0 ? (
+                        <div className="px-4 py-6 text-sm text-neutral-500">Belum ada notifikasi komunitas.</div>
+                      ) : (
+                        communityNotifications.slice(0, 8).map((item) => {
+                          const unreadForCommunity = Number(communityUnreadById?.[item.communityId] || 0);
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => {
+                                onOpenCommunityNotification?.(item);
+                                setNotificationMenu(false);
+                              }}
+                              className="w-full text-left px-4 py-3 border-b border-neutral-100 hover:bg-neutral-50"
+                            >
+                              <div className="flex items-start justify-between gap-3 mb-1">
+                                <div className="text-xs uppercase tracking-[0.18em] font-black text-neutral-500">{item.communityName || 'Komunitas'}</div>
+                                {unreadForCommunity > 0 && (
+                                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[10px] font-bold text-white" style={{ background: '#E11D2E' }}>
+                                    {unreadForCommunity}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm font-bold text-neutral-900">{item.title}</div>
+                              <div className="mt-1 text-xs text-neutral-600 line-clamp-2">{item.detail}</div>
+                              <div className="mt-2 text-[11px] text-neutral-400">{new Date(item.createdAt).toLocaleString('id-ID')}</div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
               {userMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setUserMenu(false)} />
@@ -542,8 +584,9 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
                         <span className="flex items-center gap-3"><MessageCircle size={14} /> Pesan</span>
                         {totalUnread > 0 && <span className="text-[10px] font-bold text-white px-1.5 rounded-full" style={{ background: '#E11D2E', minWidth: 18, height: 18, lineHeight: '18px' }}>{totalUnread}</span>}
                       </button>
-                      <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
-                        <Bell size={14} /> Notifikasi
+                      <button onClick={() => { setNotificationMenu(true); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3 justify-between">
+                        <span className="flex items-center gap-3"><Bell size={14} /> Notifikasi</span>
+                        {totalCommunityUnread > 0 && <span className="text-[10px] font-bold text-white px-1.5 rounded-full" style={{ background: '#E11D2E', minWidth: 18, height: 18, lineHeight: '18px' }}>{totalCommunityUnread}</span>}
                       </button>
                       <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                         <Settings size={14} /> Pengaturan
@@ -560,9 +603,22 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
                         <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                           <Users size={14} /> Komunitas Saya
                         </button>
-                        <button className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
-                          <Dumbbell size={14} /> Pelatihan Saya
+                        <button onClick={() => { onNav('training-programs'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <Dumbbell size={14} /> Program Pelatihan
                         </button>
+                        <button onClick={() => { onNav('training-academy'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                          <Building2 size={14} /> Discover Academy
+                        </button>
+                        {(auth?.roles || []).map((role) => String(role || '').toLowerCase()).includes('parent') && (
+                          <button onClick={() => { onNav('training-parent'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Heart size={14} /> Parent Dashboard
+                          </button>
+                        )}
+                        {contextAccess.workspace && (
+                          <button onClick={() => { onNav('training-workspace'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
+                            <Settings size={14} /> Training Workspace
+                          </button>
+                        )}
                         {contextAccess.official && (
                           <button onClick={() => { onNav('official-schedule'); setUserMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 flex items-center gap-3">
                             <ShieldCheck size={14} /> Jadwal Saya
@@ -710,9 +766,11 @@ const Header = ({ current, onNav, auth, onOpenAuth, onLogout, onChat, onSwitchCo
 
 // ============ HOME ============
 const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
+  const safeNews = Array.isArray(news) ? news : [];
   const features = [
     { id: 'booking', label: 'BOOKING LAPANGAN', desc: 'Sepakbola, futsal, renang, padel — pesan slot dalam hitungan detik.', count: '500+ Venue', icon: MapPin },
     { id: 'tournament', label: 'TURNAMEN & LIGA', desc: 'Buat turnamen sendiri atau ikut liga dengan klasemen otomatis.', count: '120+ Aktif', icon: Trophy },
+    { id: 'community', label: 'COMMUNITY ECOSYSTEM', desc: 'Temukan komunitas olahraga dari 40+ kategori dengan smart discovery system.', count: '50 Kategori', icon: Users },
     { id: 'news', label: 'BERITA & MEDIA', desc: 'Berita olahraga Indonesia, eksklusif & dipercepat.', count: '24/7 Update', icon: Newspaper },
     { id: 'training', label: 'PELATIHAN', desc: 'Booking pelatih profesional bersertifikasi nasional.', count: '300+ Pelatih', icon: Dumbbell },
   ];
@@ -912,7 +970,7 @@ const HomePage = ({ onNav, venues, tournaments, news, coaches }) => {
           </button>
         </div>
         <div className="grid lg:grid-cols-3 gap-6">
-          {(news && news.length > 0 ? news : NEWS).slice(1, 4).map((n) => (
+          {safeNews.slice(1, 4).map((n) => (
             <article key={n.id} className="cursor-pointer group" onClick={() => onNav('news-detail', n)}>
               <div className="aspect-[4/3] mb-4 relative overflow-hidden grain" style={{ background: n.color }}>
                 <div className="absolute inset-0 flex items-end p-5">
@@ -1588,10 +1646,11 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab, auth, openAuth }) =
 
 // ============ NEWS ============
 const NewsPage = ({ onSelect, news }) => {
-  const featured = (news && news.length > 0 ? news : NEWS).find(n => n.featured);
-  const rest = (news && news.length > 0 ? news : NEWS).filter(n => !n.featured);
+  const safeNews = Array.isArray(news) ? news : [];
+  const featured = safeNews.find(n => n.featured);
+  const rest = safeNews.filter(n => !n.featured);
   const [cat, setCat] = useState('Semua');
-  const cats = ['Semua', ...new Set((news && news.length > 0 ? news : NEWS).map(n => n.category))];
+  const cats = ['Semua', ...new Set(safeNews.map(n => n.category))];
   const filtered = cat === 'Semua' ? rest : rest.filter(n => n.category === cat);
 
   return (
@@ -1813,6 +1872,7 @@ const Footer = ({ onNav, onCoachDashboard }) => (
           <ul className="space-y-2 text-sm">
             <li><button onClick={() => onNav('booking')} className="text-neutral-300 hover:text-white">Booking Lapangan</button></li>
             <li><button onClick={() => onNav('tournament')} className="text-neutral-300 hover:text-white">Turnamen & Liga</button></li>
+            <li><button onClick={() => onNav('community')} className="text-neutral-300 hover:text-white">Komunitas</button></li>
             <li><button onClick={() => onNav('news')} className="text-neutral-300 hover:text-white">Berita</button></li>
             <li><button onClick={() => onNav('training')} className="text-neutral-300 hover:text-white">Pelatihan</button></li>
             <li><button onClick={onCoachDashboard} className="text-[#E11D2E] hover:text-white font-bold">Dashboard Pelatih →</button></li>
@@ -1822,6 +1882,7 @@ const Footer = ({ onNav, onCoachDashboard }) => (
           <div className="text-xs uppercase tracking-wider font-bold text-neutral-500 mb-4">Perusahaan</div>
           <ul className="space-y-2 text-sm">
             <li><span className="text-neutral-300">Tentang Kami</span></li>
+            <li><button onClick={() => onNav('kerjasama')} className="text-neutral-300 hover:text-white">Kerjasama</button></li>
             <li><span className="text-neutral-300">Karir</span></li>
             <li><span className="text-neutral-300">Press Kit</span></li>
             <li><span className="text-neutral-300">Kontak</span></li>
@@ -1861,6 +1922,9 @@ const AUTH_MODAL_MODES = {
 // Base timeouts — generous enough for Vercel → Supabase latency
 const AUTH_REQUEST_TIMEOUT_MS = 25000; // Primary login: 25s (production latency buffer)
 const AUTH_FALLBACK_TIMEOUT_MS = 35000; // Fallback: 35s if primary fails
+const AUTH_LOGIN_PRIMARY_TIMEOUT_MS = 25000; // Avoid premature abort on slow production links
+const AUTH_SET_SESSION_TIMEOUT_MS = 25000; // Allow Supabase session sync to finish on high latency
+const AUTH_DISABLE_CLIENT_TIMEOUT_FOR_PASSWORD = false; // Keep false by default; native signIn path is now primary
 const AUTH_OAUTH_TIMEOUT_MS = 30000; // OAuth: 30s (external services)
 const AUTH_FORGOT_PASSWORD_TIMEOUT_MS = 45000; // Reset password email
 
@@ -1929,10 +1993,13 @@ function hasRecoveryParamsInUrl() {
   const params = getAuthUrlParams();
   const type = String(params.get('type') || '').toLowerCase();
 
+  // Only treat as recovery when `type=recovery` or a dedicated recovery_token is present.
+  // Checking for a bare `access_token` is intentionally removed: the OAuth callback
+  // URL hash also contains an access_token, and falsely detecting that as a recovery
+  // flow prevents `setShowAuth(false)` from running after Google login.
   return (
     type === 'recovery' ||
-    params.has('recovery_token') ||
-    params.has('access_token')
+    params.has('recovery_token')
   );
 }
 
@@ -2020,12 +2087,31 @@ function mapAuthErrorMessage(error) {
     return 'Sesi berakhir. Minta link reset password baru.';
   if (message.includes('invalid session'))
     return 'Sesi tidak valid. Silakan login ulang.';
+  if (message.includes('akun ini diblokir'))
+    return 'Akun ini diblokir. Hubungi super admin.';
+  if (message.includes('akun ini dinonaktifkan'))
+    return 'Akun ini dinonaktifkan. Hubungi super admin.';
   
   // OAuth
   if (message.includes('oauth') || message.includes('google')) 
     return 'Login Google gagal. Coba login dengan email.';
   
   return rawMessage || 'Terjadi kesalahan. Silakan coba lagi.';
+}
+
+function createModerationAuthError(kind = 'blocked') {
+  const isDisabled = kind === 'disabled';
+  const error = new Error(
+    isDisabled
+      ? 'Akun ini dinonaktifkan. Hubungi super admin.'
+      : 'Akun ini diblokir. Hubungi super admin.'
+  );
+  error.code = isDisabled ? 'ACCOUNT_DISABLED' : 'ACCOUNT_BLOCKED';
+  return error;
+}
+
+function isModerationAuthError(error) {
+  return error?.code === 'ACCOUNT_BLOCKED' || error?.code === 'ACCOUNT_DISABLED';
 }
 
 async function getSupabaseAuthClient() {
@@ -2036,9 +2122,14 @@ async function getSupabaseAuthClient() {
   return supabase;
 }
 
-async function withAuthTimeout(promise, label = 'Auth request', timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
+async function withAuthTimeout(
+  promise,
+  label = 'Auth request',
+  timeoutMs = AUTH_REQUEST_TIMEOUT_MS,
+  options = {},
+) {
   // OPTIMIZED: Use adaptive timeout based on connection quality
-  const adaptiveTimeoutMs = getAdaptiveAuthTimeout(timeoutMs);
+  const adaptiveTimeoutMs = options?.disableAdaptive ? timeoutMs : getAdaptiveAuthTimeout(timeoutMs);
   let timerId;
 
   const timeoutPromise = new Promise((_, reject) => {
@@ -2062,35 +2153,120 @@ function isTimeoutError(error) {
   return String(error?.message || '').toLowerCase().includes('timeout');
 }
 
-async function signInWithPasswordFallback({ email, password }) {
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ email, password }),
+function createAuthAttemptTrace(mode, email = '') {
+  const attemptId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  return {
+    attemptId,
+    mode,
+    emailHint: normalizedEmail ? normalizedEmail.replace(/^[^@]+/, '***') : '',
+    startedAt: Date.now(),
+  };
+}
+
+function pushAuthTrace(trace, event, payload = {}, level = 'info') {
+  if (!trace) return;
+
+  const entry = {
+    attemptId: trace.attemptId,
+    mode: trace.mode,
+    emailHint: trace.emailHint,
+    event,
+    elapsedMs: Date.now() - trace.startedAt,
+    at: new Date().toISOString(),
+    ...payload,
+  };
+
+  if (typeof window !== 'undefined') {
+    const bucket = window.__stadioneAuthDebug || { events: [] };
+    const events = Array.isArray(bucket.events) ? bucket.events : [];
+    bucket.events = [...events, entry].slice(-200);
+    bucket.last = entry;
+    window.__stadioneAuthDebug = bucket;
+  }
+
+  const logger = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+  logger('[AUTH TRACE]', entry);
+}
+
+async function signInWithPasswordFallback({ email, password, trace = null, disableClientTimeout = false }) {
+  const controller = (!disableClientTimeout && typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const fetchTimeoutMs = disableClientTimeout ? null : AUTH_LOGIN_PRIMARY_TIMEOUT_MS;
+  const fetchTimer = (controller && fetchTimeoutMs)
+    ? setTimeout(() => controller.abort(), fetchTimeoutMs)
+    : null;
+
+  pushAuthTrace(trace, 'fallback_fetch_start', {
+    timeoutMs: fetchTimeoutMs,
+    disableClientTimeout,
+  });
+  const fetchStartedAt = Date.now();
+
+  let response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+      signal: controller?.signal,
+    });
+  } catch (fetchError) {
+    if (fetchTimer) clearTimeout(fetchTimer);
+    const isAbort = String(fetchError?.name || '').toLowerCase() === 'aborterror';
+    const message = isAbort
+      ? `Login (fallback fetch) timeout${fetchTimeoutMs ? ` setelah ${Math.round(fetchTimeoutMs / 1000)} detik` : ''}.`
+      : String(fetchError?.message || fetchError);
+    pushAuthTrace(trace, 'fallback_fetch_error', { message }, 'error');
+    throw new Error(message);
+  } finally {
+    if (fetchTimer) clearTimeout(fetchTimer);
+  }
+
+  pushAuthTrace(trace, 'fallback_fetch_done', {
+    status: response.status,
+    durationMs: Date.now() - fetchStartedAt,
   });
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload?.access_token || !payload?.refresh_token) {
+    pushAuthTrace(trace, 'fallback_fetch_failed', {
+      status: response.status,
+      reason: payload?.error_description || payload?.msg || 'invalid token payload',
+    }, 'warn');
     throw new Error(payload?.error_description || payload?.msg || 'Login gagal. Silakan coba lagi.');
   }
 
-  const sessionResult = await withAuthTimeout(
-    supabase.auth.setSession({
-      access_token: payload.access_token,
-      refresh_token: payload.refresh_token,
-    }),
-    'Set auth session'
-  );
+  pushAuthTrace(trace, 'set_session_start');
+  const setSessionStartedAt = Date.now();
+  const sessionPromise = supabase.auth.setSession({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token,
+  });
+
+  const sessionResult = disableClientTimeout
+    ? await sessionPromise
+    : await withAuthTimeout(
+      sessionPromise,
+      'Set auth session',
+      AUTH_SET_SESSION_TIMEOUT_MS,
+      { disableAdaptive: true },
+    );
+
+  pushAuthTrace(trace, 'set_session_done', {
+    durationMs: Date.now() - setSessionStartedAt,
+    hasError: Boolean(sessionResult?.error),
+  }, sessionResult?.error ? 'warn' : 'info');
 
   if (sessionResult?.error) throw sessionResult.error;
 
-  const userResult = await withAuthTimeout(supabase.auth.getUser(), 'Fetch auth user');
-  if (userResult?.error) throw userResult.error;
+  pushAuthTrace(trace, 'fallback_success', {
+    hasUser: Boolean(payload?.user || sessionResult?.data?.user),
+  });
 
-  return { user: userResult?.data?.user || sessionResult?.data?.user || null };
+  return { user: payload?.user || sessionResult?.data?.user || null };
 }
 
 function mapAuthUser(user) {
@@ -2098,6 +2274,28 @@ function mapAuthUser(user) {
 
   const normalizedRoles = normalizeRoles(Array.isArray(user.roles) ? user.roles : []);
   const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+  const memberVerification = (() => {
+    const raw = user?.user_metadata?.member_verification;
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+      citizenshipStatus: String(raw.citizenshipStatus || '').trim() || 'WNI',
+      phone: String(raw.phone || '').trim(),
+      nik: String(raw.nik || '').trim(),
+      passportNo: String(raw.passportNo || '').trim(),
+      country: String(raw.country || '').trim(),
+      province: String(raw.province || '').trim(),
+      city: String(raw.city || '').trim(),
+      district: String(raw.district || '').trim(),
+      postalCode: String(raw.postalCode || '').trim(),
+      address: String(raw.address || '').trim(),
+      rt: String(raw.rt || '').trim(),
+      rw: String(raw.rw || '').trim(),
+      ktpPhotoUrl: String(raw.ktpPhotoUrl || '').trim(),
+      postPhotoUrl: String(raw.postPhotoUrl || '').trim(),
+      verifiedMember: Boolean(raw.verifiedMember),
+      verifiedAt: raw.verifiedAt || null,
+    };
+  })();
 
   return {
     name: user.user_metadata?.name || user.name || user.email?.split('@')[0] || 'User',
@@ -2108,6 +2306,8 @@ function mapAuthUser(user) {
     activeContext: user.activeContext || null,
     permissions,
     access: user.access || deriveConsoleAccess(normalizedRoles, permissions),
+    memberVerification,
+    verifiedMember: Boolean(user?.user_metadata?.verified_member || memberVerification?.verifiedMember),
   };
 }
 
@@ -2130,12 +2330,21 @@ async function enrichAuthUser(user) {
     const storedActiveContext = getStoredActiveWorkspaceContext(mappedUser.id);
 
     // ⚡ PARALLEL: Fetch all user data at the same time (not sequential)
-    const [roleProfiles, allRoles, permissions, activeContext] = await Promise.all([
+    const [roleProfiles, allRoles, permissions, activeContext, moderationStatus] = await Promise.all([
       fetchCurrentUserRoleProfiles(),
       fetchCurrentUserRoles(),
       fetchCurrentUserPermissions(),
       fetchCurrentUserActiveContext(),
+      fetchCurrentUserModerationStatus(),
     ]);
+
+    if (moderationStatus?.is_disabled) {
+      throw createModerationAuthError('disabled');
+    }
+
+    if (moderationStatus?.is_blocked) {
+      throw createModerationAuthError('blocked');
+    }
 
     const roles = normalizeRoles((roleProfiles || []).map((profile) => profile.role));
     const effectiveRoles = roles.length > 0 ? roles : (allRoles || []);
@@ -2151,6 +2360,7 @@ async function enrichAuthUser(user) {
       roleProfiles,
       roleBadges: getUserRoleBadges(effectiveRoles, roleProfiles),
       activeContext: effectiveActiveContext,
+      moderation: moderationStatus,
       permissions,
       access: deriveConsoleAccess(effectiveRoles, permissions),
     };
@@ -2163,6 +2373,10 @@ async function enrichAuthUser(user) {
 
     return enrichedUser;
   } catch (err) {
+    if (isModerationAuthError(err)) {
+      throw err;
+    }
+
     console.error('Failed to enrich auth user:', err);
     const storedActiveContext = getStoredActiveWorkspaceContext(mappedUser.id);
     return {
@@ -2308,9 +2522,48 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
     const perfLabel = `auth_${mode}_submit`;
     authPerfTracker.start(perfLabel);
+    let authTrace = null;
+    let supabaseClient = null;
+
+    const recoverExistingSession = async (reason = 'unknown') => {
+      if (!supabaseClient?.auth) return false;
+
+      pushAuthTrace(authTrace, 'session_recovery_start', { reason });
+      try {
+        const sessionResult = await withAuthTimeout(
+          supabaseClient.auth.getSession(),
+          'Session recovery',
+          AUTH_SET_SESSION_TIMEOUT_MS,
+          { disableAdaptive: true },
+        );
+
+        const recoveredUser = sessionResult?.data?.session?.user || null;
+        if (!recoveredUser) {
+          pushAuthTrace(authTrace, 'session_recovery_empty', { reason }, 'warn');
+          return false;
+        }
+
+        pushAuthTrace(authTrace, 'session_recovery_success', {
+          reason,
+          userId: recoveredUser.id,
+        });
+
+        onAuth(mapAuthUser(recoveredUser));
+        clearAuthUrlArtifacts();
+        onClose();
+        return true;
+      } catch (sessionError) {
+        pushAuthTrace(authTrace, 'session_recovery_failed', {
+          reason,
+          message: String(sessionError?.message || sessionError),
+        }, 'warn');
+        return false;
+      }
+    };
 
     try {
-      const supabase = await getSupabaseAuthClient();
+      supabaseClient = await getSupabaseAuthClient();
+      const supabase = supabaseClient;
 
       // Forgot Password Mode
       if (mode === AUTH_MODAL_MODES.forgotPassword) {
@@ -2405,50 +2658,99 @@ const LoginModal = ({ open, mode: initMode, initialError, onClose, onAuth }) => 
 
       // Login Mode
       let data;
-      let signInError = null;
+      authTrace = createAuthAttemptTrace(mode, emailValidation.value);
+      const disableClientTimeout = AUTH_DISABLE_CLIENT_TIMEOUT_FOR_PASSWORD;
+
+      const isNetworkLikeError = (errorLike) => {
+        const msg = String(errorLike?.message || errorLike || '').toLowerCase();
+        return msg.includes('timeout') ||
+          msg.includes('network') ||
+          msg.includes('failed to fetch') ||
+          msg.includes('abort');
+      };
+
+      const isInvalidCredentialError = (errorLike) => {
+        const msg = String(errorLike?.message || errorLike || '').toLowerCase();
+        return msg.includes('invalid login credentials') ||
+          msg.includes('invalid email or password') ||
+          msg.includes('email atau password tidak cocok');
+      };
 
       try {
-        console.log('Login: Trying Supabase signInWithPassword...');
-        const signInResult = await withAuthTimeout(
-          supabase.auth.signInWithPassword({
-            email: emailValidation.value,
-            password: passwordValidation.value,
-          }),
-          'Login',
-          AUTH_REQUEST_TIMEOUT_MS
-        );
-        data = signInResult?.data;
-        signInError = signInResult?.error || null;
-      } catch (signInTimeoutError) {
-        if (!isTimeoutError(signInTimeoutError)) throw signInTimeoutError;
+        pushAuthTrace(authTrace, 'primary_direct_start', {
+          disableClientTimeout,
+        });
 
-        console.warn('Login: Primary request timed out, trying fallback API...');
-        try {
-          const fallbackResult = await withAuthTimeout(
-            signInWithPasswordFallback({
-              email: emailValidation.value,
-              password: passwordValidation.value,
-            }),
-            'Login (fallback)',
-            AUTH_FALLBACK_TIMEOUT_MS
-          );
-          data = fallbackResult;
-        } catch (fallbackError) {
-          if (isTimeoutError(fallbackError)) {
-            throw new Error('Koneksi lambat. Cek internet dan coba lagi.');
-          }
-          throw fallbackError;
+        const signInResult = await supabase.auth.signInWithPassword({
+          email: emailValidation.value,
+          password: passwordValidation.value,
+        });
+
+        if (signInResult?.error) {
+          throw signInResult.error;
         }
+
+        data = signInResult?.data || null;
+        pushAuthTrace(authTrace, 'primary_direct_done', {
+          hasUser: Boolean(data?.user),
+        });
+      } catch (primaryError) {
+        pushAuthTrace(authTrace, 'primary_direct_failed', {
+          message: String(primaryError?.message || primaryError),
+        }, isNetworkLikeError(primaryError) ? 'warn' : 'error');
+
+        if (isInvalidCredentialError(primaryError)) {
+          throw primaryError;
+        }
+
+        if (!isNetworkLikeError(primaryError)) {
+          throw primaryError;
+        }
+
+        pushAuthTrace(authTrace, 'fallback_after_primary_start', {
+          timeoutMs: disableClientTimeout ? null : AUTH_FALLBACK_TIMEOUT_MS,
+        });
+
+        const fallbackPromise = signInWithPasswordFallback({
+          email: emailValidation.value,
+          password: passwordValidation.value,
+          trace: authTrace,
+          disableClientTimeout,
+        });
+
+        const fallbackResult = disableClientTimeout
+          ? await fallbackPromise
+          : await withAuthTimeout(
+            fallbackPromise,
+            'Login (fallback after primary)',
+            AUTH_FALLBACK_TIMEOUT_MS,
+            { disableAdaptive: true },
+          );
+
+        data = fallbackResult;
+        pushAuthTrace(authTrace, 'fallback_after_primary_done', {
+          hasUser: Boolean(data?.user),
+        });
       }
 
-      if (signInError) throw signInError;
       if (!data || !data.user) throw new Error('Email atau password tidak cocok.');
 
-      onAuth(mapAuthUser(data.user));
+      pushAuthTrace(authTrace, 'login_success', {
+        userId: data?.user?.id || null,
+      });
+
+      await onAuth(mapAuthUser(data.user));
       clearAuthUrlArtifacts();
       onClose();
     } catch (err) {
       console.error('Auth error:', err);
+      pushAuthTrace(authTrace, 'login_failed', { message: String(err?.message || err) }, 'error');
+
+      if (isTimeoutError(err)) {
+        const recovered = await recoverExistingSession('catch_timeout');
+        if (recovered) return;
+      }
+
       const errMsg = mapAuthErrorMessage(err);
       setError(errMsg);
       setIsRetryable(isTimeoutError(err));
@@ -3069,9 +3371,10 @@ const PublishedSuccess = ({ data, onView, onHome }) => (
 );
 
 // ============ ARTICLE DETAIL ============
-const ArticleDetail = ({ article, onBack, onSelect, auth, openAuth }) => {
-  const related = NEWS.filter(n => n.id !== article.id && n.category === article.category).slice(0, 3);
-  const fallback = NEWS.filter(n => n.id !== article.id).slice(0, 3);
+const ArticleDetail = ({ article, onBack, onSelect, auth, openAuth, newsList = [] }) => {
+  const safeNews = Array.isArray(newsList) ? newsList : [];
+  const related = safeNews.filter(n => n.id !== article.id && n.category === article.category).slice(0, 3);
+  const fallback = safeNews.filter(n => n.id !== article.id).slice(0, 3);
   const recommend = related.length > 0 ? related : fallback;
   const articleRef = useRef(null);
   const [quizOpen, setQuizOpen] = useState(false);
@@ -3684,12 +3987,971 @@ const CoachDashboard = ({ onBack, auth }) => {
   );
 };
 
-const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack, onNav }) => {
+const ISO_COUNTRIES = [
+  { code: 'ID', name: 'Indonesia' },
+  { code: 'MY', name: 'Malaysia' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'TH', name: 'Thailand' },
+  { code: 'VN', name: 'Vietnam' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'BN', name: 'Brunei Darussalam' },
+  { code: 'JP', name: 'Jepang' },
+  { code: 'KR', name: 'Korea Selatan' },
+  { code: 'CN', name: 'Tiongkok' },
+  { code: 'IN', name: 'India' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'US', name: 'Amerika Serikat' },
+  { code: 'GB', name: 'Inggris' },
+  { code: 'NL', name: 'Belanda' },
+  { code: 'DE', name: 'Jerman' },
+];
+
+// NIK: 2-digit province prefix codes (BPS Indonesia)
+const NIK_VALID_PROVINCE_CODES = new Set([11,12,13,14,15,16,17,18,19,21,31,32,33,34,35,36,51,52,53,61,62,63,64,65,71,72,73,74,75,76,81,82,91,92,94,95,96,97]);
+
+const WNI_REGION_DATA = {
+  // ── ACEH & SUMATERA ──
+  'Aceh': {
+    'Kota Banda Aceh': { 'Baiturrahman':'23241','Banda Raya':'23234','Meuraxa':'23233','Kuta Alam':'23121','Lueng Bata':'23247','Syiah Kuala':'23111','Ulee Kareng':'23117' },
+    'Kab. Aceh Besar': { 'Kuta Baro':'23361','Darul Imarah':'23352','Ingin Jaya':'23362','Peukan Bada':'23351','Montasik':'23363' },
+    'Kab. Pidie': { 'Sigli':'24115','Kota Sigli':'24111','Simpang Tiga':'24151','Sakti':'24161' },
+    'Kota Langsa': { 'Langsa Kota':'24415','Langsa Baro':'24411','Langsa Timur':'24416','Langsa Lama':'24417' },
+    'Kab. Aceh Utara': { 'Lhokseumawe':'24351','Dewantara':'24352','Muara Batu':'24373','Nisam':'24374' },
+    'Kota Lhokseumawe': { 'Banda Sakti':'24311','Blang Mangat':'24352','Muara Dua':'24351' },
+    'Kab. Bireuen': { 'Kota Juang':'24211','Peusangan':'24252','Jeumpa':'24261' },
+    'Kab. Aceh Tamiang': { 'Karang Baru':'24476','Manyak Payed':'24471','Seruway':'24472' },
+  },
+  'Sumatera Utara': {
+    'Kota Medan': { 'Medan Petisah':'20113','Medan Baru':'20154','Medan Timur':'20236','Medan Kota':'20111','Medan Johor':'20144','Medan Selayang':'20131','Medan Helvetia':'20124','Medan Sunggal':'20122','Medan Tuntungan':'20141','Medan Denai':'20226' },
+    'Kab. Deli Serdang': { 'Lubuk Pakam':'20512','Percut Sei Tuan':'20371','Sunggal':'20352','Hamparan Perak':'20374','Patumbak':'20361','Pancur Batu':'20353' },
+    'Kota Binjai': { 'Binjai Kota':'20711','Binjai Utara':'20741','Binjai Timur':'20731','Binjai Selatan':'20721','Binjai Barat':'20712' },
+    'Kota Pematang Siantar': { 'Siantar Barat':'21111','Siantar Martoba':'21137','Siantar Utara':'21121','Siantar Selatan':'21128','Siantar Timur':'21114' },
+    'Kab. Langkat': { 'Stabat':'20811','Tanjung Pura':'20853','Binjai':'20815','Babalan':'20813' },
+    'Kota Tebing Tinggi': { 'Tebing Tinggi Kota':'20614','Bajenis':'20625','Padang Hulu':'20613' },
+    'Kota Tanjung Balai': { 'Tanjung Balai Selatan':'21322','Teluk Nibung':'21321','Sei Tualang Raso':'21352' },
+    'Kab. Asahan': { 'Kisaran Barat':'21216','Kisaran Timur':'21224','Buntu Pane':'21274' },
+    'Kab. Simalungun': { 'Raya':'21165','Perdagangan':'21184','Haranggaol':'21174' },
+    'Kota Padang Sidimpuan': { 'PSP Utara':'22719','PSP Selatan':'22734','PSP Tenggara':'22733' },
+  },
+  'Sumatera Barat': {
+    'Kota Padang': { 'Padang Barat':'25115','Padang Timur':'25121','Padang Utara':'25111','Padang Selatan':'25211','Koto Tangah':'25172','Nanggalo':'25112','Lubuk Begalung':'25221','Pauh':'25162' },
+    'Kota Bukittinggi': { 'Mandiangin Koto Selayan':'26111','Guguk Panjang':'26122','Aur Birugo Tigo Baleh':'26115' },
+    'Kab. Agam': { 'Lubuk Basung':'26411','Ampek Angkek':'26452','Tilatang Kamang':'26453','Banuhampu':'26481' },
+    'Kota Solok': { 'Lubuk Sikarah':'27311','Tanjung Harapan':'27312' },
+    'Kab. Padang Pariaman': { 'Pariaman':'25511','Lubuk Alung':'25572','Batang Anai':'25581' },
+    'Kota Pariaman': { 'Pariaman Tengah':'25512','Pariaman Utara':'25511' },
+    'Kab. Tanah Datar': { 'Batusangkar':'27211','Lima Kaum':'27212','Rambatan':'27261' },
+    'Kota Sawahlunto': { 'Lembah Segar':'27417','Talawi':'27418' },
+    'Kab. Pesisir Selatan': { 'Painan':'25611','Bayang':'25671','Koto XI Tarusan':'25612' },
+  },
+  'Riau': {
+    'Kota Pekanbaru': { 'Tampan':'28291','Pekanbaru Kota':'28111','Payung Sekaki':'28294','Bukit Raya':'28281','Marpoyan Damai':'28125','Tenayan Raya':'28261','Sail':'28151','Sukajadi':'28124' },
+    'Kab. Kampar': { 'Bangkinang':'28415','Kampar':'28461','Tambang':'28412','Siak Hulu':'28414','Perhentian Raja':'28462' },
+    'Kota Dumai': { 'Dumai Kota':'28811','Dumai Timur':'28821','Bukit Kapur':'28826','Medang Kampai':'28812' },
+    'Kab. Siak': { 'Siak':'28771','Mempura':'28772','Kandis':'28681' },
+    'Kab. Bengkalis': { 'Bengkalis':'28711','Duri':'28784','Rupat':'28752' },
+    'Kab. Pelalawan': { 'Pangkalan Kerinci':'28311','Langgam':'28382','Pangkalan Kuras':'28391' },
+    'Kab. Indragiri Hulu': { 'Rengat':'29314','Seberida':'29352','Batang Cenaku':'29315' },
+    'Kab. Indragiri Hilir': { 'Tembilahan':'29212','Kateman':'29262','Enok':'29261' },
+    'Kab. Rokan Hilir': { 'Bagansiapiapi':'28911','Batu Hampar':'28912','Bangko':'28913' },
+    'Kab. Rokan Hulu': { 'Pasir Pangaraian':'28512','Rambah':'28513','Tambusai':'28514' },
+  },
+  'Jambi': {
+    'Kota Jambi': { 'Pasar Jambi':'36112','Jambi Selatan':'36137','Kota Baru':'36128','Telanaipura':'36122','Jambi Timur':'36131','Alam Barajo':'36139','Danau Sipin':'36133' },
+    'Kab. Muaro Jambi': { 'Sengeti':'36381','Jambi Luar Kota':'36361','Kumpeh Ulu':'36362','Mestong':'36363' },
+    'Kab. Batang Hari': { 'Muara Bulian':'36611','Muara Tembesi':'36671','Bajubang':'36612' },
+    'Kab. Tanjung Jabung Timur': { 'Muara Sabak':'36571','Rantau Rasau':'36572' },
+    'Kab. Tanjung Jabung Barat': { 'Kuala Tungkal':'36512','Betara':'36563' },
+    'Kab. Bungo': { 'Muara Bungo':'37211','Rimbo Tengah':'37261' },
+    'Kab. Sarolangun': { 'Sarolangun':'37415','Bathin VIII':'37452' },
+    'Kota Sungai Penuh': { 'Sungai Penuh':'37112','Hamparan Rawang':'37111' },
+  },
+  'Sumatera Selatan': {
+    'Kota Palembang': { 'Ilir Barat I':'30137','Ilir Timur I':'30112','Kalidoni':'30163','Sukarami':'30151','Kemuning':'30152','Alang-Alang Lebar':'30154','Bukit Kecil':'30113','Sematang Borang':'30169' },
+    'Kab. Banyuasin': { 'Banyuasin I':'30753','Talang Kelapa':'30761','Suak Tapeh':'30783','Pulau Rimau':'30754' },
+    'Kab. Ogan Komering Ulu': { 'Baturaja Timur':'32115','Baturaja Barat':'32112','Lubuk Batang':'32182','Semidang Aji':'32151' },
+    'Kota Lubuklinggau': { 'Lubuklinggau Barat I':'31614','Lubuklinggau Barat II':'31612','Lubuklinggau Timur I':'31624' },
+    'Kota Prabumulih': { 'Prabumulih Barat':'31134','Prabumulih Timur':'31111','Rambang Kapak Tengah':'31125' },
+    'Kab. Musi Banyuasin': { 'Sekayu':'30711','Babat Supat':'30712','Sungai Keruh':'30769' },
+    'Kab. Lahat': { 'Lahat':'31411','Kikim Selatan':'31451' },
+  },
+  'Bengkulu': {
+    'Kota Bengkulu': { 'Ratu Agung':'38224','Teluk Segara':'38111','Gading Cempaka':'38228','Muara Bangkahulu':'38121','Selebar':'38212','Kampung Melayu':'38213' },
+    'Kab. Bengkulu Utara': { 'Arga Makmur':'38611','Lais':'38657' },
+    'Kab. Seluma': { 'Tais':'38871','Sukaraja':'38873' },
+    'Kab. Bengkulu Selatan': { 'Manna':'38511','Kedurang':'38552' },
+    'Kab. Kepahiang': { 'Kepahiang':'38371','Bermani Ilir':'38374' },
+    'Kab. Rejang Lebong': { 'Curup':'39112','Curup Tengah':'39113' },
+  },
+  'Lampung': {
+    'Kota Bandar Lampung': { 'Kedaton':'35148','Tanjung Karang Timur':'35122','Rajabasa':'35144','Way Halim':'35135','Sukarame':'35131','Kemiling':'35153','Langkapura':'35158','Panjang':'35241','Teluk Betung Selatan':'35214' },
+    'Kab. Lampung Tengah': { 'Gunung Sugih':'34161','Trimurjo':'34162','Kalirejo':'34151','Punggur':'34152' },
+    'Kab. Lampung Selatan': { 'Kalianda':'35513','Natar':'35362','Jatiagung':'35363' },
+    'Kota Metro': { 'Metro Pusat':'34111','Metro Timur':'34124','Metro Barat':'34122','Metro Selatan':'34126' },
+    'Kab. Lampung Utara': { 'Kotabumi':'34511','Abung Selatan':'34513' },
+    'Kab. Pringsewu': { 'Pringsewu':'35373','Gadingrejo':'35374','Banyumas':'35375' },
+    'Kab. Lampung Timur': { 'Sukadana':'34411','Jabung':'34412' },
+    'Kota Liwa': { 'Balik Bukit':'34814' },
+  },
+  'Kepulauan Bangka Belitung': {
+    'Kota Pangkal Pinang': { 'Bukit Intan':'33143','Taman Sari':'33121','Rangkui':'33135','Gabek':'33173','Gerunggang':'33115' },
+    'Kab. Bangka': { 'Sungailiat':'33215','Merawang':'33261','Bakam':'33268','Mendo Barat':'33266' },
+    'Kab. Belitung': { 'Tanjung Pandan':'33412','Membalong':'33471','Sijuk':'33452' },
+    'Kab. Bangka Tengah': { 'Koba':'33181','Pangkalan Baru':'33182','Sungai Selan':'33183' },
+    'Kab. Bangka Barat': { 'Mentok':'33311','Tempilang':'33361' },
+    'Kab. Bangka Selatan': { 'Toboali':'33411','Air Gegas':'33461' },
+  },
+  'Kepulauan Riau': {
+    'Kota Batam': { 'Batu Aji':'29422','Lubuk Baja':'29432','Batam Kota':'29433','Nongsa':'29466','Sekupang':'29423','Batu Ampar':'29441','Bengkong':'29457','Galang':'29463' },
+    'Kota Tanjung Pinang': { 'Tanjung Pinang Kota':'29111','Bukit Bestari':'29122','Tanjung Pinang Timur':'29125','Tanjung Pinang Barat':'29112' },
+    'Kab. Bintan': { 'Bintan Utara':'29151','Gunung Kijang':'29181','Bintan Timur':'29152' },
+    'Kab. Karimun': { 'Karimun':'29611','Meral':'29613','Buru':'29651' },
+    'Kab. Natuna': { 'Bunguran Timur':'29783','Bunguran Barat':'29784' },
+    'Kota Tanjung Balai Karimun': { 'Karimun':'29611' },
+  },
+  // ── JAWA ──
+  'DKI Jakarta': {
+    'Jakarta Pusat': { 'Menteng':'10310','Gambir':'10110','Sawah Besar':'10710','Kemayoran':'10620','Tanah Abang':'10240','Senen':'10410','Johar Baru':'10560','Cempaka Putih':'10510' },
+    'Jakarta Selatan': { 'Kebayoran Baru':'12130','Tebet':'12810','Setiabudi':'12920','Mampang Prapatan':'12790','Pancoran':'12760','Pasar Minggu':'12510','Cilandak':'12430','Pesanggrahan':'12320','Kebayoran Lama':'12210','Jagakarsa':'12620' },
+    'Jakarta Utara': { 'Penjaringan':'14440','Tanjung Priok':'14310','Koja':'14210','Kelapa Gading':'14240','Pademangan':'14410','Cilincing':'14120','Papanggo':'14340' },
+    'Jakarta Barat': { 'Grogol Petamburan':'11450','Kebon Jeruk':'11530','Cengkareng':'11730','Tambora':'11210','Kalideres':'11840','Palmerah':'11480','Kembangan':'11610','Taman Sari':'11150' },
+    'Jakarta Timur': { 'Jatinegara':'13320','Kramat Jati':'13510','Makasar':'13650','Duren Sawit':'13440','Pulogadung':'13260','Cakung':'13910','Pasar Rebo':'13760','Ciracas':'13740','Cipayung':'13840','Matraman':'13140' },
+    'Kepulauan Seribu': { 'Kepulauan Seribu Utara':'14540','Kepulauan Seribu Selatan':'14550' },
+  },
+  'Jawa Barat': {
+    'Kota Bandung': { 'Coblong':'40132','Sukajadi':'40161','Cicendo':'40171','Antapani':'40291','Buahbatu':'40261','Bandung Wetan':'40113','Cidadap':'40143','Cibeunying Kaler':'40122','Regol':'40252','Lengkong':'40261','Bojongloa Kaler':'40183','Arcamanik':'40293','Mandalajati':'40294' },
+    'Kota Bekasi': { 'Bekasi Selatan':'17148','Bekasi Utara':'17125','Bekasi Barat':'17135','Bekasi Timur':'17111','Jatiasih':'17423','Rawalumbu':'17116','Pondok Gede':'17411','Mustikajaya':'17156','Pondok Melati':'17414','Jatisampurna':'17433','Bantargebang':'17151','Medansatria':'17132' },
+    'Kota Bogor': { 'Bogor Tengah':'16112','Bogor Selatan':'16132','Bogor Barat':'16117','Bogor Utara':'16153','Tanah Sereal':'16161','Bogor Timur':'16143' },
+    'Kota Depok': { 'Beji':'16423','Pancoran Mas':'16436','Cimanggis':'16451','Limo':'16514','Sukmajaya':'16411','Sawangan':'16516','Cilodong':'16414','Cipayung':'16437','Tapos':'16457','Bojongsari':'16519' },
+    'Kab. Karawang': { 'Karawang Barat':'41311','Karawang Timur':'41312','Cikampek':'41373','Purwasari':'41371','Teluk Jambe Timur':'41361' },
+    'Kab. Bekasi': { 'Tambun Selatan':'17510','Cikarang Barat':'17520','Cikarang Utara':'17530','Cikarang Selatan':'17530','Tambun Utara':'17511','Babelan':'17610' },
+    'Kab. Bogor': { 'Cibinong':'16913','Citereup':'16810','Gunung Putri':'16964','Bojonggede':'16920','Jonggol':'16830','Parung':'16330' },
+    'Kota Cimahi': { 'Cimahi Selatan':'40531','Cimahi Tengah':'40521','Cimahi Utara':'40511' },
+    'Kab. Sukabumi': { 'Sukabumi':'43113','Cikembar':'43161','Cisaat':'43152' },
+    'Kab. Cianjur': { 'Cianjur':'43211','Pacet':'43253','Sukaresmi':'43254' },
+    'Kab. Bandung': { 'Dayeuhkolot':'40258','Margahayu':'40228','Majalaya':'40382','Cicalengka':'40395' },
+    'Kab. Garut': { 'Garut Kota':'44111','Tarogong Kidul':'44151','Banyuresmi':'44152' },
+    'Kab. Tasikmalaya': { 'Tasikmalaya':'46111','Cibeureum':'46152','Mangkubumi':'46181' },
+    'Kota Tasikmalaya': { 'Tawang':'46111','Cihideung':'46122','Mangkubumi':'46115' },
+    'Kab. Majalengka': { 'Majalengka':'45411','Rajagaluh':'45471' },
+    'Kab. Cirebon': { 'Sumber':'45611','Arjawinangun':'45151' },
+    'Kota Cirebon': { 'Kesambi':'45131','Lemahwungkuk':'45111','Harjamukti':'45144' },
+    'Kab. Sumedang': { 'Sumedang Utara':'45311','Cimalaka':'45353' },
+    'Kab. Subang': { 'Subang':'41211','Pabuaran':'41261' },
+    'Kab. Purwakarta': { 'Purwakarta':'41111','Bungursari':'41152','Campaka':'41115' },
+    'Kab. Indramayu': { 'Indramayu':'45211','Sindang':'45222','Jatibarang':'45273' },
+    'Kab. Kuningan': { 'Kuningan':'45511','Jalaksana':'45552','Cilimus':'45556' },
+    'Kab. Bandung Barat': { 'Padalarang':'40551','Batujajar':'40561','Ngamprah':'40552' },
+    'Kota Banjar': { 'Banjar':'46311','Pataruman':'46323' },
+    'Kab. Ciamis': { 'Ciamis':'46211','Baregbeg':'46231' },
+    'Kab. Pangandaran': { 'Parigi':'46393','Pangandaran':'46394' },
+  },
+  'Jawa Tengah': {
+    'Kota Semarang': { 'Banyumanik':'50264','Tembalang':'50275','Semarang Tengah':'50134','Pedurungan':'50198','Gayamsari':'50166','Genuk':'50117','Gajahmungkur':'50232','Semarang Barat':'50141','Semarang Timur':'50121','Semarang Utara':'50174','Semarang Selatan':'50252','Candisari':'50254','Gunung Pati':'50221','Ngaliyan':'50182','Tugu':'50175','Mijen':'50217' },
+    'Kota Surakarta': { 'Banjarsari':'57136','Laweyan':'57147','Jebres':'57126','Serengan':'57155','Pasar Kliwon':'57113' },
+    'Kab. Banyumas': { 'Purwokerto Timur':'53115','Purwokerto Barat':'53131','Purwokerto Selatan':'53141','Sokaraja':'53181','Kembaran':'53182' },
+    'Kab. Kudus': { 'Kota Kudus':'59313','Jati':'59341','Bae':'59322' },
+    'Kota Magelang': { 'Magelang Tengah':'56111','Magelang Selatan':'56121','Magelang Utara':'56115' },
+    'Kab. Magelang': { 'Mertoyudan':'56172','Salam':'56484','Muntilan':'56412','Mungkid':'56511' },
+    'Kota Pekalongan': { 'Pekalongan Barat':'51111','Pekalongan Timur':'51124','Pekalongan Selatan':'51131','Pekalongan Utara':'51141' },
+    'Kota Tegal': { 'Tegal Barat':'52115','Tegal Selatan':'52124','Tegal Timur':'52111' },
+    'Kab. Cilacap': { 'Cilacap Tengah':'53222','Kroya':'53282','Kesugihan':'53274' },
+    'Kab. Purbalingga': { 'Purbalingga':'53311','Kalimanah':'53371' },
+    'Kab. Kebumen': { 'Kebumen':'54311','Gombong':'54412','Karanganyar':'54351' },
+    'Kab. Purworejo': { 'Purworejo':'54111','Banyuurip':'54151' },
+    'Kab. Wonosobo': { 'Wonosobo':'56311','Mojotengah':'56371' },
+    'Kab. Boyolali': { 'Boyolali':'57311','Ngemplak':'57375' },
+    'Kab. Klaten': { 'Klaten Tengah':'57411','Prambanan':'57454','Wedi':'57461' },
+    'Kab. Sukoharjo': { 'Sukoharjo':'57511','Grogol':'57552','Kartasura':'57167' },
+    'Kab. Wonogiri': { 'Wonogiri':'57611','Selogiri':'57651' },
+    'Kab. Karanganyar': { 'Karanganyar':'57711','Colomadu':'57173' },
+    'Kab. Sragen': { 'Sragen':'57211','Karangmalang':'57271' },
+    'Kab. Grobogan': { 'Purwodadi':'58111','Gubug':'58164' },
+    'Kab. Blora': { 'Blora':'58211','Cepu':'58312' },
+    'Kab. Rembang': { 'Rembang':'59211','Lasem':'59271' },
+    'Kab. Pati': { 'Pati':'59111','Juwana':'59185' },
+    'Kab. Jepara': { 'Jepara':'59411','Welahan':'59463','Pecangaan':'59461' },
+    'Kab. Demak': { 'Demak':'59511','Mranggen':'59567' },
+    'Kab. Kendal': { 'Kendal':'51311','Kaliwungu':'51372' },
+    'Kab. Batang': { 'Batang':'51211','Gringsing':'51261' },
+    'Kab. Pemalang': { 'Pemalang':'52311','Ulujami':'52361' },
+    'Kab. Tegal': { 'Slawi':'52411','Adiwerna':'52194' },
+    'Kab. Brebes': { 'Brebes':'52211','Bumiayu':'52273' },
+    'Kota Salatiga': { 'Sidomukti':'50721','Sidorejo':'50711','Argomulyo':'50731' },
+  },
+  'DI Yogyakarta': {
+    'Kota Yogyakarta': { 'Gondokusuman':'55221','Umbulharjo':'55161','Danurejan':'55213','Mergangsan':'55153','Kraton':'55131','Jetis':'55231','Tegalrejo':'55241','Wirobrajan':'55251','Ngampilan':'55261','Pakualaman':'55166','Mantrijeron':'55142','Gedongtengen':'55271','Gondomanan':'55122','Kotagede':'55172' },
+    'Kab. Sleman': { 'Depok':'55281','Mlati':'55284','Gamping':'55291','Godean':'55264','Berbah':'55573','Ngaglik':'55581','Kalasan':'55571','Prambanan':'55572','Pakem':'55582','Moyudan':'55563','Minggir':'55562','Seyegan':'55561','Tempel':'55552','Turi':'55551','Sleman':'55511','Ngemplak':'55584','Cangkringan':'55583' },
+    'Kab. Bantul': { 'Banguntapan':'55198','Sewon':'55186','Kasihan':'55181','Bantul':'55714','Piyungan':'55792','Jetis':'55781','Pleret':'55791','Imogiri':'55782','Pandak':'55761','Bambanglipuro':'55764','Pundong':'55771','Kretek':'55772','Sanden':'55763','Srandakan':'55762','Pajangan':'55751','Sedayu':'55752' },
+    'Kab. Gunung Kidul': { 'Wonosari':'55812','Nglipar':'55855','Playen':'55861','Patuk':'55871','Gedangsari':'55872','Ngawen':'55853','Semin':'55854','Ponjong':'55892','Karangmojo':'55891','Semanu':'55893','Tepus':'55881','Tanjungsari':'55882','Rongkop':'55883','Girisubo':'55884','Saptosari':'55851','Paliyan':'55862','Panggang':'55872' },
+    'Kab. Kulon Progo': { 'Wates':'55611','Pengasih':'55651','Lendah':'55663','Galur':'55661','Temon':'55654','Panjatan':'55655','Kokap':'55653','Girimulyo':'55674','Nanggulan':'55671','Kalibawang':'55672','Samigaluh':'55673' },
+  },
+  'Jawa Timur': {
+    'Kota Surabaya': { 'Tegalsari':'60262','Wonokromo':'60243','Kenjeran':'60135','Rungkut':'60294','Mulyorejo':'60115','Sukolilo':'60111','Gubeng':'60281','Genteng':'60271','Bubutan':'60172','Simokerto':'60151','Semampir':'60143','Pabean Cantikan':'60162','Bulak':'60123','Krembangan':'60175','Asemrowo':'60182','Sukomanunggal':'60188','Benowo':'60195','Pakal':'60197','Lakarsantri':'60213','Sambikerep':'60216','Tandes':'60186','Karang Pilang':'60221','Wiyung':'60227','Dukuh Pakis':'60225','Wonocolo':'60237','Gayungan':'60235','Jambangan':'60232','Sawahan':'60251','Dukuh Pakis':'60225' },
+    'Kota Malang': { 'Klojen':'65111','Lowokwaru':'65141','Kedungkandang':'65136','Sukun':'65148','Blimbing':'65122' },
+    'Kab. Sidoarjo': { 'Sidoarjo':'61211','Waru':'61256','Taman':'61257','Gedangan':'61254','Candi':'61271','Tanggulangin':'61272','Porong':'61274' },
+    'Kota Kediri': { 'Kediri Kota':'64111','Pesantren':'64131','Mojoroto':'64119' },
+    'Kab. Gresik': { 'Gresik':'61111','Kebomas':'61124','Driyorejo':'61177' },
+    'Kota Madiun': { 'Manguharjo':'63121','Taman':'63131','Kartoharjo':'63113' },
+    'Kab. Jember': { 'Patrang':'68111','Sumbersari':'68121','Kaliwates':'68131' },
+    'Kab. Malang': { 'Kepanjen':'65163','Lawang':'65213','Singosari':'65153' },
+    'Kota Batu': { 'Batu':'65311','Junrejo':'65321','Bumiaji':'65331' },
+    'Kab. Pasuruan': { 'Pohjentrek':'67154','Bangil':'67153' },
+    'Kota Pasuruan': { 'Bugul Kidul':'67131','Gadingrejo':'67139' },
+    'Kota Mojokerto': { 'Magersari':'61311','Prajurit Kulon':'61321' },
+    'Kab. Mojokerto': { 'Mojosari':'61382','Bangsal':'61362' },
+    'Kab. Lamongan': { 'Lamongan':'62211','Ngimbang':'62262' },
+    'Kab. Bojonegoro': { 'Bojonegoro':'62111','Cepu':'62262' },
+    'Kab. Tuban': { 'Tuban':'62311','Palang':'62361' },
+    'Kab. Nganjuk': { 'Nganjuk':'64411','Bagor':'64471' },
+    'Kab. Madiun': { 'Madiun':'63151','Dolopo':'63152' },
+    'Kab. Ngawi': { 'Ngawi':'63211','Paron':'63261' },
+    'Kab. Magetan': { 'Magetan':'63311','Parang':'63362' },
+    'Kab. Ponorogo': { 'Ponorogo':'63411','Babadan':'63461' },
+    'Kab. Pacitan': { 'Pacitan':'63511','Arjosari':'63561' },
+    'Kab. Trenggalek': { 'Trenggalek':'66311','Pogalan':'66352' },
+    'Kab. Tulungagung': { 'Tulungagung':'66211','Kedungwaru':'66224' },
+    'Kab. Blitar': { 'Blitar':'66131','Srengat':'66152' },
+    'Kota Blitar': { 'Sukorejo':'66121','Kepanjenkidul':'66111' },
+    'Kab. Probolinggo': { 'Probolinggo':'67211','Dringu':'67271' },
+    'Kota Probolinggo': { 'Mayangan':'67211','Kedopok':'67219' },
+    'Kab. Lumajang': { 'Lumajang':'67311','Yosowilangun':'67381' },
+    'Kab. Situbondo': { 'Situbondo':'68311','Panji':'68312' },
+    'Kab. Bondowoso': { 'Bondowoso':'68211','Curahdami':'68252' },
+    'Kab. Banyuwangi': { 'Banyuwangi':'68411','Genteng':'68464' },
+    'Kab. Jombang': { 'Jombang':'61411','Peterongan':'61481' },
+    'Kab. Bangkalan': { 'Bangkalan':'69111','Socah':'69153' },
+    'Kab. Sampang': { 'Sampang':'69211','Camplong':'69261' },
+    'Kab. Pamekasan': { 'Pamekasan':'69311','Waru':'69363' },
+    'Kab. Sumenep': { 'Sumenep':'69411','Ambunten':'69461' },
+  },
+  'Banten': {
+    'Kota Tangerang': { 'Cipondoh':'15148','Pinang':'15145','Karawaci':'15112','Batuceper':'15122','Cibodas':'15138','Jatiuwung':'15135','Neglasari':'15129','Benda':'15124','Periuk':'15131','Larangan':'15154','Ciledug':'15153','Karang Tengah':'15157' },
+    'Kota Tangerang Selatan': { 'Pamulang':'15417','Ciputat':'15411','Pondok Aren':'15224','Serpong':'15310','Ciputat Timur':'15412','Serpong Utara':'15320','Setu':'15315' },
+    'Kota Serang': { 'Serang':'42111','Cipocok Jaya':'42122','Taktakan':'42163','Kasemen':'42191','Walantaka':'42183','Curug':'42171' },
+    'Kab. Tangerang': { 'Tigaraksa':'15720','Pasar Kemis':'15560','Kosambi':'15212','Legok':'15820','Sepatan':'15520','Kelapa Dua':'15810','Curug':'15810' },
+    'Kota Cilegon': { 'Cilegon':'42411','Cibeber':'42422','Citangkil':'42445','Purwakarta':'42431','Jombang':'42415' },
+    'Kab. Serang': { 'Serang':'42116','Ciruas':'42182','Kragilan':'42183' },
+    'Kab. Lebak': { 'Rangkasbitung':'42311','Maja':'42382' },
+    'Kab. Pandeglang': { 'Pandeglang':'42211','Labuan':'42264' },
+  },
+  // ── BALI & NUSA TENGGARA ──
+  'Bali': {
+    'Kota Denpasar': { 'Denpasar Barat':'80117','Denpasar Selatan':'80223','Denpasar Timur':'80237','Denpasar Utara':'80119' },
+    'Kab. Badung': { 'Kuta':'80361','Kuta Utara':'80351','Mengwi':'80351','Kuta Selatan':'80361','Abiansemal':'80352','Petang':'80353' },
+    'Kab. Gianyar': { 'Gianyar':'80512','Sukawati':'80582','Ubud':'80571','Tegallalang':'80561','Tampaksiring':'80552' },
+    'Kab. Buleleng': { 'Buleleng':'81116','Singaraja':'81117','Seririt':'81153','Gerokgak':'81155' },
+    'Kab. Tabanan': { 'Tabanan':'82111','Kediri':'82121','Kerambitan':'82161' },
+    'Kab. Klungkung': { 'Klungkung':'80712','Dawan':'80771','Nusa Penida':'80773' },
+    'Kab. Karangasem': { 'Amlapura':'80811','Karangasem':'80812','Abang':'80854' },
+    'Kab. Bangli': { 'Bangli':'80611','Kintamani':'80652' },
+    'Kab. Jembrana': { 'Negara':'82211','Mendoyo':'82251' },
+  },
+  'Nusa Tenggara Barat': {
+    'Kota Mataram': { 'Ampenan':'83113','Cakranegara':'83234','Mataram':'83126','Sekarbela':'83116','Selaparang':'83231','Sandubaya':'83232' },
+    'Kab. Lombok Barat': { 'Gerung':'83363','Narmada':'83371','Lingsar':'83361','Labuapi':'83362' },
+    'Kab. Lombok Tengah': { 'Praya':'83511','Janapria':'83553','Praya Barat':'83571','Praya Timur':'83572' },
+    'Kab. Lombok Timur': { 'Selong':'83611','Aikmel':'83653','Masbagik':'83661' },
+    'Kab. Lombok Utara': { 'Tanjung':'83352','Gangga':'83353' },
+    'Kab. Sumbawa': { 'Sumbawa':'84311','Unter Iwes':'84315','Lunyuk':'84361' },
+    'Kab. Dompu': { 'Dompu':'84211','Woja':'84261' },
+    'Kota Bima': { 'Rasanae Barat':'84111','Raba':'84112','Mpunda':'84113' },
+    'Kab. Bima': { 'Bolo':'84161','Woha':'84171' },
+    'Kab. Sumbawa Barat': { 'Taliwang':'84357','Sekongkang':'84358' },
+  },
+  'Nusa Tenggara Timur': {
+    'Kota Kupang': { 'Kota Raja':'85111','Kota Lama':'85112','Oebobo':'85111','Maulafa':'85147','Alak':'85148','Kelapa Lima':'85228' },
+    'Kab. Ende': { 'Ende':'86312','Detukeli':'86357','Ndona':'86352' },
+    'Kab. Manggarai': { 'Langke Rembong':'86511','Cibal':'86552' },
+    'Kab. Manggarai Barat': { 'Komodo':'86551','Lembor':'86552' },
+    'Kab. Sikka': { 'Alok':'86111','Nele':'86161' },
+    'Kab. Flores Timur': { 'Larantuka':'86211','Titehena':'86261' },
+    'Kab. Timor Tengah Selatan': { 'Soe':'85512','Amanuban Selatan':'85551' },
+    'Kab. Timor Tengah Utara': { 'Kefamenanu':'85611','Biboki Anleu':'85652' },
+    'Kab. Belu': { 'Atambua':'85711','Tasifeto Barat':'85751' },
+    'Kab. Sumba Timur': { 'Kota Waingapu':'87111','Kambera':'87112' },
+    'Kab. Sumba Barat': { 'Kota Waikabubak':'87211' },
+  },
+  // ── KALIMANTAN ──
+  'Kalimantan Barat': {
+    'Kota Pontianak': { 'Pontianak Kota':'78112','Pontianak Selatan':'78121','Pontianak Barat':'78244','Pontianak Tenggara':'78115','Pontianak Utara':'78241','Pontianak Timur':'78232' },
+    'Kab. Kubu Raya': { 'Sungai Raya':'78391','Sungai Ambawang':'78381','Sungai Kakap':'78381' },
+    'Kab. Sanggau': { 'Sanggau':'78511','Kapuas':'78516' },
+    'Kota Singkawang': { 'Singkawang Barat':'79112','Singkawang Tengah':'79121','Singkawang Timur':'79121' },
+    'Kab. Landak': { 'Ngabang':'78357','Sengah Temila':'78382' },
+    'Kab. Sambas': { 'Sambas':'79411','Pemangkat':'79452' },
+    'Kab. Mempawah': { 'Mempawah Hilir':'78912','Sungai Pinyuh':'78951' },
+    'Kab. Bengkayang': { 'Bengkayang':'79211','Ledo':'79251' },
+    'Kab. Ketapang': { 'Delta Pawan':'78811','Sandai':'78861' },
+    'Kab. Sintang': { 'Sintang':'78611','Binjai Hulu':'78652' },
+    'Kab. Melawi': { 'Nanga Pinoh':'78671','Sokan':'78672' },
+    'Kab. Kapuas Hulu': { 'Putussibau Utara':'78711','Putussibau Selatan':'78712' },
+  },
+  'Kalimantan Tengah': {
+    'Kota Palangka Raya': { 'Pahandut':'73112','Jekan Raya':'73111','Sebangau':'73116','Bukit Batu':'73113','Rakumpit':'73114' },
+    'Kab. Kotawaringin Barat': { 'Arut Selatan':'74311','Pangkalan Banteng':'74351','Arut Utara':'74312' },
+    'Kab. Kotawaringin Timur': { 'Mentawa Baru Ketapang':'74311','Baamang':'74362' },
+    'Kab. Kapuas': { 'Selat':'73511','Kapuas Murung':'73521' },
+    'Kab. Barito Selatan': { 'Buntok':'73711','Dusun Selatan':'73712' },
+    'Kab. Barito Utara': { 'Teweh Baru':'73812','Teweh Tengah':'73811' },
+    'Kab. Seruyan': { 'Kuala Pembuang':'74111','Seruyan Hilir':'74112' },
+    'Kab. Katingan': { 'Kasongan':'74452','Mendawai':'74453' },
+    'Kab. Pulang Pisau': { 'Kahayan Hilir':'74811' },
+    'Kab. Gunung Mas': { 'Kurun':'74511','Tewah':'74515' },
+    'Kab. Barito Timur': { 'Tamiang Layang':'73611' },
+    'Kab. Murung Raya': { 'Puruk Cahu':'73911' },
+    'Kab. Lamandau': { 'Nanga Bulik':'74611' },
+    'Kab. Sukamara': { 'Sukamara':'74171' },
+  },
+  'Kalimantan Selatan': {
+    'Kota Banjarmasin': { 'Banjarmasin Barat':'70116','Banjarmasin Selatan':'70241','Banjarmasin Tengah':'70112','Banjarmasin Utara':'70123','Banjarmasin Timur':'70235' },
+    'Kab. Banjar': { 'Martapura':'70611','Gambut':'70652','Kertak Hanyar':'70653' },
+    'Kota Banjarbaru': { 'Banjarbaru Selatan':'70711','Cempaka':'70722','Landasan Ulin':'70724' },
+    'Kab. Tanah Laut': { 'Pelaihari':'70811','Batu Ampar':'70861' },
+    'Kab. Barito Kuala': { 'Marabahan':'70511','Mandastana':'70561' },
+    'Kab. Hulu Sungai Selatan': { 'Kandangan':'71211','Simpur':'71261' },
+    'Kab. Hulu Sungai Tengah': { 'Barabai':'71311','Pandawan':'71362' },
+    'Kab. Hulu Sungai Utara': { 'Amuntai Tengah':'71411','Sungai Pandan':'71461' },
+    'Kab. Tapin': { 'Rantau':'71111','Bakarangan':'71161' },
+    'Kab. Tabalong': { 'Tanjung':'71511','Murung Pudak':'71561' },
+    'Kab. Tanah Bumbu': { 'Batulicin':'72171','Satui':'72172' },
+    'Kab. Balangan': { 'Paringin':'71611','Paringin Selatan':'71661' },
+    'Kab. Kotabaru': { 'Pulau Laut Utara':'72111','Pulau Laut Tengah':'72161' },
+  },
+  'Kalimantan Timur': {
+    'Kota Samarinda': { 'Samarinda Kota':'75112','Samarinda Ilir':'75131','Samarinda Ulu':'75123','Samarinda Seberang':'75241','Loa Janan Ilir':'75244','Palaran':'75261','Sungai Pinang':'75117' },
+    'Kota Balikpapan': { 'Balikpapan Barat':'76114','Balikpapan Kota':'76113','Balikpapan Selatan':'76114','Balikpapan Utara':'76127','Balikpapan Tengah':'76123','Balikpapan Timur':'76115' },
+    'Kab. Kutai Kartanegara': { 'Tenggarong':'75511','Tenggarong Seberang':'75515','Samboja':'75517' },
+    'Kota Bontang': { 'Bontang Utara':'75313','Bontang Selatan':'75321','Bontang Barat':'75323' },
+    'Kab. Berau': { 'Tanjung Redeb':'77311','Gunung Tabur':'77381' },
+    'Kab. Kutai Barat': { 'Sendawar':'75761','Barong Tongkok':'75762' },
+    'Kab. Kutai Timur': { 'Sangatta Utara':'75611','Sangatta Selatan':'75612' },
+    'Kab. Penajam Paser Utara': { 'Penajam':'76141','Waru':'76142' },
+    'Kab. Paser': { 'Tanah Grogot':'76211','Long Ikis':'76262' },
+    'Kab. Mahakam Ulu': { 'Long Bagun':'77551' },
+  },
+  'Kalimantan Utara': {
+    'Kota Tarakan': { 'Tarakan Barat':'77113','Tarakan Tengah':'77111','Tarakan Timur':'77115','Tarakan Utara':'77116' },
+    'Kab. Nunukan': { 'Nunukan':'77411','Sebatik':'77462','Nunukan Selatan':'77412' },
+    'Kab. Bulungan': { 'Tanjung Selor':'77212','Peso':'77261' },
+    'Kab. Malinau': { 'Malinau Kota':'77511','Malinau Utara':'77561' },
+    'Kab. Tana Tidung': { 'Tideng Pale':'77611' },
+  },
+  // ── SULAWESI ──
+  'Sulawesi Utara': {
+    'Kota Manado': { 'Wenang':'95112','Wanea':'95118','Tuminting':'95131','Singkil':'95141','Mapanget':'95253','Tikala':'95125','Sario':'95115','Malalayang':'95152','Bunaken':'95253','Paal Dua':'95128' },
+    'Kab. Minahasa': { 'Tondano Barat':'95612','Tondano Utara':'95611','Eris':'95671' },
+    'Kota Bitung': { 'Bitung Barat':'95512','Bitung Tengah':'95514','Girian':'95523' },
+    'Kota Tomohon': { 'Tomohon Tengah':'95416','Tomohon Utara':'95411','Tomohon Selatan':'95419' },
+    'Kab. Minahasa Utara': { 'Airmadidi':'95374','Dimembe':'95375' },
+    'Kab. Minahasa Selatan': { 'Amurang':'95416','Tenga':'95417' },
+    'Kota Kotamobagu': { 'Kotamobagu Barat':'95711','Kotamobagu Timur':'95712' },
+    'Kab. Bolaang Mongondow': { 'Lolayan':'95791','Bolaang Uki':'95792' },
+    'Kab. Kepulauan Sangihe': { 'Tahuna':'95811' },
+    'Kab. Kepulauan Talaud': { 'Melonguane':'95851' },
+  },
+  'Sulawesi Tengah': {
+    'Kota Palu': { 'Palu Barat':'94111','Palu Selatan':'94116','Palu Timur':'94114','Tatanga':'94119','Mantikulore':'94112','Ulujadi':'94118','Tawaeli':'94113','Palu Utara':'94116' },
+    'Kab. Donggala': { 'Banawa':'94311','Rio Pakava':'94362','Sindue':'94363' },
+    'Kab. Sigi': { 'Dolo':'94364','Palolo':'94365' },
+    'Kab. Morowali': { 'Bungku Tengah':'94671','Bungku Utara':'94675' },
+    'Kab. Parigi Moutong': { 'Parigi':'94411','Toribulu':'94461' },
+    'Kab. Poso': { 'Poso Kota':'94611','Poso Pesisir':'94661' },
+    'Kab. Tojo Una-Una': { 'Ampana Tete':'94683','Uekuli':'94684' },
+    'Kab. Banggai': { 'Luwuk':'94711','Batui':'94771' },
+    'Kab. Banggai Kepulauan': { 'Banggai':'94791' },
+    'Kab. Buol': { 'Buol':'94562' },
+    'Kab. Toli-Toli': { 'Baolan':'94511' },
+  },
+  'Sulawesi Selatan': {
+    'Kota Makassar': { 'Mariso':'90125','Mamajang':'90131','Tamalate':'90224','Rappocini':'90222','Makassar':'90111','Tallo':'90212','Bontoala':'90154','Biringkanaya':'90241','Manggala':'90234','Panakkukang':'90231','Tamalanrea':'90245','Wajo':'90174','Ujung Tanah':'90165','Kepulauan Sangkarrang':'90217' },
+    'Kab. Gowa': { 'Somba Opu':'92111','Pallangga':'92112','Bajeng':'92113','Bontonompo':'92161' },
+    'Kab. Maros': { 'Mandai':'90571','Turikale':'90511','Maros Baru':'90511' },
+    'Kota Parepare': { 'Bacukiki':'91112','Ujung':'91113','Soreang':'91111' },
+    'Kab. Bone': { 'Tanete Riattang':'92711','Tanete Riattang Barat':'92751' },
+    'Kab. Bulukumba': { 'Ujung Bulu':'92411','Gantarang':'92451' },
+    'Kab. Bantaeng': { 'Bantaeng':'92411','Bissappu':'92421' },
+    'Kab. Jeneponto': { 'Binamu':'92311','Bangkala':'92371' },
+    'Kab. Takalar': { 'Pattallassang':'92211','Galesong':'92261' },
+    'Kab. Selayar': { 'Benteng':'92811','Bontoharu':'92861' },
+    'Kab. Sinjai': { 'Sinjai Utara':'92611','Sinjai Selatan':'92671' },
+    'Kab. Barru': { 'Barru':'90711','Pujananting':'90761' },
+    'Kab. Soppeng': { 'Lalabata':'90811','Lilirilau':'90871' },
+    'Kab. Wajo': { 'Tempe':'90911','Pammana':'90972' },
+    'Kab. Sidrap': { 'Maritengngae':'91611','Watang Pulu':'91661' },
+    'Kab. Pinrang': { 'Watang Sawitto':'91211','Paleteang':'91261' },
+    'Kab. Enrekang': { 'Baraka':'91711','Alla':'91712' },
+    'Kab. Luwu': { 'Belopa':'91911','Bajo':'91971' },
+    'Kab. Tana Toraja': { 'Makale':'91811','Gandang Batu Sillanan':'91881' },
+    'Kab. Toraja Utara': { 'Rantepao':'91831','Kesu':'91881' },
+    'Kota Palopo': { 'Wara':'91911','Sendana':'91923' },
+    'Kab. Luwu Utara': { 'Masamba':'92961','Sukamaju':'92973' },
+    'Kab. Luwu Timur': { 'Malili':'92981','Towuti':'92982' },
+    'Kota Makassar (Kepulauan)': { 'Sangkarrang':'90217' },
+  },
+  'Sulawesi Tenggara': {
+    'Kota Kendari': { 'Kendari':'93111','Kendari Barat':'93117','Baruga':'93116','Abeli':'93231','Poasia':'93232','Kambu':'93116','Mandonga':'93125','Puuwatu':'93126','Wua-Wua':'93113','Kadia':'93114','Nambo':'93225' },
+    'Kab. Muna': { 'Katobu':'93611','Parigi':'93612' },
+    'Kab. Konawe': { 'Unaaha':'93411','Bondoala':'93461' },
+    'Kab. Konawe Selatan': { 'Andoolo':'93459','Benua':'93461' },
+    'Kab. Buton': { 'Pasarwajo':'93711','Lasalimu':'93761' },
+    'Kota Baubau': { 'Lea-Lea':'93711','Murhum':'93712','Wolio':'93721' },
+    'Kab. Kolaka': { 'Kolaka':'93511','Pomalaa':'93562' },
+    'Kab. Kolaka Utara': { 'Lasusua':'93561','Kodeoha':'93562' },
+    'Kab. Bombana': { 'Rumbia':'93772','Kabaena':'93773' },
+    'Kab. Wakatobi': { 'Wangi-Wangi':'93791','Kaledupa':'93792' },
+  },
+  'Gorontalo': {
+    'Kota Gorontalo': { 'Kota Barat':'96115','Kota Tengah':'96114','Kota Timur':'96113','Dungingi':'96128','Dumbo Raya':'96132','Hulontalangi':'96131','Sipatana':'96127','Kota Selatan':'96116','Kota Utara':'96111' },
+    'Kab. Gorontalo': { 'Limboto':'96211','Telaga':'96252','Tibawa':'96253' },
+    'Kab. Bone Bolango': { 'Suwawa':'96511','Kabila':'96512' },
+    'Kab. Gorontalo Utara': { 'Kwandang':'96611','Tolinggula':'96661' },
+    'Kab. Boalemo': { 'Tilamuta':'96321','Paguyaman':'96371' },
+    'Kab. Pohuwato': { 'Marisa':'96411','Paguat':'96461' },
+  },
+  'Sulawesi Barat': {
+    'Kab. Mamuju': { 'Mamuju':'91511','Kalukku':'91561','Papalang':'91562' },
+    'Kab. Majene': { 'Banggae':'91412','Banggae Timur':'91413','Pamboang':'91451' },
+    'Kab. Polewali Mandar': { 'Polewali':'91311','Wonomulyo':'91361' },
+    'Kab. Mamasa': { 'Mamasa':'91362' },
+    'Kab. Pasangkayu': { 'Pasangkayu':'91571' },
+    'Kab. Mamuju Tengah': { 'Budong-Budong':'91581' },
+  },
+  // ── MALUKU ──
+  'Maluku': {
+    'Kota Ambon': { 'Nusaniwe':'97114','Sirimau':'97127','Teluk Ambon Baguala':'97231','Leitimur Selatan':'97115','Baguala':'97228' },
+    'Kab. Maluku Tengah': { 'Tehoru':'97512','Kairatu':'97561','Amahai':'97511' },
+    'Kab. Maluku Tenggara': { 'Kei Kecil':'97611','Kei Besar':'97661' },
+    'Kab. Seram Bagian Barat': { 'Kairatu Barat':'97561','Huamual':'97562' },
+    'Kab. Seram Bagian Timur': { 'Bula':'97611' },
+    'Kab. Kepulauan Aru': { 'Dobo':'97611' },
+    'Kab. Maluku Barat Daya': { 'Tiakur':'97411' },
+    'Kab. Buru': { 'Namlea':'97681' },
+    'Kab. Buru Selatan': { 'Namrole':'97692' },
+    'Kota Tual': { 'Pulau Dullah Selatan':'97613' },
+  },
+  'Maluku Utara': {
+    'Kota Ternate': { 'Kota Ternate Selatan':'97713','Kota Ternate Utara':'97721','Kota Ternate Tengah':'97716','Kota Ternate Barat':'97711' },
+    'Kab. Halmahera Barat': { 'Jailolo':'97811','Sahu':'97861' },
+    'Kota Tidore Kepulauan': { 'Tidore':'97812','Oba':'97861' },
+    'Kab. Halmahera Utara': { 'Tobelo':'97762','Galela':'97763' },
+    'Kab. Halmahera Selatan': { 'Bacan':'97791','Kayoa':'97793' },
+    'Kab. Halmahera Timur': { 'Maba':'97871' },
+    'Kab. Halmahera Tengah': { 'Weda':'97781' },
+    'Kab. Kepulauan Sula': { 'Sanana':'97851' },
+    'Kab. Pulau Morotai': { 'Morotai Selatan':'97771' },
+    'Kab. Pulau Taliabu': { 'Bobong':'97856' },
+  },
+  // ── PAPUA ──
+  'Papua Barat': {
+    'Kota Manokwari': { 'Manokwari Barat':'98312','Manokwari Selatan':'98313','Distrik Manokwari':'98311' },
+    'Kab. Sorong': { 'Aimas':'98411','Salawati':'98451' },
+    'Kota Sorong': { 'Sorong':'98411','Sorong Barat':'98413','Sorong Utara':'98414' },
+    'Kab. Manokwari Selatan': { 'Ransiki':'98351' },
+    'Kab. Teluk Bintuni': { 'Bintuni':'98551' },
+    'Kab. Teluk Wondama': { 'Rasiei':'98451' },
+    'Kab. Fakfak': { 'Fakfak':'98611' },
+    'Kab. Kaimana': { 'Kaimana':'98651' },
+    'Kab. Maybrat': { 'Kumurkek':'98361' },
+    'Kab. Raja Ampat': { 'Waisai':'98488' },
+    'Kab. Tambrauw': { 'Fef':'98315' },
+  },
+  'Papua Barat Daya': {
+    'Kota Sorong': { 'Sorong Kota':'98411','Sorong Kepulauan':'98452' },
+    'Kab. Sorong': { 'Aimas':'98411','Salawati Tengah':'98452' },
+    'Kab. Sorong Selatan': { 'Teminabuan':'98453' },
+    'Kab. Raja Ampat': { 'Waisai':'98488' },
+    'Kab. Maybrat': { 'Kumurkek':'98361' },
+    'Kab. Tambrauw': { 'Fef':'98315' },
+  },
+  'Papua': {
+    'Kota Jayapura': { 'Abepura':'99351','Jayapura Selatan':'99224','Jayapura Utara':'99112','Heram':'99358','Muara Tami':'99225' },
+    'Kab. Jayapura': { 'Sentani':'99352','Waibu':'99353','Nimboran':'99354' },
+    'Kab. Keerom': { 'Arso':'99661','Web':'99662' },
+    'Kab. Sarmi': { 'Sarmi':'99271' },
+    'Kab. Waropen': { 'Botawa':'99272' },
+    'Kab. Biak Numfor': { 'Biak Kota':'98111','Samofa':'98151' },
+    'Kab. Yapen': { 'Serui':'98211' },
+    'Kab. Supiori': { 'Sorendiweri':'98161' },
+    'Kab. Mamberamo Raya': { 'Burmeso':'99331' },
+  },
+  'Papua Selatan': {
+    'Kab. Merauke': { 'Merauke':'99611','Naukenjerai':'99612','Semangga':'99661' },
+    'Kab. Asmat': { 'Agats':'99765','Fayit':'99766' },
+    'Kab. Mappi': { 'Obaa':'99861','Nambioman Bapai':'99862' },
+    'Kab. Boven Digoel': { 'Tanah Merah':'99611' },
+  },
+  'Papua Tengah': {
+    'Kab. Nabire': { 'Nabire':'98801','Uwapa':'98853','Wanggar':'98802' },
+    'Kab. Paniai': { 'Enarotali':'98871','Bibida':'98872' },
+    'Kab. Mimika': { 'Mimika Baru':'99910','Tembagapura':'99911','Kwamki Narama':'99912' },
+    'Kab. Dogiyai': { 'Moanemani':'98891' },
+    'Kab. Intan Jaya': { 'Sugapa':'98981' },
+    'Kab. Deiyai': { 'Tigi':'98882' },
+  },
+  'Papua Pegunungan': {
+    'Kab. Jayawijaya': { 'Wamena':'99501','Wouma':'99511','Kurima':'99561' },
+    'Kab. Puncak Jaya': { 'Mulia':'99471','Tingginambut':'99472' },
+    'Kab. Puncak': { 'Ilaga':'99451' },
+    'Kab. Lanny Jaya': { 'Tiom':'99591' },
+    'Kab. Nduga': { 'Kenyam':'99581' },
+    'Kab. Mamberamo Tengah': { 'Kobakma':'99421' },
+    'Kab. Yalimo': { 'Elelim':'99481' },
+    'Kab. Tolikara': { 'Karubaga':'99471' },
+    'Kab. Pegunungan Bintang': { 'Oksibil':'99371' },
+  },
+};
+
+const WNA_CITY_DATA = {
+  // Asia Tenggara
+  'Malaysia': ['Kuala Lumpur','Petaling Jaya','Shah Alam','Johor Bahru','Penang','Ipoh','Kota Kinabalu','Kuching','Malacca','Kota Bharu','Kuala Terengganu','Alor Setar'],
+  'Singapore': ['Singapore'],
+  'Thailand': ['Bangkok','Chiang Mai','Phuket','Pattaya','Chiang Rai','Hat Yai','Nonthaburi','Nakhon Ratchasima','Udon Thani'],
+  'Filipina': ['Manila','Cebu City','Davao','Quezon City','Makati','Zamboanga','Cagayan de Oro','Pasig','Taguig'],
+  'Vietnam': ['Hanoi','Ho Chi Minh City','Da Nang','Nha Trang','Haiphong','Can Tho','Hue'],
+  'Myanmar': ['Yangon','Naypyidaw','Mandalay','Bago','Mawlamyine'],
+  'Kamboja': ['Phnom Penh','Siem Reap','Battambang','Sihanoukville'],
+  'Laos': ['Vientiane','Luang Prabang','Savannakhet','Pakse'],
+  'Brunei Darussalam': ['Bandar Seri Begawan','Kuala Belait','Seria'],
+  'Timor Leste': ['Dili','Baucau','Maliana'],
+  // Asia Timur
+  'China': ['Beijing','Shanghai','Guangzhou','Shenzhen','Chengdu','Wuhan','Nanjing','Xi\'an','Hangzhou','Chongqing','Tianjin','Dongguan','Foshan','Shenyang'],
+  'Jepang': ['Tokyo','Osaka','Nagoya','Yokohama','Kyoto','Fukuoka','Sapporo','Kobe','Hiroshima','Sendai'],
+  'Korea Selatan': ['Seoul','Busan','Incheon','Daegu','Daejeon','Gwangju','Suwon','Ulsan'],
+  'Taiwan': ['Taipei','Kaohsiung','Taichung','Tainan','New Taipei','Taoyuan'],
+  'Hong Kong': ['Hong Kong','Kowloon','New Territories'],
+  'Macau': ['Macau'],
+  'Mongolia': ['Ulaanbaatar','Erdenet','Darkhan'],
+  // Asia Selatan
+  'India': ['New Delhi','Mumbai','Bangalore','Chennai','Kolkata','Hyderabad','Pune','Ahmedabad','Jaipur','Surat','Lucknow','Kanpur'],
+  'Pakistan': ['Karachi','Lahore','Islamabad','Rawalpindi','Faisalabad','Peshawar','Quetta'],
+  'Bangladesh': ['Dhaka','Chittagong','Sylhet','Rajshahi','Khulna'],
+  'Sri Lanka': ['Colombo','Kandy','Galle','Jaffna','Negombo'],
+  'Nepal': ['Kathmandu','Pokhara','Lalitpur','Biratnagar'],
+  'Bhutan': ['Thimphu','Paro','Punakha'],
+  'Maladewa': ['Male','Addu City'],
+  // Asia Tengah & Barat
+  'Arab Saudi': ['Riyadh','Jeddah','Makkah','Madinah','Dammam','Khobar','Tabuk'],
+  'Uni Emirat Arab': ['Dubai','Abu Dhabi','Sharjah','Ajman','Ras Al Khaimah'],
+  'Qatar': ['Doha','Al Wakrah','Al Khor'],
+  'Kuwait': ['Kuwait City','Salmiyah','Hawalli'],
+  'Bahrain': ['Manama','Riffa','Muharraq'],
+  'Oman': ['Muscat','Salalah','Sohar','Nizwa'],
+  'Yordania': ['Amman','Zarqa','Irbid','Aqaba'],
+  'Lebanon': ['Beirut','Tripoli','Sidon'],
+  'Turki': ['Istanbul','Ankara','Izmir','Bursa','Antalya','Adana','Gaziantep'],
+  'Israel': ['Jerusalem','Tel Aviv','Haifa','Be\'er Sheva','Rishon LeZion'],
+  'Iran': ['Tehran','Mashhad','Isfahan','Shiraz','Tabriz','Karaj'],
+  'Irak': ['Baghdad','Basra','Mosul','Erbil','Najaf'],
+  'Kazakhstan': ['Almaty','Nur-Sultan','Shymkent','Aktobe'],
+  'Uzbekistan': ['Tashkent','Samarkand','Bukhara','Namangan'],
+  'Azerbaijan': ['Baku','Ganja','Sumqayit'],
+  'Georgia': ['Tbilisi','Kutaisi','Batumi'],
+  'Armenia': ['Yerevan','Gyumri'],
+  // Asia Pasifik
+  'Australia': ['Sydney','Melbourne','Brisbane','Perth','Adelaide','Canberra','Darwin','Hobart','Gold Coast','Newcastle'],
+  'Selandia Baru': ['Auckland','Wellington','Christchurch','Hamilton','Tauranga'],
+  'Papua Nugini': ['Port Moresby','Lae','Madang','Wewak'],
+  'Fiji': ['Suva','Lautoka','Nadi'],
+  // Eropa Barat
+  'Inggris': ['London','Manchester','Birmingham','Glasgow','Liverpool','Edinburgh','Leeds','Bristol','Sheffield','Nottingham'],
+  'Jerman': ['Berlin','Hamburg','Munich','Cologne','Frankfurt','Stuttgart','Düsseldorf','Dortmund','Essen','Bremen'],
+  'Prancis': ['Paris','Marseille','Lyon','Toulouse','Nice','Nantes','Strasbourg','Bordeaux','Lille','Rennes'],
+  'Italia': ['Rome','Milan','Naples','Turin','Palermo','Genoa','Bologna','Florence','Venice','Bari'],
+  'Spanyol': ['Madrid','Barcelona','Valencia','Seville','Zaragoza','Malaga','Murcia','Bilbao','Alicante','Córdoba'],
+  'Belanda': ['Amsterdam','Rotterdam','The Hague','Utrecht','Eindhoven','Tilburg'],
+  'Belgia': ['Brussels','Antwerp','Ghent','Liège','Bruges'],
+  'Swiss': ['Zurich','Geneva','Basel','Bern','Lausanne'],
+  'Austria': ['Vienna','Graz','Linz','Salzburg','Innsbruck'],
+  'Swedia': ['Stockholm','Gothenburg','Malmö','Uppsala','Västerås'],
+  'Norwegia': ['Oslo','Bergen','Stavanger','Trondheim'],
+  'Denmark': ['Copenhagen','Aarhus','Odense','Aalborg'],
+  'Finlandia': ['Helsinki','Espoo','Tampere','Turku','Oulu'],
+  'Portugal': ['Lisbon','Porto','Braga','Faro'],
+  'Yunani': ['Athens','Thessaloniki','Patras','Heraklion'],
+  'Irlandia': ['Dublin','Cork','Galway','Limerick'],
+  // Eropa Timur
+  'Polandia': ['Warsaw','Kraków','Łódź','Wrocław','Poznań','Gdańsk'],
+  'Rusia': ['Moscow','Saint Petersburg','Novosibirsk','Yekaterinburg','Kazan','Chelyabinsk','Omsk'],
+  'Ceko': ['Prague','Brno','Ostrava','Plzeň'],
+  'Hungaria': ['Budapest','Debrecen','Miskolc'],
+  'Rumania': ['Bucharest','Cluj-Napoca','Iași','Timișoara'],
+  'Ukraina': ['Kyiv','Kharkiv','Odessa','Lviv','Dnipro'],
+  'Serbia': ['Belgrade','Novi Sad','Niš'],
+  'Kroasia': ['Zagreb','Split','Rijeka'],
+  'Slovakia': ['Bratislava','Košice'],
+  'Slovenia': ['Ljubljana','Maribor'],
+  'Bulgaria': ['Sofia','Plovdiv','Varna'],
+  // Amerika Utara
+  'Amerika Serikat': ['New York','Los Angeles','Chicago','Houston','Phoenix','Philadelphia','San Antonio','San Diego','Dallas','San Jose','Austin','Seattle','Boston','Denver','Miami','Las Vegas','Atlanta','Portland','Detroit','Nashville'],
+  'Kanada': ['Toronto','Montreal','Vancouver','Calgary','Edmonton','Ottawa','Winnipeg','Quebec City','Hamilton','Saskatoon'],
+  'Meksiko': ['Mexico City','Guadalajara','Monterrey','Puebla','Tijuana','León','Ciudad Juárez','Cancún','Mérida'],
+  // Amerika Selatan
+  'Brazil': ['São Paulo','Rio de Janeiro','Brasília','Salvador','Fortaleza','Belo Horizonte','Manaus','Curitiba','Recife'],
+  'Argentina': ['Buenos Aires','Córdoba','Rosario','Mendoza','Mar del Plata'],
+  'Colombia': ['Bogotá','Medellín','Cali','Barranquilla','Cartagena'],
+  'Chile': ['Santiago','Valparaíso','Concepción','Antofagasta'],
+  'Peru': ['Lima','Arequipa','Trujillo','Chiclayo','Cusco'],
+  'Venezuela': ['Caracas','Maracaibo','Valencia','Barquisimeto'],
+  'Ekuador': ['Quito','Guayaquil','Cuenca'],
+  'Bolivia': ['Sucre','La Paz','Santa Cruz','Cochabamba'],
+  'Uruguay': ['Montevideo','Salto'],
+  'Paraguay': ['Asunción','Ciudad del Este'],
+  // Afrika
+  'Afrika Selatan': ['Johannesburg','Cape Town','Durban','Pretoria','Port Elizabeth','Bloemfontein'],
+  'Nigeria': ['Lagos','Abuja','Kano','Ibadan','Port Harcourt','Benin City'],
+  'Kenya': ['Nairobi','Mombasa','Nakuru','Kisumu'],
+  'Ethiopia': ['Addis Ababa','Dire Dawa','Mekelle'],
+  'Mesir': ['Cairo','Alexandria','Giza','Luxor','Aswan','Port Said'],
+  'Maroko': ['Casablanca','Rabat','Fes','Marrakech','Tangier','Agadir'],
+  'Ghana': ['Accra','Kumasi','Tamale'],
+  'Tanzania': ['Dar es Salaam','Dodoma','Mwanza','Arusha'],
+  'Uganda': ['Kampala','Gulu','Mbarara'],
+  'Rwanda': ['Kigali','Butare'],
+  'Senegal': ['Dakar','Saint-Louis'],
+  'Pantai Gading': ['Abidjan','Yamoussoukro'],
+  'Kamerun': ['Yaoundé','Douala'],
+  'Tunisia': ['Tunis','Sfax','Sousse'],
+  'Aljazair': ['Algiers','Oran','Constantine'],
+  'Libya': ['Tripoli','Benghazi'],
+  'Sudan': ['Khartoum','Omdurman','Port Sudan'],
+  'Somalia': ['Mogadishu','Hargeisa'],
+  'Mozambik': ['Maputo','Beira','Nampula'],
+  'Zimbabwe': ['Harare','Bulawayo'],
+  'Zambia': ['Lusaka','Kitwe','Ndola'],
+  'Angola': ['Luanda','Huambo','Lobito'],
+  'Madagaskar': ['Antananarivo','Toamasina'],
+};
+
+const VERIFIED_MEMBER_REQUIRED_PAGES = new Set([
+  'workspace-console',
+  'community-manager',
+  'sponsor-manager',
+  'tournament-manager',
+  'training-manager',
+  'venue-manager',
+  'venue-registration',
+  'venue-workspace',
+  'official-center',
+  'official-schedule',
+  'match-center',
+  'match-report',
+  'match-statistics',
+]);
+
+const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack, onNav, onAuthChange }) => {
+  const memberVerification = auth?.memberVerification || null;
+  const [showAllActions, setShowAllActions] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editName, setEditName] = useState(auth?.name || '');
+  const [editCurrentPassword, setEditCurrentPassword] = useState('');
+  const [editNewPassword, setEditNewPassword] = useState('');
+  const [editConfirmPassword, setEditConfirmPassword] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
+
+  const saveEditProfile = async (e) => {
+    e.preventDefault();
+    setEditError('');
+    setEditSuccess('');
+    const trimmedName = editName.trim();
+    if (!trimmedName) { setEditError('Nama tidak boleh kosong.'); return; }
+    if (editNewPassword && editNewPassword.length < 8) { setEditError('Password baru minimal 8 karakter.'); return; }
+    if (editNewPassword && editNewPassword !== editConfirmPassword) { setEditError('Konfirmasi password tidak cocok.'); return; }
+    setEditSaving(true);
+    try {
+      const updatePayload = { data: { ...(auth?.rawMetadata || {}), name: trimmedName } };
+      if (editNewPassword) updatePayload.password = editNewPassword;
+      const { data: updatedData, error: updateError } = await supabase.auth.updateUser(updatePayload);
+      if (updateError) throw updateError;
+      const refreshed = await enrichAuthUser(updatedData?.user);
+      if (refreshed && typeof onAuthChange === 'function') onAuthChange(refreshed);
+      setEditSuccess('Profil berhasil diperbarui.');
+      setEditCurrentPassword('');
+      setEditNewPassword('');
+      setEditConfirmPassword('');
+    } catch (err) {
+      setEditError(err?.message || 'Gagal menyimpan perubahan.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const [verificationForm, setVerificationForm] = useState(() => ({
+    citizenshipStatus: memberVerification?.citizenshipStatus || 'WNI',
+    phone: memberVerification?.phone || '',
+    nik: memberVerification?.nik || '',
+    passportNo: memberVerification?.passportNo || '',
+    country: memberVerification?.country || 'Indonesia',
+    province: memberVerification?.province || '',
+    city: memberVerification?.city || '',
+    district: memberVerification?.district || '',
+    postalCode: memberVerification?.postalCode || '',
+    address: memberVerification?.address || '',
+    rt: memberVerification?.rt || '',
+    rw: memberVerification?.rw || '',
+    ktpPhotoUrl: memberVerification?.ktpPhotoUrl || '',
+    postPhotoUrl: memberVerification?.postPhotoUrl || '',
+  }));
+  const [savingVerification, setSavingVerification] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState({ ktp: false, post: false });
+  const [verificationError, setVerificationError] = useState('');
+  const [verificationSuccess, setVerificationSuccess] = useState('');
+
+  useEffect(() => {
+    setVerificationForm({
+      citizenshipStatus: memberVerification?.citizenshipStatus || 'WNI',
+      phone: memberVerification?.phone || '',
+      nik: memberVerification?.nik || '',
+      passportNo: memberVerification?.passportNo || '',
+      country: memberVerification?.country || 'Indonesia',
+      province: memberVerification?.province || '',
+      city: memberVerification?.city || '',
+      district: memberVerification?.district || '',
+      postalCode: memberVerification?.postalCode || '',
+      address: memberVerification?.address || '',
+      rt: memberVerification?.rt || '',
+      rw: memberVerification?.rw || '',
+      ktpPhotoUrl: memberVerification?.ktpPhotoUrl || '',
+      postPhotoUrl: memberVerification?.postPhotoUrl || '',
+    });
+  }, [memberVerification]);
+
+  const isWni = verificationForm.citizenshipStatus === 'WNI';
+  const provinceOptions = Object.keys(WNI_REGION_DATA);
+  const cityOptions = isWni
+    ? Object.keys(WNI_REGION_DATA[verificationForm.province] || {})
+    : (WNA_CITY_DATA[verificationForm.country] || []);
+  const districtOptions = isWni
+    ? Object.keys((WNI_REGION_DATA[verificationForm.province] || {})[verificationForm.city] || {})
+    : [];
+
+  useEffect(() => {
+    if (!isWni) return;
+    const selectedPostalCode = ((WNI_REGION_DATA[verificationForm.province] || {})[verificationForm.city] || {})[verificationForm.district] || '';
+    if (!selectedPostalCode) return;
+    setVerificationForm((prev) => ({ ...prev, postalCode: selectedPostalCode }));
+  }, [isWni, verificationForm.province, verificationForm.city, verificationForm.district]);
+
+  const normalizePhone = (value) => String(value || '').replace(/[^\d+]/g, '');
+
+  const updateVerificationField = (key, value) => {
+    setVerificationSuccess('');
+    setVerificationError('');
+    setVerificationForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === 'citizenshipStatus') {
+        if (value === 'WNI') {
+          next.passportNo = '';
+          next.country = 'Indonesia';
+        } else {
+          next.nik = '';
+          next.province = '';
+          next.district = '';
+        }
+        next.city = '';
+        next.postalCode = '';
+      }
+      if (isWni && key === 'province') {
+        next.city = '';
+        next.district = '';
+        next.postalCode = '';
+      }
+      if (isWni && key === 'city') {
+        next.district = '';
+        next.postalCode = '';
+      }
+      if (!isWni && key === 'country') {
+        next.city = '';
+      }
+      return next;
+    });
+  };
+
+  const validateVerificationForm = () => {
+    const normalizedPhone = normalizePhone(verificationForm.phone);
+    if (!verificationForm.citizenshipStatus) return 'Status warga negara wajib dipilih.';
+    if (!/^(\+62|08)\d{8,11}$/.test(normalizedPhone)) {
+      return 'No HP harus format 08xx atau +62xx dengan 10-13 digit.';
+    }
+
+    if (isWni) {
+      if (!/^\d{16}$/.test(verificationForm.nik || '')) {
+        return 'NIK wajib tepat 16 digit angka.';
+      }
+      const provinceCode = Number(String(verificationForm.nik).slice(0, 2));
+      if (!NIK_VALID_PROVINCE_CODES.has(provinceCode)) {
+        return `NIK tidak valid. Kode wilayah "${provinceCode < 10 ? '0'+provinceCode : provinceCode}" tidak dikenal dalam sistem NIK Indonesia.`;
+      }
+      const nikDay = Number(String(verificationForm.nik).slice(6, 8));
+      const nikMonth = Number(String(verificationForm.nik).slice(8, 10));
+      const adjustedDay = nikDay > 40 ? nikDay - 40 : nikDay;
+      if (adjustedDay < 1 || adjustedDay > 31 || nikMonth < 1 || nikMonth > 12) {
+        return 'NIK tidak valid. Digit tanggal/bulan lahir (digit 7-12) tidak sesuai.';
+      }
+      if (!verificationForm.province) return 'Provinsi wajib dipilih untuk WNI.';
+      if (!verificationForm.city) return 'Kabupaten/Kota wajib dipilih.';
+      if (!verificationForm.district) return 'Kecamatan wajib dipilih untuk WNI.';
+      if (!verificationForm.postalCode) return 'Kode pos wajib dipilih sesuai kecamatan.';
+    } else {
+      if (!/^[a-zA-Z0-9\-\/ ]{5,30}$/.test(verificationForm.passportNo || '')) {
+        return 'No Passport wajib alfanumerik (5-30 karakter).';
+      }
+      if (!verificationForm.country) return 'Negara wajib dipilih untuk WNA.';
+      if (!verificationForm.city) return 'Kabupaten/Kota wajib dipilih berdasarkan negara.';
+      if (!/^\d{4,10}$/.test(verificationForm.postalCode || '')) {
+        return 'Kode pos wajib diisi (4-10 digit).';
+      }
+    }
+
+    if (!verificationForm.address.trim()) return 'Alamat jalan wajib diisi.';
+    if (verificationForm.rt && !/^\d{1,3}$/.test(verificationForm.rt)) return 'RT maksimal 3 digit angka.';
+    if (verificationForm.rw && !/^\d{1,3}$/.test(verificationForm.rw)) return 'RW maksimal 3 digit angka.';
+    if (!verificationForm.ktpPhotoUrl.trim()) return 'Upload foto KTP wajib dilakukan.';
+    if (!verificationForm.postPhotoUrl.trim()) return 'Upload foto post/selfie wajib dilakukan.';
+    return '';
+  };
+
+  const uploadDocument = async (docType, file) => {
+    if (!file || !auth?.id) return;
+    setVerificationSuccess('');
+    setVerificationError('');
+
+    if (!String(file.type || '').startsWith('image/')) {
+      setVerificationError('File dokumen harus berupa gambar (jpg/png/webp).');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setVerificationError('Ukuran file maksimal 5MB.');
+      return;
+    }
+
+    const docKey = docType === 'ktp' ? 'ktpPhotoUrl' : 'postPhotoUrl';
+    setUploadingDoc((prev) => ({ ...prev, [docType]: true }));
+
+    try {
+      const safeName = String(file.name || 'dokumen.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const objectPath = `${auth.id}/${docType}-${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabase
+        .storage
+        .from('member-verification-docs')
+        .upload(objectPath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase
+        .storage
+        .from('member-verification-docs')
+        .getPublicUrl(objectPath);
+
+      const publicUrl = String(publicData?.publicUrl || '').trim();
+      if (!publicUrl) {
+        throw new Error('Dokumen berhasil diunggah tetapi URL publik tidak tersedia.');
+      }
+
+      setVerificationForm((prev) => ({ ...prev, [docKey]: publicUrl }));
+      setVerificationSuccess(docType === 'ktp' ? 'Foto KTP berhasil diunggah.' : 'Foto post/selfie berhasil diunggah.');
+    } catch (err) {
+      console.error('Upload member verification document error:', err);
+      setVerificationError('Upload dokumen gagal. Pastikan bucket storage member-verification-docs sudah dibuat publik di Supabase.');
+    } finally {
+      setUploadingDoc((prev) => ({ ...prev, [docType]: false }));
+    }
+  };
+
+  const saveMemberVerification = async (event) => {
+    event.preventDefault();
+    if (!auth?.id) {
+      setVerificationError('Silakan login terlebih dahulu.');
+      return;
+    }
+
+    const validationError = validateVerificationForm();
+    if (validationError) {
+      setVerificationError(validationError);
+      return;
+    }
+
+    setSavingVerification(true);
+    setVerificationError('');
+    setVerificationSuccess('');
+
+    try {
+      const normalizedPayload = {
+        citizenshipStatus: verificationForm.citizenshipStatus,
+        phone: normalizePhone(verificationForm.phone),
+        nik: isWni ? String(verificationForm.nik || '').trim() : '',
+        passportNo: isWni ? '' : String(verificationForm.passportNo || '').trim(),
+        country: isWni ? 'Indonesia' : String(verificationForm.country || '').trim(),
+        province: isWni ? String(verificationForm.province || '').trim() : '',
+        city: String(verificationForm.city || '').trim(),
+        district: isWni ? String(verificationForm.district || '').trim() : '',
+        postalCode: String(verificationForm.postalCode || '').trim(),
+        address: String(verificationForm.address || '').trim(),
+        rt: String(verificationForm.rt || '').trim(),
+        rw: String(verificationForm.rw || '').trim(),
+        ktpPhotoUrl: String(verificationForm.ktpPhotoUrl || '').trim(),
+        postPhotoUrl: String(verificationForm.postPhotoUrl || '').trim(),
+        verifiedMember: true,
+        verifiedAt: new Date().toISOString(),
+      };
+
+      const { data: currentUserData, error: currentUserError } = await supabase.auth.getUser();
+      if (currentUserError) throw currentUserError;
+
+      const currentMeta = currentUserData?.user?.user_metadata || {};
+      const { data: updatedData, error: updateError } = await supabase.auth.updateUser({
+        data: {
+          ...currentMeta,
+          member_verification: normalizedPayload,
+          verified_member: true,
+          verified_member_at: normalizedPayload.verifiedAt,
+        },
+      });
+
+      if (updateError) throw updateError;
+
+      const refreshedAuth = await enrichAuthUser(updatedData?.user || currentUserData?.user);
+      if (refreshedAuth && typeof onAuthChange === 'function') {
+        onAuthChange(refreshedAuth);
+      }
+
+      setVerificationSuccess('Profil member berhasil diperbarui. Status Anda sekarang Verified Member.');
+    } catch (err) {
+      console.error('saveMemberVerification error:', err);
+      setVerificationError(err?.message || 'Gagal menyimpan verifikasi member.');
+    } finally {
+      setSavingVerification(false);
+    }
+  };
+
   const consoleItems = auth ? [
     auth?.access?.platform && { key: 'platform-console', title: 'Platform Console', sub: 'Newsroom, moderasi, analytics, verifikasi', icon: BarChart3 },
     auth?.access?.workspace && { key: 'workspace-console', title: 'Workspace Console', sub: 'Turnamen, komunitas, venue, sponsor, training', icon: Building2 },
     auth?.access?.official && { key: 'official-center', title: 'Official Center', sub: 'Jadwal tugas, match center, laporan, statistik', icon: ShieldCheck },
   ].filter(Boolean) : [];
+  const operationalActions = auth ? [
+    auth?.access?.platform && [
+      { key: 'user-management', title: 'Kelola User', sub: 'Role, status blokir, dan akses', icon: ShieldCheck },
+      { key: 'admin-verification-queue', title: 'Verifikasi', sub: 'Review akun dan approval', icon: Sparkles },
+      { key: 'moderation', title: 'Moderasi', sub: 'Kontrol konten bermasalah', icon: Eye },
+      { key: 'newsroom', title: 'Newsroom', sub: 'Kelola artikel dan konten', icon: Newspaper },
+      { key: 'analytics', title: 'Analytics', sub: 'Ringkasan metrik platform', icon: TrendingUp },
+    ],
+    auth?.access?.workspace && [
+      { key: 'tournament-manager', title: 'Kelola Turnamen', sub: 'Operasi turnamen dan liga', icon: Trophy },
+      { key: 'community-manager', title: 'Kelola Komunitas', sub: 'Manajemen komunitas', icon: Users },
+      { key: 'venue-workspace', title: 'Kelola Venue', sub: 'Venue, booking, dan staf', icon: MapPin },
+      { key: 'training-manager', title: 'Kelola Pelatihan', sub: 'Coach, program, dan trial', icon: Dumbbell },
+      { key: 'sponsor-manager', title: 'Kelola Sponsor', sub: 'Partnership dan sponsor', icon: Wallet },
+    ],
+    auth?.access?.official && [
+      { key: 'official-schedule', title: 'Jadwal Official', sub: 'Penugasan dan jadwal pertandingan', icon: Calendar },
+    ],
+  ].flat().filter(Boolean) : [];
+  const visibleOperationalActions = showAllActions ? operationalActions : operationalActions.slice(0, 6);
 
   return (
     <div className="bg-white min-h-screen">
@@ -3697,16 +4959,28 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
         <ArrowLeft size={14} /> Kembali
       </button>
       <div className="max-w-7xl mx-auto px-5 lg:px-8 py-8 space-y-8">
-        <div className="grid lg:grid-cols-[1.4fr_0.9fr] gap-6">
+        <div className="grid lg:grid-cols-[1.35fr_0.95fr] gap-6">
           <div className="rounded-3xl border border-neutral-200 bg-[#F8FAFC] p-8">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-16 h-16 rounded-full bg-[#E11D2E] text-white flex items-center justify-center font-display text-3xl">
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-full bg-[#E11D2E] text-white flex items-center justify-center font-display text-3xl shrink-0">
                 {auth?.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div>
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Profil Gamer</div>
                 <div className="font-display text-3xl text-neutral-900">{auth?.name || 'Pengguna'}</div>
                 <div className="text-sm text-neutral-500">{auth?.email || 'Belum login'}</div>
+                <div className="mt-2">
+                  {auth?.verifiedMember ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      <ShieldCheck size={12} /> Verified Member
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                      <Clock size={12} /> Belum Verified
+                    </span>
+                  )}
+                </div>
                 {auth?.roleBadges?.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {auth.roleBadges.map((badge) => (
@@ -3717,6 +4991,13 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                   </div>
                 )}
               </div>
+              </div>
+              <button
+                onClick={() => { setShowEditProfile(true); setEditName(auth?.name || ''); setEditError(''); setEditSuccess(''); }}
+                className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-900 flex items-center gap-1.5"
+              >
+                <Edit3 size={12} /> Edit
+              </button>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-3xl bg-white border border-neutral-200 p-5">
@@ -3746,49 +5027,56 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
             ) : (
               <div className="text-sm text-neutral-700">Kamu sudah mencapai tier tertinggi.</div>
             )}
+
+            <div className="mt-6 border-t border-neutral-200 pt-4">
+              <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Aksi Cepat</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => onNav('chat')} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-bold text-neutral-700 hover:border-neutral-900">Pesan</button>
+                <button onClick={() => onNav('home')} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-bold text-neutral-700 hover:border-neutral-900">Beranda</button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-6">
+        {auth && operationalActions.length > 0 && (
           <div className="rounded-3xl border border-neutral-200 bg-white p-8">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
               <div>
-                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Riwayat Aktivitas</div>
-                <h2 className="font-display text-2xl text-neutral-900">Aktivitas Terbaru</h2>
+                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Pusat Kontrol</div>
+                <h2 className="font-display text-2xl text-neutral-900">Semua Fitur Internal Dalam Satu Halaman</h2>
               </div>
-              <span className="text-sm text-neutral-500">{activities?.length ?? 0} entri</span>
+              <div className="text-sm text-neutral-500">Akses cepat untuk operasi super admin tanpa pindah menu berlapis.</div>
             </div>
-            {loading ? (
-              <div className="text-sm text-neutral-500">Memuat aktivitas...</div>
-            ) : activities?.length ? (
-              <div className="space-y-3">
-                {activities.map((activity, index) => (
-                  <ActivityCard key={index} activity={activity} />
-                ))}
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {visibleOperationalActions.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => onNav(item.key)}
+                    className="rounded-3xl border border-neutral-200 bg-neutral-50 p-5 text-left hover:border-neutral-900 transition"
+                  >
+                    <div className="w-11 h-11 rounded-2xl bg-neutral-900 text-white flex items-center justify-center mb-4">
+                      <Icon size={18} />
+                    </div>
+                    <div className="font-display text-xl text-neutral-900 mb-2">{item.title}</div>
+                    <p className="text-sm text-neutral-500 leading-relaxed">{item.sub}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {operationalActions.length > 6 && (
+              <div className="mt-5 flex justify-center">
+                <button
+                  onClick={() => setShowAllActions((prev) => !prev)}
+                  className="px-4 py-2 rounded-full text-xs font-bold border border-neutral-300 text-neutral-700 hover:border-neutral-900"
+                >
+                  {showAllActions ? 'Tampilkan Ringkas' : `Lihat Semua (${operationalActions.length})`}
+                </button>
               </div>
-            ) : (
-              <div className="text-sm text-neutral-500">Belum ada aktivitas gamifikasi.</div>
             )}
           </div>
-
-          <div className="rounded-3xl border border-neutral-200 bg-white p-8">
-            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-4">Ringkasan Pencapaian</div>
-            <div className="space-y-4">
-              <div className="rounded-2xl bg-[#FEF3C7] p-4">
-                <div className="text-sm font-semibold text-amber-800">Tier Saat Ini</div>
-                <div className="text-2xl font-bold text-neutral-900">{stats?.tier_level || currentTier?.name}</div>
-              </div>
-              <div className="rounded-2xl bg-[#EEF2FF] p-4">
-                <div className="text-sm font-semibold text-indigo-800">Poin Total</div>
-                <div className="text-2xl font-bold text-neutral-900">{stats?.points ?? 0}</div>
-              </div>
-              <div className="rounded-2xl bg-[#ECFDF5] p-4">
-                <div className="text-sm font-semibold text-emerald-800">Koin Total</div>
-                <div className="text-2xl font-bold text-neutral-900">{stats?.coins ?? 0}</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
 
         {auth && consoleItems.length > 0 && (
           <div className="rounded-3xl border border-neutral-200 bg-white p-8">
@@ -3797,7 +5085,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Mode Operasional</div>
                 <h2 className="font-display text-2xl text-neutral-900">Pusat Kerja Internal</h2>
               </div>
-              <div className="text-sm text-neutral-500">Masuk ke console yang sedang Anda kerjakan.</div>
+              <div className="text-sm text-neutral-500">Pilih mode console utama sesuai konteks kerja Anda.</div>
             </div>
             <div className="grid md:grid-cols-3 gap-4">
               {consoleItems.map((item) => {
@@ -3819,6 +5107,311 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
             </div>
           </div>
         )}
+
+        {/* ===== VERIFIKASI MEMBER SECTION ===== */}
+        <div className="rounded-3xl border border-neutral-200 bg-white p-8">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">/ Akun</div>
+              <h2 className="font-display text-2xl text-neutral-900">Verifikasi Member</h2>
+              <p className="text-sm text-neutral-500 mt-1">Lengkapi data diri untuk mendapatkan status Verified Member dan akses fitur penuh.</p>
+            </div>
+            {auth?.verifiedMember && (
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                <ShieldCheck size={14} /> Verified Member
+              </span>
+            )}
+          </div>
+
+          {/* Verified badges info */}
+          <div className="grid md:grid-cols-3 gap-4 mb-8">
+            <div className="rounded-2xl border border-neutral-200 p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${auth?.verifiedMember ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-400'}`}>
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <div className="font-bold text-sm text-neutral-900">Verified Member</div>
+                  <div className={`text-xs font-bold ${auth?.verifiedMember ? 'text-emerald-600' : 'text-amber-600'}`}>{auth?.verifiedMember ? '✓ Aktif' : 'Belum Terverifikasi'}</div>
+                </div>
+              </div>
+              <p className="text-xs text-neutral-500 leading-relaxed">Pengguna yang telah melengkapi NIK/Paspor dan data alamat resmi. Syarat untuk membuat komunitas dan mengelola turnamen.</p>
+            </div>
+            <div className="rounded-2xl border border-neutral-200 p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Trophy size={18} />
+                </div>
+                <div>
+                  <div className="font-bold text-sm text-neutral-900">Verified Tournament</div>
+                  <div className="text-xs font-bold text-neutral-500">Untuk penyelenggara</div>
+                </div>
+              </div>
+              <p className="text-xs text-neutral-500 leading-relaxed">Turnamen yang diselenggarakan oleh organisasi / EO terverifikasi. Badge diberikan otomatis saat turnamen dibuat oleh penyelenggara verified.</p>
+            </div>
+            <div className="rounded-2xl border border-neutral-200 p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Users size={18} />
+                </div>
+                <div>
+                  <div className="font-bold text-sm text-neutral-900">Verified Community</div>
+                  <div className="text-xs font-bold text-neutral-500">Untuk komunitas</div>
+                </div>
+              </div>
+              <p className="text-xs text-neutral-500 leading-relaxed">Komunitas yang datanya lengkap dan dibuat oleh Verified Member. Mendapatkan prioritas tampil di direktori komunitas.</p>
+            </div>
+          </div>
+
+          {/* Form verifikasi */}
+          <form onSubmit={saveMemberVerification} className="space-y-6">
+            <div className="border-t border-neutral-100 pt-6">
+              <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-4">Status Kewarganegaraan</div>
+              <div className="flex flex-wrap gap-3">
+                {['WNI','WNA'].map(s => (
+                  <button key={s} type="button"
+                    onClick={() => updateVerificationField('citizenshipStatus', s)}
+                    className={`px-5 py-2.5 rounded-full text-sm font-bold border-2 transition ${verificationForm.citizenshipStatus === s ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-300 text-neutral-700 hover:border-neutral-900'}`}
+                  >{s === 'WNI' ? '🇮🇩 WNI — Warga Negara Indonesia' : '🌍 WNA — Warga Negara Asing'}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Phone */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Nomor HP Aktif <span className="text-red-500">*</span></label>
+              <input type="tel" value={verificationForm.phone}
+                onChange={e => updateVerificationField('phone', e.target.value)}
+                className="w-full max-w-sm px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                placeholder="08xx atau +62xx" maxLength={16}
+              />
+              <p className="text-xs text-neutral-400 mt-1">Format: 0811234567 atau +628112345678 (10–13 digit)</p>
+            </div>
+
+            {isWni ? (
+              <>
+                {/* NIK */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Nomor Induk Kependudukan (NIK) <span className="text-red-500">*</span></label>
+                  <div className="relative max-w-sm">
+                    <input type="text" inputMode="numeric" value={verificationForm.nik}
+                      onChange={e => updateVerificationField('nik', e.target.value.replace(/\D/g, '').slice(0, 16))}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm tracking-widest font-mono"
+                      placeholder="16 digit NIK sesuai KTP" maxLength={16}
+                    />
+                    <span className={`absolute right-3 top-3 text-xs font-bold ${verificationForm.nik.length === 16 ? 'text-emerald-600' : 'text-neutral-400'}`}>{verificationForm.nik.length}/16</span>
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-1">2 digit pertama = kode provinsi · digit 7–12 = tanggal lahir (perempuan +40 pada hari)</p>
+                </div>
+
+                {/* Wilayah WNI cascade */}
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Provinsi <span className="text-red-500">*</span></label>
+                    <select value={verificationForm.province}
+                      onChange={e => updateVerificationField('province', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                    >
+                      <option value="">— Pilih Provinsi —</option>
+                      {provinceOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Kabupaten/Kota <span className="text-red-500">*</span></label>
+                    <select value={verificationForm.city}
+                      onChange={e => updateVerificationField('city', e.target.value)}
+                      disabled={!verificationForm.province}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400"
+                    >
+                      <option value="">— Pilih Kab/Kota —</option>
+                      {cityOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Kecamatan <span className="text-red-500">*</span></label>
+                    <select value={verificationForm.district}
+                      onChange={e => updateVerificationField('district', e.target.value)}
+                      disabled={!verificationForm.city}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400"
+                    >
+                      <option value="">— Pilih Kecamatan —</option>
+                      {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Kode pos auto-fill */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Kode Pos <span className="text-red-500">*</span></label>
+                  <input type="text" value={verificationForm.postalCode} readOnly
+                    className="w-full max-w-xs px-4 py-3 rounded-xl border border-neutral-200 bg-neutral-50 text-sm text-neutral-700 cursor-not-allowed"
+                    placeholder="Terisi otomatis dari kecamatan"
+                  />
+                  <p className="text-xs text-neutral-400 mt-1">Terisi otomatis saat kecamatan dipilih</p>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Paspor & negara WNA */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Nomor Paspor <span className="text-red-500">*</span></label>
+                    <input type="text" value={verificationForm.passportNo}
+                      onChange={e => updateVerificationField('passportNo', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                      placeholder="Contoh: A1234567" maxLength={30}
+                    />
+                    <p className="text-xs text-neutral-400 mt-1">5–30 karakter alfanumerik</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Negara Asal <span className="text-red-500">*</span></label>
+                    <select value={verificationForm.country}
+                      onChange={e => updateVerificationField('country', e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white"
+                    >
+                      <option value="">— Pilih Negara —</option>
+                      {Object.keys(WNA_CITY_DATA).map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Kota <span className="text-red-500">*</span></label>
+                    <select value={verificationForm.city}
+                      onChange={e => updateVerificationField('city', e.target.value)}
+                      disabled={!verificationForm.country}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm bg-white disabled:bg-neutral-50 disabled:text-neutral-400"
+                    >
+                      <option value="">— Pilih Kota —</option>
+                      {cityOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Kode Pos <span className="text-red-500">*</span></label>
+                    <input type="text" inputMode="numeric" value={verificationForm.postalCode}
+                      onChange={e => updateVerificationField('postalCode', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm"
+                      placeholder="4–10 digit" maxLength={10}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Alamat jalan */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Alamat Jalan <span className="text-red-500">*</span></label>
+              <textarea value={verificationForm.address}
+                onChange={e => updateVerificationField('address', e.target.value)}
+                rows={3}
+                className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm resize-none"
+                placeholder="Nama jalan, nomor rumah, nama gedung / komplek, dll."
+                maxLength={300}
+              />
+            </div>
+
+            {/* RT / RW opsional */}
+            <div>
+              <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-3">RT / RW <span className="font-normal normal-case text-neutral-400">(opsional)</span></div>
+              <div className="flex gap-4 max-w-xs">
+                <div className="flex-1">
+                  <label className="block text-xs text-neutral-500 mb-1">RT</label>
+                  <input type="text" inputMode="numeric" value={verificationForm.rt}
+                    onChange={e => updateVerificationField('rt', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm text-center"
+                    placeholder="001" maxLength={3}
+                  />
+                </div>
+                <div className="pt-5 text-neutral-400 font-bold">/</div>
+                <div className="flex-1">
+                  <label className="block text-xs text-neutral-500 mb-1">RW</label>
+                  <input type="text" inputMode="numeric" value={verificationForm.rw}
+                    onChange={e => updateVerificationField('rw', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-300 outline-none focus:border-neutral-900 text-sm text-center"
+                    placeholder="001" maxLength={3}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Upload dokumen */}
+            <div className="border-t border-neutral-100 pt-6">
+              <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-4">Dokumen Pendukung</div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-neutral-200 p-5">
+                  <div className="text-sm font-bold text-neutral-900 mb-1">Foto {isWni ? 'KTP' : 'Halaman Foto Paspor'} <span className="text-red-500">*</span></div>
+                  <p className="text-xs text-neutral-500 mb-3">JPG / PNG / WebP · maks. 5 MB</p>
+                  {verificationForm.ktpPhotoUrl ? (
+                    <div className="space-y-2">
+                      <img src={verificationForm.ktpPhotoUrl} alt="Dokumen ID" className="w-full h-28 object-cover rounded-xl border border-neutral-200" />
+                      <button type="button" onClick={() => updateVerificationField('ktpPhotoUrl', '')} className="text-xs text-red-500 hover:underline">Hapus &amp; upload ulang</button>
+                    </div>
+                  ) : (
+                    <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-neutral-300 rounded-xl h-28 cursor-pointer hover:border-neutral-900 transition ${uploadingDoc.ktp ? 'opacity-60 cursor-wait' : ''}`}>
+                      <Upload size={20} className="text-neutral-400" />
+                      <span className="text-xs text-neutral-500">{uploadingDoc.ktp ? 'Mengupload...' : 'Klik untuk pilih file'}</span>
+                      <input type="file" accept="image/*" className="hidden" disabled={uploadingDoc.ktp}
+                        onChange={e => e.target.files?.[0] && uploadDocument('ktp', e.target.files[0])}
+                      />
+                    </label>
+                  )}
+                </div>
+                <div className="rounded-2xl border border-neutral-200 p-5">
+                  <div className="text-sm font-bold text-neutral-900 mb-1">Selfie Pegang Dokumen ID <span className="text-red-500">*</span></div>
+                  <p className="text-xs text-neutral-500 mb-3">Selfie sambil memegang KTP/Paspor · JPG/PNG/WebP · maks. 5 MB</p>
+                  {verificationForm.postPhotoUrl ? (
+                    <div className="space-y-2">
+                      <img src={verificationForm.postPhotoUrl} alt="Selfie" className="w-full h-28 object-cover rounded-xl border border-neutral-200" />
+                      <button type="button" onClick={() => updateVerificationField('postPhotoUrl', '')} className="text-xs text-red-500 hover:underline">Hapus &amp; upload ulang</button>
+                    </div>
+                  ) : (
+                    <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-neutral-300 rounded-xl h-28 cursor-pointer hover:border-neutral-900 transition ${uploadingDoc.post ? 'opacity-60 cursor-wait' : ''}`}>
+                      <Upload size={20} className="text-neutral-400" />
+                      <span className="text-xs text-neutral-500">{uploadingDoc.post ? 'Mengupload...' : 'Klik untuk pilih file'}</span>
+                      <input type="file" accept="image/*" className="hidden" disabled={uploadingDoc.post}
+                        onChange={e => e.target.files?.[0] && uploadDocument('post', e.target.files[0])}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {verificationError && <div className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-xl border border-red-200">{verificationError}</div>}
+            {verificationSuccess && <div className="text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-200">{verificationSuccess}</div>}
+
+            <div className="flex justify-end">
+              <button type="submit" disabled={savingVerification}
+                className="px-8 py-3 rounded-full text-sm font-bold text-white disabled:opacity-60 flex items-center gap-2"
+                style={{ background: '#E11D2E' }}
+              >
+                <ShieldCheck size={16} />
+                {savingVerification ? 'Menyimpan...' : auth?.verifiedMember ? 'Perbarui Data Verifikasi' : 'Ajukan Verifikasi Member'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="rounded-3xl border border-neutral-200 bg-white p-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Riwayat Aktivitas</div>
+              <h2 className="font-display text-2xl text-neutral-900">Aktivitas Terbaru</h2>
+            </div>
+            <span className="text-sm text-neutral-500">{activities?.length ?? 0} entri</span>
+          </div>
+          {loading ? (
+            <div className="text-sm text-neutral-500">Memuat aktivitas...</div>
+          ) : activities?.length ? (
+            <div className="space-y-3">
+              {activities.map((activity, index) => (
+                <ActivityCard key={index} activity={activity} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-neutral-500">Belum ada aktivitas gamifikasi.</div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -3834,7 +5427,8 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 
   const serviceFee = payload?.type === 'booking' ? 500 : 5000;
   const subtotal = (payload?.amount || 0) + serviceFee;
-  const finalTotal = Math.max(1, subtotal + promoDiscount);
+  const finalTotal = Math.max(0, subtotal + promoDiscount);
+  const isVoucherCovered = Number(finalTotal || 0) <= 0;
 
   const handleValidatePromo = async () => {
     setPromoError('');
@@ -3845,18 +5439,14 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 
     try {
       const normalizedCode = promoCode.trim().toLowerCase();
-      console.log('Validating promo code:', normalizedCode);
-      
+      const now = new Date().toISOString();
+
       const { data: promos, error } = await supabase
         .from('promo_codes')
-        .select('discount_amount, discount_percent, active')
-        .eq('code', normalizedCode)
-        .eq('active', true);
-
-      console.log('Promo query result:', { promos, error });
+        .select('id, name, promo_type, discount_type, discount_value, min_booking_amount, max_discount_amount, quota, used_count, valid_from, valid_until, venue_id, status, active, discount_amount, discount_percent')
+        .eq('code', normalizedCode);
 
       if (error) {
-        console.error('Promo query error:', error);
         setPromoError('Kode promo tidak ditemukan. Cek kembali atau hubungi support.');
         setPromoDiscount(0);
         return;
@@ -3869,20 +5459,143 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
         return;
       }
 
-      const discount = promo.discount_amount || (subtotal * (promo.discount_percent || 0) / 100);
-      setPromoDiscount(discount);
+      // Status check
+      if (promo.status && promo.status !== 'active') {
+        const statusMsg = { paused: 'dijeda sementara', expired: 'sudah berakhir', cancelled: 'dibatalkan' };
+        setPromoError(`Kode promo ${statusMsg[promo.status] || 'tidak aktif'}.`);
+        setPromoDiscount(0);
+        return;
+      }
+
+      // Old-schema fallback: check `active` boolean
+      if (promo.active === false && !promo.status) {
+        setPromoError('Kode promo tidak aktif.');
+        setPromoDiscount(0);
+        return;
+      }
+
+      // Validity period
+      if (promo.valid_from && new Date(promo.valid_from) > new Date()) {
+        setPromoError('Promo belum dimulai.');
+        setPromoDiscount(0);
+        return;
+      }
+      if (promo.valid_until && new Date(promo.valid_until) < new Date()) {
+        setPromoError('Kode promo sudah berakhir.');
+        setPromoDiscount(0);
+        return;
+      }
+
+      // Quota
+      if (promo.quota != null && Number(promo.used_count || 0) >= Number(promo.quota)) {
+        setPromoError('Kuota promo sudah habis.');
+        setPromoDiscount(0);
+        return;
+      }
+
+      // Venue scope (if promo is tied to a specific venue)
+      const bookingVenueId = payload?.venue_id || payload?.venueId;
+      if (promo.venue_id && bookingVenueId && promo.venue_id !== bookingVenueId) {
+        setPromoError('Kode promo tidak berlaku untuk venue ini.');
+        setPromoDiscount(0);
+        return;
+      }
+
+      // Min booking amount
+      const minRequired = Number(promo.min_booking_amount || 0);
+      if (minRequired > 0 && subtotal < minRequired) {
+        setPromoError(`Minimum pemesanan Rp ${Number(minRequired).toLocaleString('id-ID')} untuk menggunakan promo ini.`);
+        setPromoDiscount(0);
+        return;
+      }
+
+      // Calculate discount (support both new and old schema)
+      let discount = 0;
+      if (promo.discount_type === 'percent' || promo.discount_percent) {
+        const pct = Number(promo.discount_value || promo.discount_percent || 0);
+        discount = subtotal * pct / 100;
+        const cap = Number(promo.max_discount_amount || 0);
+        if (cap > 0) discount = Math.min(discount, cap);
+      } else {
+        discount = Number(promo.discount_value || promo.discount_amount || 0);
+      }
+      discount = Math.min(discount, subtotal); // cannot exceed subtotal
+
+      setPromoDiscount(-discount); // negative = reduction
       setPromoError('');
-      console.log('Promo valid! Discount:', discount);
     } catch (err) {
-      console.error('Promo validation error:', err);
       setPromoError('Gagal memvalidasi kode promo. ' + (err?.message || ''));
       setPromoDiscount(0);
     }
   };
 
   const handleDokuCheckout = async () => {
+    const MIN_DOKU_AMOUNT = 1000;
     if (dokuLoading) return;
     setDokuError('');
+
+    const safeDokuMessage = (value) => {
+      const text = String(value || '').trim();
+      if (!text || text === '[object Object]') return '';
+      if (text.includes('[object Object]')) {
+        const normalized = text.toLowerCase().replace(/\s+/g, '');
+        if (normalized.includes('"error":"[objectobject]"') || normalized.includes("'error':'[objectobject]'")) {
+          return '';
+        }
+      }
+      return text;
+    };
+
+    const normalizeDokuErrorMessage = (input) => {
+      if (!input) return '';
+      if (typeof input === 'string') return safeDokuMessage(input);
+      if (input instanceof Error) {
+        const directMessage = safeDokuMessage(input.message);
+        if (directMessage) return directMessage;
+        return normalizeDokuErrorMessage(input.cause || input.error || input.details || input.hint);
+      }
+
+      if (Array.isArray(input)) {
+        const joined = input
+          .map((item) => normalizeDokuErrorMessage(item))
+          .filter(Boolean)
+          .join(', ');
+        return joined.trim();
+      }
+
+      if (typeof input === 'object') {
+        const candidate =
+          normalizeDokuErrorMessage(input.error) ||
+          normalizeDokuErrorMessage(input.message) ||
+          normalizeDokuErrorMessage(input.details) ||
+          normalizeDokuErrorMessage(input.hint);
+
+        if (candidate) return candidate;
+
+        try {
+          return safeDokuMessage(JSON.stringify(input));
+        } catch {
+          return '';
+        }
+      }
+
+      return safeDokuMessage(input);
+    };
+
+    const isLegacyCheckoutUrl = (value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return false;
+
+      try {
+        const url = new URL(trimmed);
+        const host = url.hostname.toLowerCase();
+        const hasLegacyQuery = ['order_id', 'amount', 'currency'].some((key) => url.searchParams.has(key));
+        const hasModernToken = ['token', 'payment_token', 'checkout_token', 'session', 'session_id'].some((key) => url.searchParams.has(key));
+        return (host === 'checkout.doku.com' || host.endsWith('.checkout.doku.com')) && hasLegacyQuery && !hasModernToken;
+      } catch {
+        return false;
+      }
+    };
 
     if (payload?.type !== 'booking') {
       setDokuError('Checkout DOKU saat ini hanya tersedia untuk booking venue.');
@@ -3891,6 +5604,11 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 
     if (!payload?.venueId || !payload?.amount) {
       setDokuError('Data booking belum lengkap, silakan ulangi pemilihan jadwal.');
+      return;
+    }
+
+    if (Number(finalTotal || 0) < MIN_DOKU_AMOUNT) {
+      setDokuError('Minimum pembayaran DOKU adalah IDR 1.000.');
       return;
     }
 
@@ -3919,20 +5637,63 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
       });
 
       if (error) {
-        throw new Error(error.message || 'Gagal memanggil DOKU checkout.');
+        let detailedError = '';
+
+        try {
+          if (error?.context && typeof error.context.json === 'function') {
+            const contextBody = await error.context.json();
+            detailedError = normalizeDokuErrorMessage(contextBody);
+          }
+        } catch {
+          // Ignore parse failures and keep generic error fallback.
+        }
+
+        throw new Error(detailedError || normalizeDokuErrorMessage(error) || 'Gagal memanggil DOKU checkout.');
       }
 
-      const checkoutUrl = data?.checkout_url || data?.transaction?.checkout_url;
+      const apiResponse = data?.transaction?.doku_response?.api_response || data?.doku_response?.api_response || null;
+      const checkoutUrl =
+        data?.checkout_url ||
+        data?.transaction?.checkout_url ||
+        apiResponse?.response?.payment?.url ||
+        apiResponse?.payment?.url ||
+        apiResponse?.response?.url ||
+        apiResponse?.url ||
+        '';
+
       if (!checkoutUrl) {
         throw new Error('DOKU checkout URL tidak ditemukan dari response.');
       }
 
+      if (isLegacyCheckoutUrl(checkoutUrl)) {
+        throw new Error('DOKU checkout mengembalikan URL lama yang tidak valid. Silakan coba lagi atau cek konfigurasi DOKU.');
+      }
+
       window.location.href = checkoutUrl;
     } catch (err) {
-      setDokuError(err?.message || 'Gagal membuka halaman pembayaran DOKU.');
+      setDokuError(normalizeDokuErrorMessage(err) || 'Gagal membuka halaman pembayaran DOKU.');
     } finally {
       setDokuLoading(false);
     }
+  };
+
+  const handleVoucherCoveredCheckout = async () => {
+    if (typeof onSuccess !== 'function') return;
+
+    await onSuccess({
+      method: {
+        name: 'free_voucher',
+        label: 'Voucher Full',
+      },
+      total: 0,
+      voucher: {
+        covered: true,
+        code: promoCode.trim() || null,
+        discount: Math.abs(Number(promoDiscount || 0)),
+        subtotal,
+        serviceFee,
+      },
+    });
   };
 
   return (
@@ -3987,13 +5748,33 @@ const PaymentPage = ({ payload, onBack, onSuccess }) => {
 
                 <button
                   onClick={handleDokuCheckout}
-                  disabled={dokuLoading}
+                  disabled={dokuLoading || isVoucherCovered || Number(finalTotal || 0) < 1000}
                   className="w-full py-4 rounded-full font-bold text-white text-sm flex items-center justify-center gap-2 disabled:opacity-60"
                   style={{ background: '#E11D2E' }}
                 >
                   {dokuLoading ? 'Membuka DOKU Checkout...' : 'Bayar via DOKU'} <ArrowUpRight size={16} strokeWidth={3} />
                 </button>
+                {isVoucherCovered && (
+                  <div className="mt-3 text-xs text-emerald-600 text-center">
+                    Total pembayaran tertutup voucher. Anda bisa lanjut tanpa DOKU.
+                  </div>
+                )}
+                {!isVoucherCovered && Number(finalTotal || 0) < 1000 && (
+                  <div className="mt-3 text-xs text-amber-600 text-center">
+                    Minimum pembayaran DOKU adalah IDR 1.000.
+                  </div>
+                )}
                 {dokuError && <div className="mt-3 text-xs text-red-600 text-center">{dokuError}</div>}
+
+                {isVoucherCovered && (
+                  <button
+                    onClick={handleVoucherCoveredCheckout}
+                    className="w-full mt-3 py-3 rounded-full font-bold text-white text-sm"
+                    style={{ background: '#059669' }}
+                  >
+                    Selesaikan Booking (Voucher)
+                  </button>
+                )}
 
                 <div className="text-center text-xs text-neutral-500 mt-4 flex items-center justify-center gap-1">
                   <ShieldCheck size={11} /> Pembayaran aman terenkripsi 256-bit SSL
@@ -4536,16 +6317,20 @@ const DEV_E2E_OFFICIAL_AUTH = Object.freeze({
 
 export default function Stadione() {
   const [page, setPage] = useState('home');
+  const [trainingSection, setTrainingSection] = useState('home');
   const [tournamentDetail, setTournamentDetail] = useState(null);
   const [matchContext, setMatchContext] = useState(null);
   const [bookingDetail, setBookingDetail] = useState(null);
   const [articleDetail, setArticleDetail] = useState(null);
   const [publishedTournament, setPublishedTournament] = useState(null);
   const [coachDetail, setCoachDetail] = useState(null);
+  const [communityDetail, setCommunityDetail] = useState(null);
   const [paymentPayload, setPaymentPayload] = useState(null);
   const [chatInitial, setChatInitial] = useState(null);
   const [tab, setTab] = useState('klasemen');
   const [returnTo, setReturnTo] = useState(null);
+  const [communityNotifications, setCommunityNotifications] = useState([]);
+  const [communityUnreadById, setCommunityUnreadById] = useState({});
 
   // Auth state
   const [auth, setAuth] = useState(null);
@@ -4568,6 +6353,57 @@ export default function Stadione() {
     const params = new URLSearchParams(window.location.search);
     return params.get('e2e_page') || '';
   }, []);
+  const communityNotificationStorageKey = useMemo(() => `stadione_community_notifications_${auth?.id || 'guest'}`, [auth?.id]);
+  const communityUnreadStorageKey = useMemo(() => `stadione_community_unread_${auth?.id || 'guest'}`, [auth?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const rawNotifications = window.localStorage.getItem(communityNotificationStorageKey);
+      const rawUnread = window.localStorage.getItem(communityUnreadStorageKey);
+      setCommunityNotifications(rawNotifications ? JSON.parse(rawNotifications) : []);
+      setCommunityUnreadById(rawUnread ? JSON.parse(rawUnread) : {});
+    } catch {
+      setCommunityNotifications([]);
+      setCommunityUnreadById({});
+    }
+  }, [communityNotificationStorageKey, communityUnreadStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      window.localStorage.setItem(communityNotificationStorageKey, JSON.stringify(communityNotifications.slice(0, 20)));
+      window.localStorage.setItem(communityUnreadStorageKey, JSON.stringify(communityUnreadById || {}));
+    } catch {
+      // ignore localStorage failures
+    }
+  }, [communityNotificationStorageKey, communityNotifications, communityUnreadById, communityUnreadStorageKey]);
+
+  const handleCommunityNotification = useCallback((notification) => {
+    if (!notification?.id) return;
+
+    setCommunityNotifications((prev) => {
+      if (prev.some((item) => item.id === notification.id)) return prev;
+      return [notification, ...prev].slice(0, 20);
+    });
+
+    if (notification.communityId) {
+      setCommunityUnreadById((prev) => ({
+        ...prev,
+        [notification.communityId]: Number(prev?.[notification.communityId] || 0) + 1,
+      }));
+    }
+  }, []);
+
+  const handleCommunityRead = useCallback((communityId) => {
+    if (!communityId) return;
+    setCommunityUnreadById((prev) => ({
+      ...prev,
+      [communityId]: 0,
+    }));
+  }, []);
 
   const handleAuth = useCallback(async (user) => {
     // OPTIMIZED: Invalidate cache when user logs in
@@ -4575,8 +6411,47 @@ export default function Stadione() {
       clearAuthStateCache(user.id);
       authSessionCache.invalidate(user.id);
     }
-    const nextAuth = await enrichAuthUser(user);
-    setAuth(nextAuth);
+    try {
+      const nextAuth = await enrichAuthUser(user);
+      setAuth(nextAuth);
+    } catch (err) {
+      if (isModerationAuthError(err)) {
+        try {
+          const supabase = await getSupabaseAuthClient();
+          await supabase.auth.signOut();
+        } catch (signOutErr) {
+          console.error('Failed to sign out moderated account:', signOutErr);
+        }
+
+        clearStoredActiveWorkspaceContext(user?.id);
+        setAuth(null);
+      }
+
+      throw err;
+    }
+  }, []);
+
+  const rejectModeratedSession = useCallback(async (error, user) => {
+    const userId = user?.id;
+
+    if (userId) {
+      clearAuthStateCache(userId);
+      authSessionCache.invalidate(userId);
+      clearStoredActiveWorkspaceContext(userId);
+    }
+
+    try {
+      const supabase = await getSupabaseAuthClient();
+      await supabase.auth.signOut();
+    } catch (signOutErr) {
+      console.error('Failed to sign out moderated session:', signOutErr);
+    }
+
+    setAuth(null);
+    setAuthMode(AUTH_MODAL_MODES.login);
+    setAuthInitialError(mapAuthErrorMessage(error));
+    setShowAuth(true);
+    setPage('home');
   }, []);
 
   // Restore session from Supabase on app mount
@@ -4600,7 +6475,7 @@ export default function Stadione() {
         }
 
         const { data } = supabase.auth.onAuthStateChange(
-          async (event, currentSession) => {
+          (event, currentSession) => {
             if (event === 'PASSWORD_RECOVERY') {
               setAuthMode(AUTH_MODAL_MODES.recovery);
               setAuthInitialError('');
@@ -4609,8 +6484,6 @@ export default function Stadione() {
             }
 
             if (currentSession?.user) {
-              const nextAuth = await enrichAuthUser(currentSession.user);
-              setAuth(nextAuth);
               const recoveryFlowActive =
                 getAuthModeFromUrl() === AUTH_MODAL_MODES.recovery ||
                 hasRecoveryParamsInUrl();
@@ -4620,6 +6493,21 @@ export default function Stadione() {
                 setShowAuth(false);
                 setAuthInitialError('');
               }
+
+              // Important: keep auth callback synchronous to avoid Supabase auth lock deadlocks.
+              setTimeout(async () => {
+                try {
+                  const nextAuth = await enrichAuthUser(currentSession.user);
+                  setAuth(nextAuth);
+                } catch (enrichErr) {
+                  if (isModerationAuthError(enrichErr)) {
+                    await rejectModeratedSession(enrichErr, currentSession.user);
+                    return;
+                  }
+
+                  console.error('Failed to enrich auth user from auth state change:', enrichErr);
+                }
+              }, 0);
             } else {
               if (devOfficialBypass) {
                 setAuth(DEV_E2E_OFFICIAL_AUTH);
@@ -4634,8 +6522,17 @@ export default function Stadione() {
         const { data: { session }, error } = await supabase.auth.getSession();
 
         if (!error && session?.user) {
-          const nextAuth = await enrichAuthUser(session.user);
-          setAuth(nextAuth);
+          try {
+            const nextAuth = await enrichAuthUser(session.user);
+            setAuth(nextAuth);
+          } catch (enrichErr) {
+            if (isModerationAuthError(enrichErr)) {
+              await rejectModeratedSession(enrichErr, session.user);
+              return;
+            }
+
+            throw enrichErr;
+          }
         } else if (devOfficialBypass) {
           setAuth(DEV_E2E_OFFICIAL_AUTH);
           setShowAuth(false);
@@ -4657,7 +6554,7 @@ export default function Stadione() {
     return () => {
       subscription?.unsubscribe();
     };
-  }, [devOfficialBypass, devOfficialBypassPage]);
+  }, [devOfficialBypass, devOfficialBypassPage, rejectModeratedSession]);
 
   // Fetch data from Supabase
   const { venues, loading: venuesLoading } = useVenues();
@@ -4678,12 +6575,34 @@ export default function Stadione() {
   const CHATS_DATA = chats.length > 0 ? chats : [];
 
   const goTo = (newPage, data = null, opts = {}) => {
+    const trainingAliasMap = {
+      'training-academy': 'academy',
+      'training-parent': 'parent',
+      'training-workspace': 'workspace',
+      'training-programs': 'programs',
+    };
+    const sectionFromAlias = trainingAliasMap[newPage];
+    const requestedTrainingSection = sectionFromAlias || opts?.section || data?.section;
+
+    if (newPage === 'training' || sectionFromAlias) {
+      const allowedSections = new Set(['home', 'academy', 'coach', 'programs', 'events', 'athlete', 'parent', 'workspace']);
+      if (requestedTrainingSection && allowedSections.has(requestedTrainingSection)) {
+        setTrainingSection(requestedTrainingSection);
+      } else if (newPage === 'training' && !requestedTrainingSection) {
+        setTrainingSection('home');
+      }
+      setPage('training');
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     if (newPage === 'tournament-detail') setTournamentDetail(data);
     if (['match-center', 'match-report', 'match-statistics'].includes(newPage)) setMatchContext(data);
     if (newPage === 'booking-detail') setBookingDetail(data);
     if (newPage === 'news-detail') setArticleDetail(data);
     if (newPage === 'tournament-published') setPublishedTournament(data);
     if (newPage === 'coach-profile') setCoachDetail(data);
+    if (newPage === 'community-detail') setCommunityDetail(data);
     if (newPage === 'payment') setPaymentPayload(data);
     if (newPage === 'chat') setChatInitial(data);
     if (opts.returnTo !== undefined) setReturnTo(opts.returnTo);
@@ -4705,6 +6624,31 @@ export default function Stadione() {
     }
     setAuthInitialError('');
     setShowAuth(true);
+  };
+
+  const handleOpenCommunityNotification = (notification) => {
+    if (!notification) return;
+
+    if (notification.communityId) {
+      handleCommunityRead(notification.communityId);
+    }
+
+    const communitySeed = notification.communitySeed || {
+      id: notification.communityId,
+      name: notification.communityName || 'Komunitas',
+      city: '',
+      province: '',
+      badges: [],
+      events: [],
+      feedPosts: [],
+    };
+
+    if (communitySeed?.id) {
+      goTo('community-detail', communitySeed);
+      return;
+    }
+
+    goTo('community');
   };
 
   const handleLogout = async () => {
@@ -4762,8 +6706,19 @@ export default function Stadione() {
     </Suspense>
   );
 
-  const renderAccessControlledPage = (allowed, node, label) => {
+  const renderAccessControlledPage = (pageKey, node, label, options = {}) => {
+    const allowed = canAccessPage(pageKey, options);
     if (!allowed) {
+      if (auth && VERIFIED_MEMBER_REQUIRED_PAGES.has(pageKey) && !auth?.verifiedMember) {
+        return (
+          <AccessDeniedPage
+            title="Verified Member Diperlukan"
+            description="Halaman ini mensyaratkan akun Verified Member. Lengkapi data profil, unggah KTP dan foto post/selfie di halaman Profil Saya."
+            onBack={() => goTo('profile')}
+          />
+        );
+      }
+
       return <AccessDeniedPage onBack={() => goTo('profile')} />;
     }
 
@@ -4773,6 +6728,10 @@ export default function Stadione() {
   const canAccessPage = (pageKey, options = {}) => {
     const allowedByRolePermission = canAccessAdminPage(pageKey, auth?.roles || [], auth?.permissions || []);
     if (!allowedByRolePermission) return false;
+
+    if (auth && VERIFIED_MEMBER_REQUIRED_PAGES.has(pageKey) && !auth?.verifiedMember) {
+      return false;
+    }
 
     const activeScope = auth?.activeContext?.context_scope;
     const pageRule = PAGE_ACCESS[pageKey];
@@ -4797,8 +6756,11 @@ export default function Stadione() {
   };
 
   // Payment success → return to home or specified page
-  const handlePaymentSuccess = async ({ method, total } = {}) => {
+  const handlePaymentSuccess = async ({ method, total, voucher } = {}) => {
     if (paymentPayload?.type === 'booking' && auth?.id) {
+      const resolvedMethod = method?.name || (voucher?.covered ? 'free_voucher' : undefined);
+      const resolvedTotal = Number.isFinite(Number(total)) ? Number(total) : Number(paymentPayload?.amount || 0);
+
       const result = await recordVenueBooking(auth.id, {
         venueId: paymentPayload.venueId,
         venueName: paymentPayload.itemName,
@@ -4807,9 +6769,12 @@ export default function Stadione() {
         bookingTime: paymentPayload.bookingTime,
         durationHours: paymentPayload.durationHours || 1,
         sport: paymentPayload.sport,
-        status: 'confirmed',
-        paymentMethod: method?.name,
-        totalPaid: total,
+        status: voucher?.covered ? 'paid' : 'confirmed',
+        paymentMethod: resolvedMethod,
+        totalPaid: resolvedTotal,
+        voucherCode: voucher?.code || null,
+        voucherDiscount: Number(voucher?.discount || 0),
+        voucherCovered: Boolean(voucher?.covered),
       });
 
       if (result?.error) {
@@ -4871,6 +6836,9 @@ export default function Stadione() {
         onSwitchContext={handleSwitchContext}
         gamificationStats={gamificationStats}
         statsLoading={gamificationLoading}
+        communityNotifications={communityNotifications}
+        communityUnreadById={communityUnreadById}
+        onOpenCommunityNotification={handleOpenCommunityNotification}
       />
       {(!SUPABASE_CONFIGURED || SUPABASE_ERROR) && (
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 bg-amber-100 border border-amber-300 text-amber-900 text-sm rounded-b-3xl">
@@ -4893,6 +6861,25 @@ export default function Stadione() {
         )}
         {page === 'tournament' && <TournamentPage onSelect={(t) => goTo('tournament-detail', t)} onCreate={() => goTo('create-tournament')} tournaments={TOURNAMENTS_DATA} />}
         {page === 'tournament-detail' && tournamentDetail && <TournamentDetail tournament={tournamentDetail} onBack={() => goTo('tournament')} tab={tab} setTab={setTab} auth={auth} openAuth={openAuth} />}
+        {page === 'community' && (
+          <Suspense fallback={<LazyFallback label="Memuat komunitas..." />}>
+            <CommunityDiscoveryPage auth={auth} openAuth={openAuth} onSelectCommunity={(community) => goTo('community-detail', community)} />
+          </Suspense>
+        )}
+        {page === 'community-detail' && communityDetail && (
+          <Suspense fallback={<LazyFallback label="Memuat detail komunitas..." />}>
+            <CommunityDetailPage
+              communityId={communityDetail?.id}
+              initialCommunity={communityDetail}
+              auth={auth}
+              openAuth={openAuth}
+              onBack={() => goTo('community')}
+              onSelectCommunity={(community) => goTo('community-detail', community)}
+              onCommunityNotification={handleCommunityNotification}
+              onCommunityRead={handleCommunityRead}
+            />
+          </Suspense>
+        )}
         {page === 'create-tournament' && (
           <CreateTournamentWizard
             onBack={() => goTo('tournament')}
@@ -4907,14 +6894,20 @@ export default function Stadione() {
           />
         )}
         {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} news={NEWS_DATA} />}
-        {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} auth={auth} openAuth={openAuth} />}
-        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} onNav={goTo} />}
+        {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} auth={auth} openAuth={openAuth} newsList={NEWS_DATA} />}
+        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} onNav={goTo} onAuthChange={setAuth} />}
         {page === 'training' && (
-          <TrainingPage
-            onCoachDashboard={() => auth ? goTo('coach-dashboard') : openAuth('login')}
-            onCoachSelect={(c) => goTo('coach-profile', c)}
-            coaches={COACHES_DATA}
-          />
+          <Suspense fallback={<div className="p-8 text-center text-neutral-500">Memuat training ecosystem...</div>}>
+            <TrainingEcosystem
+              auth={auth}
+              openAuth={openAuth}
+              onCoachDashboard={() => auth ? goTo('coach-dashboard') : openAuth('login')}
+              onCoachSelect={(c) => goTo('coach-profile', c)}
+              coaches={COACHES_DATA}
+              initialSection={trainingSection}
+              onSectionChange={setTrainingSection}
+            />
+          </Suspense>
         )}
         {page === 'coach-profile' && coachDetail && (
           <CoachProfile
@@ -4925,24 +6918,28 @@ export default function Stadione() {
           />
         )}
         {page === 'coach-dashboard' && <CoachDashboard onBack={() => goTo('home')} auth={auth} />}
-        {page === 'platform-console' && renderAccessControlledPage(canAccessPage('platform-console'), <PlatformDashboard auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat platform console...')}
-        {page === 'newsroom' && renderAccessControlledPage(canAccessPage('newsroom'), <NewsroomPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat newsroom...')}
-        {page === 'moderation' && renderAccessControlledPage(canAccessPage('moderation'), <ModerationPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat moderation queue...')}
-        {page === 'analytics' && renderAccessControlledPage(canAccessPage('analytics'), <AnalyticsPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat analytics...')}
-        {page === 'admin-verification-queue' && renderAccessControlledPage(canAccessPage('admin-verification-queue'), <VerificationQueuePage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat verification queue...')}
-        {page === 'workspace-console' && renderAccessControlledPage(canAccessPage('workspace-console'), <WorkspaceConsolePage auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat workspace console...')}
-        {page === 'community-manager' && renderAccessControlledPage(canAccessPage('community-manager'), <CommunityManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat community manager...')}
-        {page === 'sponsor-manager' && renderAccessControlledPage(canAccessPage('sponsor-manager'), <SponsorManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat sponsor manager...')}
-        {page === 'tournament-manager' && renderAccessControlledPage(canAccessPage('tournament-manager'), <TournamentManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat tournament manager...')}
-        {page === 'training-manager' && renderAccessControlledPage(canAccessPage('training-manager'), <TrainingManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat training manager...')}
-        {page === 'venue-manager' && renderAccessControlledPage(canAccessPage('venue-manager'), <VenueManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue manager...')}
-        {page === 'venue-registration' && <VenueRegistrationPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />}
-        {page === 'venue-workspace' && renderAccessControlledPage(canAccessPage('venue-workspace'), <VenueWorkspacePage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue workspace...')}
-        {page === 'official-center' && renderAccessControlledPage(canAccessPage('official-center'), <OfficialCenterPage auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat official center...')}
-        {page === 'official-schedule' && renderAccessControlledPage(canAccessPage('official-schedule'), <OfficialSchedulePage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} />, 'Memuat jadwal official...')}
-        {page === 'match-center' && renderAccessControlledPage(canAccessPage('match-center', { matchContext }), <MatchCenterPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match center...')}
-        {page === 'match-report' && renderAccessControlledPage(canAccessPage('match-report', { matchContext }), <MatchReportPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match report...')}
-        {page === 'match-statistics' && renderAccessControlledPage(canAccessPage('match-statistics', { matchContext }), <MatchStatisticsPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match statistics...')}
+        {page === 'platform-console' && renderAccessControlledPage('platform-console', <PlatformDashboard auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat platform console...')}
+        {page === 'newsroom' && renderAccessControlledPage('newsroom', <NewsroomPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat newsroom...')}
+        {page === 'moderation' && renderAccessControlledPage('moderation', <ModerationPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat moderation queue...')}
+        {page === 'analytics' && renderAccessControlledPage('analytics', <AnalyticsPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat analytics...')}
+        {page === 'admin-verification-queue' && renderAccessControlledPage('admin-verification-queue', <VerificationQueuePage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat verification queue...')}
+        {page === 'user-management' && renderAccessControlledPage('user-management', <UserManagementPage auth={auth} onBack={() => goTo('platform-console')} onNav={goTo} />, 'Memuat user management...')}
+        {page === 'platform-promo' && renderAccessControlledPage('platform-console', <PlatformPromoPage auth={auth} onBack={() => goTo('platform-console')} />, 'Memuat promo platform...')}
+        {page === 'sponsor-promo' && <SponsorPromoPage auth={auth} onBack={() => goTo('platform-console')} />}
+          {page === 'kerjasama' && <Suspense fallback={<div className="p-8 text-center text-neutral-500">Memuat halaman kerjasama...</div>}><PartnershipPage auth={auth} onBack={() => goTo('home')} /></Suspense>}
+        {page === 'workspace-console' && renderAccessControlledPage('workspace-console', <WorkspaceConsolePage auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat workspace console...')}
+        {page === 'community-manager' && renderAccessControlledPage('community-manager', <CommunityManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat community manager...')}
+        {page === 'sponsor-manager' && renderAccessControlledPage('sponsor-manager', <SponsorManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat sponsor manager...')}
+        {page === 'tournament-manager' && renderAccessControlledPage('tournament-manager', <TournamentManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat tournament manager...')}
+        {page === 'training-manager' && renderAccessControlledPage('training-manager', <TrainingManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat training manager...')}
+        {page === 'venue-manager' && renderAccessControlledPage('venue-manager', <VenueManagerPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue manager...')}
+        {page === 'venue-registration' && renderAccessControlledPage('venue-registration', <VenueRegistrationPage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue registration...')}
+        {page === 'venue-workspace' && renderAccessControlledPage('venue-workspace', <VenueWorkspacePage auth={auth} onBack={() => goTo('workspace-console')} onNav={goTo} />, 'Memuat venue workspace...')}
+        {page === 'official-center' && renderAccessControlledPage('official-center', <OfficialCenterPage auth={auth} onBack={() => goTo('profile')} onNav={goTo} />, 'Memuat official center...')}
+        {page === 'official-schedule' && renderAccessControlledPage('official-schedule', <OfficialSchedulePage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} />, 'Memuat jadwal official...')}
+        {page === 'match-center' && renderAccessControlledPage('match-center', <MatchCenterPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match center...', { matchContext })}
+        {page === 'match-report' && renderAccessControlledPage('match-report', <MatchReportPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match report...', { matchContext })}
+        {page === 'match-statistics' && renderAccessControlledPage('match-statistics', <MatchStatisticsPage auth={auth} onBack={() => goTo('official-center')} onNav={goTo} matchContext={matchContext} />, 'Memuat match statistics...', { matchContext })}
         {page === 'payment' && paymentPayload && (
           <PaymentPage
             payload={paymentPayload}
