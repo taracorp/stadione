@@ -3,6 +3,36 @@
 import { supabase } from '../config/supabase.js';
 
 const REGISTRATION_TABLE_CANDIDATES = ['registrations', 'tournament_registrations'];
+const SPORT_PREFERENCES_NOTE_PREFIX = '[SPORT_PREFS]';
+
+const normalizeSportPreferences = (input) => {
+  if (!input || typeof input !== 'object') return null;
+
+  const base = {
+    mainSport: String(input.mainSport || '').trim(),
+    mainPosition: String(input.mainPosition || '').trim(),
+    secondPosition: String(input.secondPosition || '').trim(),
+    esportsGame: String(input.esportsGame || '').trim(),
+    additionalSports: Array.isArray(input.additionalSports)
+      ? input.additionalSports
+          .map((item) => ({
+            sport: String(item?.sport || '').trim(),
+            mainPosition: String(item?.mainPosition || '').trim(),
+            secondPosition: String(item?.secondPosition || '').trim(),
+            esportsGame: String(item?.esportsGame || '').trim(),
+          }))
+          .filter((item) => item.sport)
+      : [],
+  };
+
+  if (!base.mainSport && base.additionalSports.length === 0) return null;
+  return base;
+};
+
+const serializeSportPreferences = (preferences) => {
+  if (!preferences) return null;
+  return `${SPORT_PREFERENCES_NOTE_PREFIX}${JSON.stringify(preferences)}`;
+};
 
 const isMissingRegistrationTableError = (error, tableName) => {
   const message = String(error?.message || '').toLowerCase();
@@ -43,6 +73,7 @@ export const createTournamentRegistration = async ({
   baseFee = 0,
   slotLockMinutes = 15,
   requiresReview = false,
+  profilePreferences = null,
 }) => {
   try {
     // Generate unique transfer amount for payment verification
@@ -51,6 +82,8 @@ export const createTournamentRegistration = async ({
     // Calculate slot expiry
     const slotExpiresAt = new Date();
     slotExpiresAt.setMinutes(slotExpiresAt.getMinutes() + slotLockMinutes);
+    const normalizedPreferences = normalizeSportPreferences(profilePreferences);
+    const sportPreferencesNote = serializeSportPreferences(normalizedPreferences);
 
     const payload = {
       tournament_id: tournamentId,
@@ -64,6 +97,7 @@ export const createTournamentRegistration = async ({
       unique_transfer_amount: uniqueTransferAmount,
       slot_expires_at: slotExpiresAt.toISOString(),
       awaiting_review: requiresReview,
+      notes: sportPreferencesNote,
     };
 
     const { data, error, tableName } = await withRegistrationTableFallback((targetTable) => {
@@ -79,6 +113,7 @@ export const createTournamentRegistration = async ({
             base_fee: baseFee,
             unique_transfer_amount: uniqueTransferAmount,
             slot_expires_at: slotExpiresAt.toISOString(),
+            admin_notes: sportPreferencesNote,
           }
         : payload;
 
@@ -99,6 +134,7 @@ export const createTournamentRegistration = async ({
     await recordRegistrationHistory(normalizedData.id, 'created', userId, 'user', 'draft', 'draft', {
       registrant_name: registrantName,
       registration_type: registrationType,
+      profile_preferences: normalizedPreferences,
     });
 
     return { data: normalizedData, error: null };

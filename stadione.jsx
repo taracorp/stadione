@@ -1251,11 +1251,16 @@ const TournamentDetail = ({ tournament, onBack, tab, setTab, auth, openAuth }) =
     }
 
     setJoining(true);
+    const metadata = auth?.rawMetadata || {};
+    const preferredPosition = String(metadata.main_position || '').trim();
+    const preferredJersey = Number(metadata.jersey_number);
     const joined = await registerTournamentPlayer(auth.id, tournament.id, {
       playerName: auth.name,
-      playerNumber: Math.floor(Math.random() * 99) + 1,
-      position: 'Pemain',
-      jerseyName: auth.name,
+      playerNumber: Number.isFinite(preferredJersey) && preferredJersey >= 1 && preferredJersey <= 99
+        ? preferredJersey
+        : Math.floor(Math.random() * 99) + 1,
+      position: preferredPosition || 'Pemain',
+      jerseyName: String(metadata.jersey_name || '').trim() || auth.name,
     });
     setJoining(false);
 

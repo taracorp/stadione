@@ -49,6 +49,14 @@ export const QuickRegistrationModal = ({
   const total = regFee + serviceFee;
   const allChecked = agreeRules && agreeData && agreeRegulation;
   const canProceedPayment = paymentMethod && registrationData;
+  const profileMetadata = auth?.rawMetadata || {};
+  const profilePreferences = {
+    mainSport: profileMetadata.main_sport || '',
+    mainPosition: profileMetadata.main_position || '',
+    secondPosition: profileMetadata.second_position || '',
+    esportsGame: profileMetadata.esports_game || '',
+    additionalSports: Array.isArray(profileMetadata.additional_sports) ? profileMetadata.additional_sports : [],
+  };
 
   const handleStep1Submit = useCallback(async () => {
     if (!teamName.trim() || !allChecked) {
@@ -68,6 +76,7 @@ export const QuickRegistrationModal = ({
       baseFee: regFee,
       slotLockMinutes: tournament.slotLockMinutes || 15,
       requiresReview: tournament.classification === 'official',
+      profilePreferences,
     });
 
     setLoading(false);
@@ -108,7 +117,7 @@ export const QuickRegistrationModal = ({
 
     setRegistrationData(createdRegistration);
     setStep(2);
-  }, [teamName, allChecked, auth, tournament]);
+  }, [teamName, allChecked, auth, tournament, regFee, profilePreferences]);
 
   const handleStep2Submit = useCallback(async () => {
     if (!paymentMethod) {

@@ -5,6 +5,67 @@ import { supabase } from '../../../config/supabase.js';
 import { getTournamentSubstitutionRules, getSubstitutionPresetForSport } from '../../../services/substitutionRuleEngine.js';
 
 const REG_FILTER_OPTIONS = ['all', 'waiting_payment', 'payment_uploaded', 'approved', 'rejected'];
+const SPORT_PREFERENCES_NOTE_PREFIX = '[SPORT_PREFS]';
+
+function parseSportPreferencesAdminNote(value) {
+  const raw = String(value || '').trim();
+  if (!raw.startsWith(SPORT_PREFERENCES_NOTE_PREFIX)) {
+    return { preferences: null, adminNote: raw };
+  }
+
+  const payload = raw.slice(SPORT_PREFERENCES_NOTE_PREFIX.length);
+  const firstBreak = payload.indexOf('\n');
+  const jsonText = (firstBreak >= 0 ? payload.slice(0, firstBreak) : payload).trim();
+  const adminNote = (firstBreak >= 0 ? payload.slice(firstBreak + 1) : '').trim();
+
+  try {
+    const parsed = JSON.parse(jsonText || '{}');
+    if (!parsed || typeof parsed !== 'object') {
+      return { preferences: null, adminNote };
+    }
+    return { preferences: parsed, adminNote };
+  } catch (_) {
+    return { preferences: null, adminNote: raw };
+  }
+}
+
+function composeAdminNoteWithPreferences(existingValue, adminNote) {
+  const parsed = parseSportPreferencesAdminNote(existingValue);
+  if (!parsed.preferences) {
+    return adminNote || null;
+  }
+  const serialized = `${SPORT_PREFERENCES_NOTE_PREFIX}${JSON.stringify(parsed.preferences)}`;
+  return adminNote ? `${serialized}\n${adminNote}` : serialized;
+}
+
+function summarizeSportPreferences(preferences) {
+  if (!preferences || typeof preferences !== 'object') return '';
+  const segments = [];
+
+  if (preferences.mainSport) {
+    const mainRole = [preferences.mainPosition, preferences.secondPosition].filter(Boolean).join(' / ');
+    segments.push(mainRole ? `Utama: ${preferences.mainSport} (${mainRole})` : `Utama: ${preferences.mainSport}`);
+  }
+
+  const additional = Array.isArray(preferences.additionalSports) ? preferences.additionalSports : [];
+  if (additional.length > 0) {
+    const additionalText = additional
+      .map((item) => {
+        const sport = String(item?.sport || '').trim();
+        if (!sport) return '';
+        const role = [String(item?.mainPosition || '').trim(), String(item?.secondPosition || '').trim()].filter(Boolean).join(' / ');
+        return role ? `${sport} (${role})` : sport;
+      })
+      .filter(Boolean)
+      .join(', ');
+
+    if (additionalText) {
+      segments.push(`Tambahan: ${additionalText}`);
+    }
+  }
+
+  return segments.join(' • ');
+}
 
 function isMissingSubstitutionRulesColumnError(error) {
   const message = String(error?.message || '').toLowerCase();
@@ -82,10 +143,11 @@ export default function TournamentManagerPage({ auth, onBack, onNav }) {
     if (!reviewTarget) return;
     setSaving(true);
     try {
+      const mergedAdminNotes = composeAdminNoteWithPreferences(reviewTarget.admin_notes, adminNotes.trim());
       await supabase.from('tournament_registrations').update({
         registration_status: status === 'approved' ? 'approved' : 'rejected',
         admin_review_status: status,
-        admin_notes: adminNotes.trim() || null,
+        admin_notes: mergedAdminNotes,
         reviewed_by: auth?.id || null,
         reviewed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -243,31 +305,43 @@ export default function TournamentManagerPage({ auth, onBack, onNav }) {
             <EmptyState icon={Users} title="Tidak ada pendaftaran" description="Belum ada tim yang mendaftar dengan status ini." />
           ) : (
             <div className="space-y-3">
-              {registrations.map((reg) => (
-                <div key={reg.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-200 bg-white hover:border-neutral-300 transition">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-semibold text-neutral-900">{reg.registrant_name}</span>
-                      <StatusBadge status={reg.registration_status} />
+              {registrations.map((reg) => {
+                const parsedNotes = parseSportPreferencesAdminNote(reg.admin_notes);
+                const sportSummary = summarizeSportPreferences(parsedNotes.preferences);
+
+                return (
+                  <div key={reg.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-200 bg-white hover:border-neutral-300 transition">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-semibold text-neutral-900">{reg.registrant_name}</span>
+                        <StatusBadge status={reg.registration_status} />
+                      </div>
+                      <div className="text-sm text-neutral-500">{reg.registrant_email}</div>
+                      <div className="text-xs text-neutral-400 mt-1">
+                        Tipe: {reg.registration_type} · Biaya: Rp {reg.unique_transfer_amount?.toLocaleString('id-ID') || reg.base_fee?.toLocaleString('id-ID') || '0'}
+                      </div>
+                      {sportSummary && <div className="text-xs text-blue-600 mt-1">Preferensi olahraga: {sportSummary}</div>}
+                      {parsedNotes.adminNote && <div className="text-xs text-neutral-400 mt-0.5 italic">Catatan: {parsedNotes.adminNote}</div>}
                     </div>
-                    <div className="text-sm text-neutral-500">{reg.registrant_email}</div>
-                    <div className="text-xs text-neutral-400 mt-1">
-                      Tipe: {reg.registration_type} · Biaya: Rp {reg.unique_transfer_amount?.toLocaleString('id-ID') || reg.base_fee?.toLocaleString('id-ID') || '0'}
-                    </div>
-                    {reg.admin_notes && <div className="text-xs text-neutral-400 mt-0.5 italic">Catatan: {reg.admin_notes}</div>}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => openRoster(reg.id, reg.registrant_name)} title="Lihat Roster" className="w-8 h-8 rounded-xl hover:bg-blue-50 text-neutral-400 hover:text-blue-600 flex items-center justify-center transition">
-                      <Users size={14} />
-                    </button>
-                    {['waiting_payment', 'payment_uploaded'].includes(reg.registration_status) && (
-                      <button onClick={() => { setReviewTarget(reg); setAdminNotes(''); }} className="px-3 py-1.5 rounded-xl text-xs font-bold bg-neutral-900 text-white hover:bg-neutral-800 transition">
-                        Review
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => openRoster(reg.id, reg.registrant_name)} title="Lihat Roster" className="w-8 h-8 rounded-xl hover:bg-blue-50 text-neutral-400 hover:text-blue-600 flex items-center justify-center transition">
+                        <Users size={14} />
                       </button>
-                    )}
+                      {['waiting_payment', 'payment_uploaded'].includes(reg.registration_status) && (
+                        <button
+                          onClick={() => {
+                            setReviewTarget(reg);
+                            setAdminNotes(parseSportPreferencesAdminNote(reg.admin_notes).adminNote || '');
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-neutral-900 text-white hover:bg-neutral-800 transition"
+                        >
+                          Review
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
