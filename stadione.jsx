@@ -7493,6 +7493,13 @@ const PUBLIC_PAGE_PATHS = Object.freeze({
   kerjasama: '/partnership',
 });
 
+const PUBLIC_PATH_TO_PAGE = Object.freeze(
+  Object.entries(PUBLIC_PAGE_PATHS).reduce((acc, [pageKey, pagePath]) => {
+    acc[pagePath] = pageKey;
+    return acc;
+  }, {})
+);
+
 const PATH_PAGE_ALIASES = Object.freeze({
   '/partnership': 'kerjasama',
   '/kerjasama': 'kerjasama',
@@ -7583,7 +7590,7 @@ function resolveRouteStateFromLocation(locationLike) {
 
   const pageParam = String(params.get('page') || '').trim();
   const sectionFromAlias = TRAINING_PAGE_ALIASES[pageParam] || null;
-  let page = detailPage || PATH_PAGE_ALIASES[pathname] || null;
+  let page = detailPage || PUBLIC_PATH_TO_PAGE[pathname] || PATH_PAGE_ALIASES[pathname] || null;
 
   if (!page) {
     page = sectionFromAlias ? 'training' : (pageParam || 'home');
