@@ -5,6 +5,7 @@ import { supabase } from '../../../config/supabase.js';
 
 const CATEGORIES = ['Title Sponsor', 'Official Sponsor', 'Media Partner', 'Supporting Partner', 'General'];
 const STATUS_OPTIONS = ['active', 'inactive', 'pending', 'expired'];
+const PARTNERSHIP_REVIEW_STATUS = ['pending', 'reviewing', 'approved', 'rejected', 'on_hold'];
 
 const EMPTY_FORM = {
   name: '', category: 'Official Sponsor', website: '', contact_name: '', contact_email: '',
@@ -13,6 +14,7 @@ const EMPTY_FORM = {
 
 export default function SponsorManagerPage({ auth, onBack, onNav }) {
   const [sponsors, setSponsors] = useState([]);
+  const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -20,6 +22,7 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [reviewSavingId, setReviewSavingId] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,10 +32,21 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
         .select('id,name,logo_url,category,website,contact_name,contact_email,status,contract_start,contract_end,notes,created_at')
         .order('created_at', { ascending: false });
       if (statusFilter !== 'all') q = q.eq('status', statusFilter);
-      const { data } = await q;
-      setSponsors(data || []);
+
+      const [{ data: sponsorData }, { data: appData }] = await Promise.all([
+        q,
+        supabase
+          .from('partnership_applications')
+          .select('id,type,status,applicant_name,applicant_email,applicant_phone,details,created_at,admin_notes')
+          .order('created_at', { ascending: false })
+          .limit(80),
+      ]);
+
+      setSponsors(sponsorData || []);
+      setApplications(appData || []);
     } catch (err) {
       console.error('Sponsor load error:', err);
+      setApplications([]);
     } finally {
       setLoading(false);
     }
@@ -101,6 +115,22 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
     load();
   }
 
+  async function handleReviewStatus(applicationId, status) {
+    if (!applicationId || !PARTNERSHIP_REVIEW_STATUS.includes(status)) return;
+    setReviewSavingId(applicationId);
+    try {
+      await supabase
+        .from('partnership_applications')
+        .update({ status, reviewed_at: new Date().toISOString(), reviewed_by: auth?.id || null })
+        .eq('id', applicationId);
+      await load();
+    } catch (err) {
+      console.error('Partnership status update error:', err);
+    } finally {
+      setReviewSavingId('');
+    }
+  }
+
   // Expiry detection
   function isExpiringSoon(dateStr) {
     if (!dateStr) return false;
@@ -110,6 +140,7 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
 
   const active = sponsors.filter((s) => s.status === 'active').length;
   const expiringSoon = sponsors.filter((s) => s.status === 'active' && isExpiringSoon(s.contract_end)).length;
+  const pendingApplications = applications.filter((item) => item.status === 'pending').length;
 
   return (
     <AdminLayout
@@ -125,7 +156,45 @@ export default function SponsorManagerPage({ auth, onBack, onNav }) {
         <StatCard label="Total Sponsor" value={loading ? '—' : sponsors.length} icon={Star} accent="emerald" />
         <StatCard label="Kontrak Aktif" value={loading ? '—' : active} icon={Check} accent="blue" />
         <StatCard label="Segera Expired" value={loading ? '—' : expiringSoon} icon={AlertCircle} accent="amber" />
-        <StatCard label="Tidak Aktif" value={loading ? '—' : sponsors.filter((s) => ['inactive', 'expired'].includes(s.status)).length} icon={Star} accent="neutral" />
+        <StatCard label="Request Partnership" value={loading ? '—' : pendingApplications} icon={AlertCircle} accent="violet" />
+      </div>
+
+      {/* Partnership applications */}
+      <div className="mb-8">
+        <div className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-neutral-500">/ Request Partnership Masuk</div>
+        {loading ? (
+          <div className="space-y-3">{[...Array(2)].map((_, i) => <div key={`app-skeleton-${i}`} className="h-16 rounded-2xl bg-neutral-100 animate-pulse" />)}</div>
+        ) : applications.length === 0 ? (
+          <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-5 text-sm text-neutral-500">Belum ada request partnership masuk.</div>
+        ) : (
+          <div className="space-y-2">
+            {applications.slice(0, 15).map((item) => (
+              <div key={item.id} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="font-semibold text-sm text-neutral-900">{item.applicant_name}</div>
+                      <StatusBadge status={item.status} />
+                      <span className="text-[11px] uppercase tracking-[0.16em] font-bold text-neutral-400">{item.type}</span>
+                    </div>
+                    <div className="text-xs text-neutral-500 mt-1">{item.applicant_email}{item.applicant_phone ? ` · ${item.applicant_phone}` : ''}</div>
+                    <div className="text-[11px] text-neutral-400 mt-1">{new Date(item.created_at).toLocaleString('id-ID')}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="rounded-xl border border-neutral-300 bg-white px-2 py-1.5 text-xs"
+                      value={item.status}
+                      disabled={reviewSavingId === item.id}
+                      onChange={(event) => handleReviewStatus(item.id, event.target.value)}
+                    >
+                      {PARTNERSHIP_REVIEW_STATUS.map((status) => <option key={`${item.id}-${status}`} value={status}>{status}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Filter + add */}
