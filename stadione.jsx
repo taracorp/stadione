@@ -4653,7 +4653,7 @@ const calcProfileCompletion = (auth, ep) => {
   return { pct: Math.round((done.length / checks.length) * 100), earned: done.map(c => c.key), missing: checks.filter(c => !c.done).map(c => c.label) };
 };
 
-const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack, onNav, onAuthChange }) => {
+const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, pointsToNextTier, activities, loading, onBack, onNav, onAuthChange, onGamificationRefresh }) => {
   const memberVerification = auth?.memberVerification || null;
   const [showAllActions, setShowAllActions] = useState(false);
   const [editTab, setEditTab] = useState('basic');
@@ -4884,6 +4884,10 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
           const rewardRefreshed = await enrichAuthUser(rewardUpdatedData.user);
           if (rewardRefreshed && typeof onAuthChange === 'function') onAuthChange(rewardRefreshed);
         }
+      }
+
+      if (typeof onGamificationRefresh === 'function') {
+        await onGamificationRefresh();
       }
 
       setEditSuccess('Profil berhasil diperbarui.');
@@ -7673,7 +7677,7 @@ export default function Stadione() {
   const { news, loading: newsLoading } = useNews();
   const { coaches, loading: coachesLoading } = useCoaches();
   const { chats, loading: chatsLoading } = useChats();
-  const { stats: gamificationStats, loading: gamificationLoading } = useUserGamification(auth?.id);
+  const { stats: gamificationStats, loading: gamificationLoading, refetch: refetchGamificationStats } = useUserGamification(auth?.id);
   const { activities, loading: activitiesLoading, refetch: refetchActivities } = useActivityHistory(auth?.id, 20);
   const { currentTier, nextTier, progressPercentage, pointsToNextTier } = useTierProgression(gamificationStats?.points || 0);
   const access = auth?.access || deriveConsoleAccess([], []);
@@ -8141,7 +8145,7 @@ export default function Stadione() {
         )}
         {page === 'news' && <NewsPage onSelect={(a) => goTo('news-detail', a)} news={NEWS_DATA} />}
         {page === 'news-detail' && articleDetail && <ArticleDetail article={articleDetail} onBack={() => goTo('news')} onSelect={(a) => goTo('news-detail', a)} auth={auth} openAuth={openAuth} newsList={NEWS_DATA} />}
-        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} onNav={goTo} onAuthChange={setAuth} />}
+        {page === 'profile' && <ProfilePage auth={auth} stats={gamificationStats} currentTier={currentTier} nextTier={nextTier} progressPercentage={progressPercentage} pointsToNextTier={pointsToNextTier} activities={activities} loading={activitiesLoading} onBack={() => goTo('home')} onNav={goTo} onAuthChange={setAuth} onGamificationRefresh={refetchGamificationStats} />}
         {page === 'cart' && (
           <CartPage
             auth={auth}
