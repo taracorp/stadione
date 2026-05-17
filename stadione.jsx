@@ -172,7 +172,6 @@ const CHATS = [
 
 const SPORTS_BOOK = ['Semua', ...new Set(VENUES.map((venue) => venue.sport))];
 const SPORTS_TOURNEY = ['Semua', ...new Set(TOURNAMENTS.map((tournament) => tournament.sport))];
-const SPORTS_COACH = ['Semua', ...new Set(COACHES.map((coach) => coach.sport))];
 
 const BRACKETS = {
   // Tournament id 2 = Stadione Padel Open — 8 tim knockout
@@ -1592,7 +1591,9 @@ const NewsPage = ({ onSelect, news }) => {
 // ============ TRAINING ============
 const TrainingPage = ({ onCoachDashboard, onCoachSelect, coaches }) => {
   const [filter, setFilter] = useState('Semua');
-  const filtered = filter === 'Semua' ? (coaches && coaches.length > 0 ? coaches : COACHES) : (coaches && coaches.length > 0 ? coaches : COACHES).filter(c => c.sport === filter);
+  const coachSource = Array.isArray(coaches) ? coaches : [];
+  const coachSports = ['Semua', ...new Set(coachSource.map(c => c?.sport).filter(Boolean))];
+  const filtered = filter === 'Semua' ? coachSource : coachSource.filter(c => c.sport === filter);
 
   return (
     <div>
@@ -1610,7 +1611,7 @@ const TrainingPage = ({ onCoachDashboard, onCoachSelect, coaches }) => {
       <div className="border-b border-neutral-300 bg-white sticky top-16 z-40">
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 flex items-center gap-3 overflow-x-auto">
           <Filter size={16} className="text-neutral-500 shrink-0" />
-          {SPORTS_COACH.map(s => (
+          {coachSports.map(s => (
             <button
               key={s}
               onClick={() => setFilter(s)}
