@@ -721,6 +721,7 @@ export const checkAndNotifyIncompleteRosters = async () => {
         team_id,
         user_id,
         registrant_name,
+        registration_status,
         created_at
       `)
       .eq('registration_status', 'slot_secured')
@@ -733,10 +734,45 @@ export const checkAndNotifyIncompleteRosters = async () => {
 
     // For each, check if roster is complete
     for (const reg of registrations) {
-      const { complete } = await checkRosterCompleteness(reg.id);
+      const { complete, memberCount, required: requiredCount } = await checkRosterCompleteness(reg.id);
       if (!complete) {
-        // TODO: Send notification to coordinator
-        console.log(`[AUTO-REMINDER] Coordinator ${reg.registrant_name} has incomplete roster`);
+        const remindedAt = new Date().toISOString();
+        const safeMemberCount = typeof memberCount === 'number' ? memberCount : 0;
+        const safeRequiredCount = typeof requiredCount === 'number' ? requiredCount : 0;
+
+        if (typeof memberCount !== 'number' || typeof requiredCount !== 'number') {
+          console.warn('checkAndNotifyIncompleteRosters: roster completeness data missing', {
+            registrationId: reg.id,
+            memberCount,
+            requiredCount,
+          });
+        }
+
+        const missingPlayers = Math.max(0, safeRequiredCount - safeMemberCount);
+
+        try {
+          await recordRegistrationHistory(
+            reg.id,
+            'auto_roster_reminder',
+            reg.user_id || null,
+            'system',
+            reg.registration_status,
+            reg.registration_status,
+            {
+              reminder_type: 'incomplete_roster',
+              missing_players: missingPlayers,
+              roster_count: safeMemberCount,
+              required_roster: safeRequiredCount,
+              reminded_at: remindedAt,
+            }
+          );
+        } catch (historyErr) {
+          console.error('checkAndNotifyIncompleteRosters history write error:', historyErr);
+        }
+
+        console.log(
+          `[AUTO-REMINDER] Coordinator ${reg.registrant_name} has incomplete roster (${safeMemberCount}/${safeRequiredCount})`
+        );
       }
     }
   } catch (err) {
