@@ -5,7 +5,7 @@ import {
   ArrowRight, ArrowUpRight, Target, Flame, BookOpen, ShieldCheck,
   TrendingUp, Play, Menu, X, CheckCircle, Bell, Eye,
   Wifi, Car, Coffee, Volleyball, Gamepad2, Activity,
-  Circle, Sparkles, ChevronDown, MoveRight,
+  Circle, Sparkles, ChevronDown, ChevronUp, MoveRight,
   LogOut, User, MessageSquare, Wallet, BarChart3,
   Edit3, ArrowLeft, MessageCircle, ChevronLeft, Settings, ShoppingCart,
   Twitter, Facebook, Linkedin, Share2, Bookmark, Check, Heart, Upload
@@ -4720,6 +4720,7 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
   const [showAllActions, setShowAllActions] = useState(false);
   const [editTab, setEditTab] = useState('basic');
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [expandVerification, setExpandVerification] = useState(false);
 
   // Extended profile state (4 levels)
   const rawMeta = auth?.rawMetadata || {};
@@ -5447,61 +5448,73 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
         {/* ===== VERIFIKASI MEMBER SECTION ===== */}
         <div className="rounded-3xl border border-neutral-200 bg-white p-8">
           <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-            <div>
+            <div className="flex-1">
               <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">/ Akun</div>
               <h2 className="font-display text-2xl text-neutral-900">Verifikasi Member</h2>
               <p className="text-sm text-neutral-500 mt-1">Lengkapi data diri untuk mendapatkan status Verified Member dan akses fitur penuh.</p>
             </div>
-            {auth?.verifiedMember && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                <ShieldCheck size={14} /> Verified Member
-              </span>
-            )}
-          </div>
-
-          {/* Verified badges info */}
-          <div className="grid md:grid-cols-3 gap-4 mb-8">
-            <div className="rounded-2xl border border-neutral-200 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${auth?.verifiedMember ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-400'}`}>
-                  <ShieldCheck size={18} />
-                </div>
-                <div>
-                  <div className="font-bold text-sm text-neutral-900">Verified Member</div>
-                  <div className={`text-xs font-bold ${auth?.verifiedMember ? 'text-emerald-600' : 'text-amber-600'}`}>{auth?.verifiedMember ? '✓ Aktif' : 'Belum Terverifikasi'}</div>
-                </div>
-              </div>
-              <p className="text-xs text-neutral-500 leading-relaxed">Pengguna yang telah melengkapi NIK/Paspor dan data alamat resmi. Syarat untuk membuat komunitas dan mengelola turnamen.</p>
-            </div>
-            <div className="rounded-2xl border border-neutral-200 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
-                  <Trophy size={18} />
-                </div>
-                <div>
-                  <div className="font-bold text-sm text-neutral-900">Verified Tournament</div>
-                  <div className="text-xs font-bold text-neutral-500">Untuk penyelenggara</div>
-                </div>
-              </div>
-              <p className="text-xs text-neutral-500 leading-relaxed">Turnamen yang diselenggarakan oleh organisasi / EO terverifikasi. Badge diberikan otomatis saat turnamen dibuat oleh penyelenggara verified.</p>
-            </div>
-            <div className="rounded-2xl border border-neutral-200 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
-                  <Users size={18} />
-                </div>
-                <div>
-                  <div className="font-bold text-sm text-neutral-900">Verified Community</div>
-                  <div className="text-xs font-bold text-neutral-500">Untuk komunitas</div>
-                </div>
-              </div>
-              <p className="text-xs text-neutral-500 leading-relaxed">Komunitas yang datanya lengkap dan dibuat oleh Verified Member. Mendapatkan prioritas tampil di direktori komunitas.</p>
+            <div className="flex items-center gap-3">
+              {auth?.verifiedMember && (
+                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  <ShieldCheck size={14} /> Verified Member
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setExpandVerification(!expandVerification)}
+                className="p-2 rounded-full border border-neutral-300 text-neutral-600 hover:border-neutral-900 hover:text-neutral-900 transition"
+                title={expandVerification ? "Sembunyikan" : "Tampilkan"}
+              >
+                {expandVerification ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+              </button>
             </div>
           </div>
 
-          {/* Form verifikasi */}
-          <form onSubmit={saveMemberVerification} className="space-y-6">
-            <div className="border-t border-neutral-100 pt-6">
+          {expandVerification && (
+            <>
+              {/* Verified badges info */}
+              <div className="grid md:grid-cols-3 gap-4 mb-8">
+                <div className="rounded-2xl border border-neutral-200 p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${auth?.verifiedMember ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-400'}`}>
+                      <ShieldCheck size={18} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-neutral-900">Verified Member</div>
+                      <div className={`text-xs font-bold ${auth?.verifiedMember ? 'text-emerald-600' : 'text-amber-600'}`}>{auth?.verifiedMember ? '✓ Aktif' : 'Belum Terverifikasi'}</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-neutral-500 leading-relaxed">Pengguna yang telah melengkapi NIK/Paspor dan data alamat resmi. Syarat untuk membuat komunitas dan mengelola turnamen.</p>
+                </div>
+                <div className="rounded-2xl border border-neutral-200 p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                      <Trophy size={18} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-neutral-900">Verified Tournament</div>
+                      <div className="text-xs font-bold text-neutral-500">Untuk penyelenggara</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-neutral-500 leading-relaxed">Turnamen yang diselenggarakan oleh organisasi / EO terverifikasi. Badge diberikan otomatis saat turnamen dibuat oleh penyelenggara verified.</p>
+                </div>
+                <div className="rounded-2xl border border-neutral-200 p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                      <Users size={18} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-neutral-900">Verified Community</div>
+                      <div className="text-xs font-bold text-neutral-500">Untuk komunitas</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-neutral-500 leading-relaxed">Komunitas yang datanya lengkap dan dibuat oleh Verified Member. Mendapatkan prioritas tampil di direktori komunitas.</p>
+                </div>
+              </div>
+
+              {/* Form verifikasi */}
+              <form onSubmit={saveMemberVerification} className="space-y-6">
+                <div className="border-t border-neutral-100 pt-6">
               <div className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-4">Status Kewarganegaraan</div>
               <div className="flex flex-wrap gap-3">
                 {['WNI','WNA'].map(s => (
@@ -5725,7 +5738,9 @@ const ProfilePage = ({ auth, stats, currentTier, nextTier, progressPercentage, p
                 {savingVerification ? 'Menyimpan...' : auth?.verifiedMember ? 'Perbarui Data Verifikasi' : 'Ajukan Verifikasi Member'}
               </button>
             </div>
-          </form>
+            </form>
+            </>
+          )}
         </div>
 
         <div className="rounded-3xl border border-neutral-200 bg-white p-8">
